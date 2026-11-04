@@ -35,7 +35,7 @@ export interface TranscribeOptions {
   /** Bearer token; default: quello salvato dall'account, se presente */
   token?: string | null | (() => string | null);
   /** nomi/alias del catalogo e dei clienti: migliorano il riconoscimento lato server */
-  vocabulary?: string[];
+  vocabulary?: string[] | (() => string[]);
   lang?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -54,7 +54,8 @@ export async function transcribeAudio(blob: Blob, opts: TranscribeOptions = {}):
   const form = new FormData();
   form.append('audio', blob, `voce.${extFor(blob.type || '')}`);
   form.append('lang', opts.lang ?? 'it-IT');
-  if (opts.vocabulary?.length) form.append('vocabulary', opts.vocabulary.slice(0, 200).join(', ').slice(0, 1500));
+  const vocab = typeof opts.vocabulary === 'function' ? opts.vocabulary() : opts.vocabulary;
+  if (vocab?.length) form.append('vocabulary', vocab.slice(0, 200).join(', ').slice(0, 1500));
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 20000);

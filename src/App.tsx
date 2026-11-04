@@ -1,5 +1,5 @@
 import { HashRouter, Link, NavLink, Outlet, Route, Routes, useLocation } from 'react-router-dom';
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { Icon, ToastProvider } from './ui';
 import type { IconName } from './ui';
 import NewQuotePage from './pages/NewQuotePage';
@@ -9,6 +9,11 @@ import CatalogPage from './pages/CatalogPage';
 import ProfilePage from './pages/ProfilePage';
 import BackupPage from './pages/BackupPage';
 import LandingPage from './pages/LandingPage';
+import { VoiceCommandWidget } from './voice/ui/VoiceCommandWidget';
+import { attachSync, SyncBadge } from './sync';
+
+// Pagina account (opzionale): caricata solo quando serve; il fallback evita schermate bianche se il chunk non si carica.
+const AccountPage = lazy(() => import('./pages/AccountPage'));
 
 const TABS: { to: string; label: string; icon: IconName; end?: boolean }[] = [
   { to: '/', label: 'Nuovo', icon: 'mic', end: true },
@@ -42,15 +47,18 @@ function Shell() {
         <main className="shell-main" id="main">
           <Outlet />
           <footer className="shell-footer">
-            <Link to="/info">Informazioni</Link><span aria-hidden="true">·</span><a href={privacyHref}>Privacy</a>
+            <Link to="/account">Account</Link><span aria-hidden="true">·</span><SyncBadge /><span aria-hidden="true">·</span><Link to="/info">Informazioni</Link><span aria-hidden="true">·</span><a href={privacyHref}>Privacy</a>
           </footer>
         </main>
       </div>
+      <VoiceCommandWidget />
     </div>
   );
 }
 
 export default function App() {
+  // Sync opzionale: si attiva da solo solo se l'utente ha effettuato l'accesso.
+  useEffect(() => attachSync(), []);
   return (
     <ToastProvider>
       <HashRouter>
@@ -63,6 +71,14 @@ export default function App() {
             <Route path="/catalogo" element={<CatalogPage />} />
             <Route path="/profilo" element={<ProfilePage />} />
             <Route path="/backup" element={<BackupPage />} />
+            <Route
+              path="/account"
+              element={
+                <Suspense fallback={<div className="qe-loading" role="status" aria-label="Caricamento"><span className="spinner" /></div>}>
+                  <AccountPage />
+                </Suspense>
+              }
+            />
           </Route>
           <Route path="/info" element={<LandingPage />} />
         </Routes>

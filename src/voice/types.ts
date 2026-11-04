@@ -7,6 +7,8 @@ export type DocKind = 'preventivo' | 'fattura';
 
 /** Riferimento a un documento, come pronunciato dall'utente. Risolto dall'executor (resolve.ts). */
 export type DocRef =
+  /** riferimento già risolto (dopo la scelta dell'utente o il riepilogo): id del documento */
+  | { kind: 'id'; id: string }
   | { kind: 'number'; number: number; year?: number; docType?: DocKind }
   /** "l'ultima fattura", "l'ultimo preventivo" */
   | { kind: 'last'; docType?: DocKind; draftOnly?: boolean }

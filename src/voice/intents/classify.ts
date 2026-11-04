@@ -301,13 +301,13 @@ const ruleConvert: Rule = (p) => {
 };
 
 const ruleIssue: Rule = (p) => {
-  if (p.negated) return [];
+  if (p.negated || p.hasIn(CONFIRM)) return [];
   const out: Cand[] = [];
   const hasCredit = p.has('credito') || p.hasIn(V_CREDIT);
   const i = p.idxIn(V_ISSUE);
   if (i >= 0 && !hasCredit) {
     const docRef = parseRef(p.t, undefined);
-    if (docRef.docType === 'preventivo') {
+    if ('docType' in docRef && docRef.docType === 'preventivo') {
       // un preventivo non si emette: forse voleva convertirlo
       out.push({ command: { type: 'issue_invoice', ref: docRef }, confidence: 0.55, risky: true });
       out.push({ command: { type: 'convert_quote', ref: docRef }, confidence: 0.5 });
@@ -324,7 +324,7 @@ const ruleIssue: Rule = (p) => {
 const REASON_MARK = new Set(w('motivo perche causale causa dovuto'));
 
 const ruleCredit: Rule = (p) => {
-  if (p.negated) return [];
+  if (p.negated || p.hasIn(CONFIRM)) return [];
   const hasNC = p.has('nota') && p.has('credito');
   const i = p.idxIn(V_CREDIT);
   const hasDoc = p.hasIn(FATT) || hasNC || p.t.some((x) => x.n !== undefined) || p.has('documento');
