@@ -49,3 +49,13 @@
 .dl-thr[data-level="warn"] .dl-bar > span { background: var(--c-warning); }
 .dl-thr[data-level="over"] .dl-bar > span { background: var(--c-danger); }
 .iv-history summary { min-height: var(--touch); display: flex; align-items: center; cursor: pointer; color: var(--c-primary); font-weight: 600; }
+
+/* ---- registro attività ---- */
+.act-filters { display: grid; gap: var(--sp-2); }
+.act-dates { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
+.act-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.act-list li { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-2) 0 var(--sp-2) var(--sp-4); border-left: 3px solid var(--c-border); font-size: var(--fs-sm); }
+.act-list li[data-cat="emissioni"] { border-left-color: var(--c-primary); }
+.act-list li[data-cat="numerazione"] { border-left-color: var(--c-warning); }
+.act-list time, .act-list .act-subject { color: var(--c-text-2); font-size: var(--fs-xs); }
+.act-list .act-hash { font-family: ui-monospace, monospace; font-size: var(--fs-xs); word-break: break-all; color: var(--c-text-2); }

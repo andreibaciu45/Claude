@@ -401,8 +401,6 @@ function takePrice(toks: Tok[]): { price?: number; toks: Tok[] } {
   return { price, toks: rest };
 }
 
-const stripLocation = (txt: string): string => txt.split(' ').filter((w) => !LOCATION_WORDS.has(w)).join(' ');
-
 /** Parole "di luogo" a parte, tutte le altre sono contenuto: la frase contiene solo luoghi? */
 function onlyLocation(toks: Tok[]): boolean {
   const ws = toks.filter(isW).filter((t) => !t.num);
@@ -466,18 +464,32 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
     if (!st) itemStems.set(it.id, (st = new Set(matchTokens([it.name, ...(it.aliases ?? [])].join(' ')).map(stem))));
     return st;
   };
-  /** match con e senza le parole di luogo: "intonaco bagno" è l'intonaco, non il rivestimento del bagno */
+  /**
+   * Match della frase tal quale e senza le parole "di contorno" (luoghi: "intonaco bagno" è l'intonaco, non il
+   * rivestimento del bagno; azioni: "sostituzione scaldabagno" è lo scaldabagno). Vince la variante tal quale,
+   * salvo che una ripulita sia nettamente migliore o che la voce tal quale sia sostenuta solo dal contorno.
+   */
   const bestLoc = (txt: string, opts: MatchOpts): MatchResult | null => {
     const a = matcher.best(txt, opts);
-    const stripped = stripLocation(txt);
-    if (stripped === txt || !stripped.trim()) return a;
-    const b = matcher.best(stripped, opts);
-    if (!b) return a;
-    if (!a || b.score > a.score + 0.05) return b;
-    if (b.score >= MATCH_MIN && b.item.id !== a.item.id) {
-      const content = stripped.split(' ').filter((w) => !/^\d/.test(w)).map(stem);
+    const words = txt.split(' ');
+    const noLoc = words.filter((w) => !LOCATION_WORDS.has(w));
+    const noNoise = words.filter((w) => !NOTE_NOISE.has(w));
+    const noBoth = noLoc.filter((w) => !NOTE_NOISE.has(w));
+    let other: MatchResult | null = null;
+    let content: string[] = [];
+    for (const v of [noLoc, noNoise, noBoth]) {
+      if (v.length === words.length || !v.some((w) => !/^\d/.test(w))) continue;
+      const r = matcher.best(v.join(' '), opts);
+      if (r && (!other || r.score > other.score)) {
+        other = r;
+        content = v.filter((w) => !/^\d/.test(w) && !LOCATION_WORDS.has(w) && !NOTE_NOISE.has(w)).map(stem);
+      }
+    }
+    if (!other) return a;
+    if (!a || other.score > a.score + 0.05) return other;
+    if (other.score >= MATCH_MIN && other.item.id !== a.item.id && content.length) {
       const st = stemsOf(a.item);
-      if (content.length && !content.some((q) => st.has(q))) return b; // la voce `a` è sostenuta solo dal luogo
+      if (!content.some((q) => st.has(q))) return other; // la voce `a` è sostenuta solo dal contorno
     }
     return a;
   };
