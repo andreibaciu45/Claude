@@ -87,6 +87,18 @@ function applyDocument(ctx: PushContext, op: Raw): Result {
   // --- documento già bloccato ---
   if (existing && existing.lockedAt !== null) {
     const cur = existing.data as any;
+    // Rinvio legittimo di una fattura SCARTATA dallo SDI: stessi numero/data/seq/sezionale/anno/lockedAt, xmlHistory piu' lungo.
+    const hl = (d: any) => (Array.isArray(d.invoice?.xmlHistory) ? d.invoice.xmlHistory.length : 0);
+    const resend = existing.status === 'scartata' && doc.status !== 'bozza' && !!doc.invoice?.lockedAt
+      && (['number', 'date'] as const).every((k) => (doc as any)[k] === cur[k])
+      && (['number', 'seq', 'year', 'sectional', 'lockedAt'] as const).every((k) => (doc.invoice as any)[k] === cur.invoice?.[k])
+      && hl(doc) > hl(cur);
+    if (resend) {
+      if (doc.updatedAt < existing.updatedAt) return bad('stale', 'Il server ha una versione più recente', existing.data);
+      upsertDocument(tenantId, doc, doc.updatedAt);
+      appendChange(tenantId, op.opId, 'document', doc.id, 'upsert', doc);
+      return { ok: true };
+    }
     if (doc.status === 'bozza' || !doc.invoice?.lockedAt || canon(strip(cur)) !== canon(strip(doc))) {
       return bad('locked_document', 'Documento emesso: immutabile', existing.data);
     }

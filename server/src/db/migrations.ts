@@ -224,6 +224,35 @@ CREATE TABLE auth_backoff (
 
 registerMigration(3, 'entitlements_cancel_flag', `ALTER TABLE entitlements ADD COLUMN cancel_at_period_end INTEGER;`);
 
+registerMigration(4, 'resend_rejected_invoice', `
+-- Una fattura scartata dallo SDI (stato 'scartata') puo' essere corretta e rinviata con STESSO numero/data/sezionale/anno/seq/lockedAt:
+-- in quel solo caso il contenuto puo' cambiare, purche' invoice.xmlHistory (XML archiviati) si allunghi.
+DROP TRIGGER trg_documents_locked_update;
+CREATE TRIGGER trg_documents_locked_update BEFORE UPDATE ON documents
+WHEN OLD.locked_at IS NOT NULL AND NOT (
+  NEW.tenant_id IS OLD.tenant_id AND NEW.id IS OLD.id AND NEW.type IS OLD.type
+  AND NEW.number IS OLD.number AND NEW.inv_year IS OLD.inv_year
+  AND NEW.inv_sectional IS OLD.inv_sectional AND NEW.inv_seq IS OLD.inv_seq
+  AND NEW.locked_at IS OLD.locked_at AND NEW.created_at IS OLD.created_at
+  AND NEW.deleted_at IS OLD.deleted_at AND NEW.status <> 'bozza'
+  AND (
+    json_remove(NEW.data, ${LOCKED_ALLOWED_PATHS}) IS json_remove(OLD.data, ${LOCKED_ALLOWED_PATHS})
+    OR (
+      OLD.status = 'scartata'
+      AND json_extract(NEW.data, '$.date') IS json_extract(OLD.data, '$.date')
+      AND json_extract(NEW.data, '$.number') IS json_extract(OLD.data, '$.number')
+      AND json_extract(NEW.data, '$.invoice.number') IS json_extract(OLD.data, '$.invoice.number')
+      AND json_extract(NEW.data, '$.invoice.seq') IS json_extract(OLD.data, '$.invoice.seq')
+      AND json_extract(NEW.data, '$.invoice.year') IS json_extract(OLD.data, '$.invoice.year')
+      AND json_extract(NEW.data, '$.invoice.sectional') IS json_extract(OLD.data, '$.invoice.sectional')
+      AND json_extract(NEW.data, '$.invoice.lockedAt') IS json_extract(OLD.data, '$.invoice.lockedAt')
+      AND COALESCE(json_array_length(NEW.data, '$.invoice.xmlHistory'), 0) > COALESCE(json_array_length(OLD.data, '$.invoice.xmlHistory'), 0)
+    )
+  )
+)
+BEGIN SELECT RAISE(ABORT, 'documento_bloccato: modifica vietata'); END;
+`);
+
 export function runMigrations(db: DatabaseSync): void {
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at INTEGER NOT NULL)');
   const done = new Set((db.prepare('SELECT version FROM schema_migrations').all() as { version: number }[]).map((r) => r.version));

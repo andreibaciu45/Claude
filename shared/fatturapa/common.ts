@@ -4,6 +4,7 @@
  */
 import type { Customer, DocLine, NaturaIva, Profile, QuoteDocument } from '../types';
 import { computeDocumentTotals, type DocumentTotalsCents } from '../fiscal/money';
+import { BOLLO_LEGAL_TEXT, FORFETTARIO_LEGAL_TEXT, NO_RITENUTA_LEGAL_TEXT } from './legalText';
 import { isValidCodiceDestinatario, isValidPartitaIva, isValidPec } from '../fiscal/validators';
 
 export const LIMITS = {
@@ -24,12 +25,10 @@ export const LIMITS = {
   idCodiceEstero: 28,
 } as const;
 
-/** Dicitura per il regime forfettario in Causale [DA VERIFICARE: testo esatto]. */
-export const CAUSALE_FORFETTARIO =
-  "Operazione effettuata ai sensi dell'articolo 1, commi da 54 a 89, della Legge n. 190/2014 - Regime forfettario.";
-/** Nessuna ritenuta per i forfettari (art. 1 c. 67 L. 190/2014) [DA VERIFICARE]. */
-export const CAUSALE_NO_RITENUTA =
-  "Compenso non assoggettato a ritenuta d'acconto ai sensi dell'art. 1, comma 67, L. 190/2014.";
+/** Diciture: definite UNA volta sola in ./legalText (XML, PDF e scheda "Emetti" usano lo stesso testo). */
+export const CAUSALE_FORFETTARIO = FORFETTARIO_LEGAL_TEXT;
+export const CAUSALE_BOLLO = BOLLO_LEGAL_TEXT;
+export const CAUSALE_NO_RITENUTA = NO_RITENUTA_LEGAL_TEXT;
 export const RIF_NORM_FORFETTARIO = 'Art. 1, c. 54-89, L. 190/2014 - Regime forfettario';
 export const RIF_NORM_N1 = 'Escluso art. 15 DPR 633/72';
 export const RIF_NORM_N1_BOLLO = 'Escluso art. 15 DPR 633/72 - Rimborso bollo';

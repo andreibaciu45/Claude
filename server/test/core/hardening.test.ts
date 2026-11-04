@@ -488,3 +488,45 @@ describe('GET /v1/me: stato abbonamento coerente con getPlan', () => {
     expect(await me()).toMatchObject({ plan: 'free', billingStatus: 'canceled', graceUntil: null, quota: { docsLimit: 3 } });
   });
 });
+
+describe('rinvio di una fattura scartata dallo SDI', () => {
+  const issued = async (token: string, status: string) => {
+    const d: any = invoice('f1', 1, { status: status as any, updatedAt: 2000, customer: { id: 'c', name: 'Rossi' } });
+    d.invoice.xml = '<a/>'; d.invoice.xmlHistory = [];
+    await push(token, [docOp(d)]);
+    return d;
+  };
+  const fixed = (d: any, over: any = {}, inv: any = {}) => ({ ...d, status: 'emessa', updatedAt: 3000, customer: { id: 'c', name: 'Rossi Mario' }, ...over,
+    invoice: { ...d.invoice, xml: '<b/>', xmlHistory: ['<a/>'], ...inv } });
+
+  it('scartata: correzione con stessi identificativi e xmlHistory piu\' lungo accettata', async () => {
+    const { token } = await login('a@x.it');
+    const d = await issued(token, 'scartata');
+    const r = await push(token, [docOp(fixed(d))]);
+    expect(r.json.conflicts).toEqual([]);
+    const got = (await call('GET', '/v1/documents/f1', { token })).json;
+    expect(got.customer.name).toBe('Rossi Mario');
+    expect(got.invoice.xmlHistory).toEqual(['<a/>']);
+  });
+  it('scartata: numero, data o xmlHistory non esteso -> ancora locked_document', async () => {
+    const { token } = await login('a@x.it');
+    const d = await issued(token, 'scartata');
+    for (const bad of [fixed(d, { date: '2026-12-01' }), fixed(d, {}, { seq: 9 }), fixed(d, {}, { lockedAt: 6000 }), fixed(d, {}, { xmlHistory: [] })]) {
+      expect((await push(token, [docOp(bad)])).json.conflicts[0].reason).toBe('locked_document');
+    }
+  });
+  it('fattura NON scartata resta immutabile (emessa, inviata)', async () => {
+    for (const st of ['emessa', 'inviata', 'consegnata']) {
+      freshEnv();
+      const { token } = await login('a@x.it');
+      const d = await issued(token, st);
+      expect((await push(token, [docOp(fixed(d))])).json.conflicts[0].reason).toBe('locked_document');
+    }
+  });
+  it('il trigger SQL blocca la stessa modifica su una non scartata', async () => {
+    const { token } = await login('a@x.it');
+    const d = await issued(token, 'emessa');
+    const f = fixed(d);
+    expect(() => run('UPDATE documents SET data=?, status=? WHERE id=?', JSON.stringify(f), 'emessa', 'f1')).toThrow(/documento_bloccato/);
+  });
+});

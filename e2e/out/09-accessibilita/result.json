@@ -1,0 +1,73 @@
+{
+  "name": "09-accessibilita",
+  "status": "FAIL",
+  "checks": [
+    {
+      "name": "nessuno scroll orizzontale (tutte le pagine, 3 viewport)",
+      "ok": false,
+      "detail": "[\"phone 390x844 bozza fattura: +103px div#root[VocePreventivo Nuovo Documen] scrollWidth=493>client=390 (pseudo-elemento/contenuto in overflow); div.shell[VocePreventivo Nuovo Documen] scrollWidth=493>client=390 (pseudo-elemento/contenuto in overflow); div.shell-body[Fatturan. bozza, senza numer] scrollWidth=493>client=390 (pseudo-elemento/contenuto in overflow); main#main.shell-main[Fatturan. bozza, senza numer] scrollWidth=493>client=390 (pseudo-elemento/contenuto in overflow); div.stack[Fatturan. bozza, senza numer] scrollWidth=477>client=358 (pseudo-elemento/contenuto in overflow); article.dv-paper[Anteprima FATTURA (bozza)] scrollWidth=476>client=356 (pseudo-elemento/contenuto in overflow)\",\"tablet 768x1024 bozza fattura: +53px div#root[VocePreventivo Nuovo Documen] scrollWidth=821>client=768 (pseudo-elemento/contenuto in overflow); div.shell[VocePreventivo Nuovo Documen] scrollWidth=821>client=768 (pseudo-elemento/contenuto in overflow); div.shell-body[Fatturan. bozza, senza numer] scrollWidth=821>client=768 (pseudo-elemento/contenuto in overflow); main#main.shell-main[Fatturan. bozza, senza numer] scrollWidth=797>client=720 (pseudo-elemento/contenuto in overflow); div.stack[Fatturan. bozza, senza numer] scrollWidth=781>client=688 (pseudo-elemento/contenuto in overflow); article.dv-paper[Anteprima FATTURA (bozza)] scrollWidth=780>client=686 (pseudo-elemento/contenuto in overflow)\"]"
+    },
+    {
+      "name": "target touch >= 44x44 px su pulsanti/campi (390px, tutte le pagine)",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "name": "tutti i controlli hanno un nome accessibile",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "name": "focus da tastiera visibile su tutti gli elementi provati",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "name": "lang=\"it\", titolo, alt immagini",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "name": "sheet: ha role=dialog, aria-modal e titolo",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "sheet emissione: focus visibile",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "name": "sheet: Escape lo chiude",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "sheet/widget (emissione, NC, voce): nessun overflow e nessun target <44px",
+      "ok": false,
+      "detail": "[\"sheet emissione: overflow +103 div#root[VocePreventivo Nuovo Documen] scrollWidth=493>client=390 (pseudo-elemento/contenuto in overflow); div.shell[VocePreventivo Nuovo Documen] scrollWidth=493>client=390 (pseudo-elemento/contenuto in overflow); div.shell-body[Fatturan. bozza, senza numer] scrollWidth=493>client=390 (pseudo-elemento/contenuto in overflow); main#main.shell-main[Fatturan. bozza, senza numer] scrollWidth=493>client=390 (pseudo-elemento/contenuto in overflow); div.stack[Fatturan. bozza, senza numer] scrollWidth=477>client=358 (pseudo-elemento/contenuto in overflow); article.dv-paper[Anteprima FATTURA (bozza)] scrollWidth=476>client=356 (pseudo-elemento/contenuto in overflow)\",\"sheet nota credito parziale: target piccoli input[Storna riga 1: Emessa per au] 28x28\"]"
+    },
+    {
+      "name": "HoldButton: tenendo Spazio compare avanzamento (non conferma subito)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "HoldButton: rilascio anticipato da tastiera non emette",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "HoldButton: alternativa accessibile (parola CONFERMO) presente",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "nessun errore in console / pageerror",
+      "ok": true,
+      "detail": "[]"
+    }
+  ],
+  "consoleErrors": [],
+  "notes": []
+}

@@ -1,0 +1,5 @@
+# Segnaposto: sostituire [DOMINIO] con il dominio reale prima della pubblicazione
+User-agent: *
+Allow: /
+
+Sitemap: https://[DOMINIO]/sitemap.xml

@@ -25,3 +25,9 @@ STT: `STT_PROVIDER` = `http` | `mock` (non-produzione); per `http`: `STT_BASE_UR
 Limiti: `VOICE_MAX_AUDIO_BYTES` (2 MB), `VOICE_MAX_DURATION_MS` (30000), `VOICE_MINUTES_FREE` (20), `VOICE_MINUTES_PRO` (120).
 LLM fallback: `LLM_PROVIDER` = `http` | `mock`; per `http`: `LLM_BASE_URL` (compatibile /chat/completions), `LLM_API_KEY`, `LLM_MODEL`; prezzi per la metrica di costo: `LLM_PRICE_IN_PER_MTOK`, `LLM_PRICE_OUT_PER_MTOK`.
 Privacy: l'audio resta in memoria e viene azzerato dopo l'uso; nessun audio/trascrizione nei log (solo metrica di costo).
+
+## Aggiornamento hardening (piano effettivo, ordine eventi)
+- `getPlan()` (CORE) e `computeEntitlement()` applicano la STESSA regola: `active`/`trialing` = Pro, ma se `currentPeriodEnd` è passato da oltre `BILLING_PERIOD_SLACK_DAYS` (default 3) → Free; `past_due` = Pro solo fino a `graceUntil` (`BILLING_GRACE_DAYS`, default 7); altro = Free. Lo specchio su `entitlements` conserva lo stato fedele (`status`, `grace_until`, `current_period_end`, `cancel_at_period_end`), non più `active` forzato.
+- Gli eventi con `created` più vecchio dell'ultimo applicato sono ignorati (Stripe non garantisce l'ordine).
+- `POST /checkout` risponde 409 `already_subscribed` se il tenant è già Pro (usare `/portal`).
+- Chiamate a Stripe/SDI/STT/LLM: timeout e `redirect: 'error'`; gli URL base sono validati (`src/net/safe-url.ts`).

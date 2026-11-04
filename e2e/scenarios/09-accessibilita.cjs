@@ -6,13 +6,15 @@ const AUDIT = () => {
   const vis = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
   const desc = (el) => `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).slice(0, 2).join('.') : ''}[${(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 28)}]`;
   const vw = document.documentElement.clientWidth;
-  const overflowPx = document.documentElement.scrollWidth - vw;
+  const overflowPx = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - vw; // body e html hanno overflow-x:hidden: misuro anche body.scrollWidth
   const offenders = [];
   if (overflowPx > 0) {
     for (const el of document.querySelectorAll('body *')) {
       if (!vis(el)) continue;
       const r = el.getBoundingClientRect();
+      const ox = getComputedStyle(el).overflowX;
       if (r.right > vw + 1 && getComputedStyle(el).position !== 'fixed') offenders.push(`${desc(el)} right=${Math.round(r.right)}`);
+      else if (el.scrollWidth > el.clientWidth + 2 && ox === 'visible' && el.children.length) offenders.push(`${desc(el)} scrollWidth=${el.scrollWidth}>client=${el.clientWidth} (pseudo-elemento/contenuto in overflow)`);
       if (offenders.length >= 6) break;
     }
   }

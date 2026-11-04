@@ -1,0 +1,37 @@
+:root{--bg:#f6f7f9;--card:#fff;--fg:#14181f;--mut:#444c59;--pri:#0b5c6b;--acc:#e8590c;--bd:#d5d9e0;--warn:#fff3cd;--warnbd:#b8860b}
+@media(prefers-color-scheme:dark){:root{--bg:#10141a;--card:#181e27;--fg:#eef1f5;--mut:#b4bcc8;--pri:#7cc6d4;--acc:#ff8a4c;--bd:#2c3440;--warn:#3d3209;--warnbd:#b8860b}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--pri)}
+.wrap{max-width:760px;margin:0 auto;padding:0 16px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 0;border-bottom:1px solid var(--bd)}
+.brand{font-weight:800;font-size:1.15rem;text-decoration:none;color:var(--fg)}
+.brand span{color:var(--acc)}
+.topnav{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.topnav a{text-decoration:none;font-weight:600}
+.btn{display:inline-block;background:var(--pri);color:#fff!important;padding:10px 16px;border-radius:10px;text-decoration:none;font-weight:700}
+@media(prefers-color-scheme:dark){.btn{color:#10141a!important}}
+.btn--ghost{background:transparent;color:var(--pri)!important;border:2px solid var(--pri)}
+.crumbs{font-size:.9rem;color:var(--mut);margin:18px 0 0}
+.crumbs a{color:var(--mut)}
+h1{font-size:1.9rem;line-height:1.2;margin:.6em 0 .3em}
+h2{font-size:1.3rem;line-height:1.3;margin:2em 0 .5em}
+h3{font-size:1.05rem;margin:1.4em 0 .3em}
+p,li{overflow-wrap:anywhere}
+.meta{color:var(--mut);font-size:.9rem;margin:0 0 1.2em}
+.box{border:2px solid var(--warnbd);background:var(--warn);border-radius:10px;padding:12px 14px;margin:1.6em 0}
+.box p{margin:.3em 0}
+.cta{border:1px solid var(--bd);background:var(--card);border-radius:12px;padding:16px;margin:2em 0}
+.cta p{margin:.3em 0 .8em}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.95rem}
+th,td{border:1px solid var(--bd);padding:8px;text-align:left;vertical-align:top}
+.faq h3{margin-top:1.2em}
+.related ul{padding-left:1.2em}
+.cards{display:grid;gap:12px;padding:0;list-style:none}
+.cards li{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px}
+.cards a{font-weight:700;text-decoration:none}
+.cards p{margin:.3em 0 0;color:var(--mut);font-size:.95rem}
+footer{border-top:1px solid var(--bd);margin-top:3em;padding:20px 0 40px;color:var(--mut);font-size:.9rem}
+footer nav a{margin-right:14px;display:inline-block}

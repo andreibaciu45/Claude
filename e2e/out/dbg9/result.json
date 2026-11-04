@@ -1,0 +1,13 @@
+{
+  "name": "dbg9",
+  "status": "PASS",
+  "checks": [
+    {
+      "name": "nessun errore in console / pageerror",
+      "ok": true,
+      "detail": "[]"
+    }
+  ],
+  "consoleErrors": [],
+  "notes": []
+}

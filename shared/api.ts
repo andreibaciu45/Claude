@@ -9,7 +9,9 @@ export interface ApiError { error: { code: string; message: string } }
 
 // ---- Auth: email + codice a 6 cifre ----
 export interface AuthRequestBody { email: string }                 // POST /v1/auth/request  -> 204
-export interface AuthVerifyBody { email: string; code: string; deviceId: string; deviceName?: string }
+export interface TermsAcceptance { termsVersion: string; dpaVersion?: string; acceptedAt?: number }
+/** Errori possibili su verify: 'terms_required' (primo accesso senza accettazione con REQUIRE_TERMS=1), 'terms_version_mismatch' */
+export interface AuthVerifyBody { email: string; code: string; deviceId: string; deviceName?: string; acceptedTerms?: TermsAcceptance }
 export interface AuthVerifyResponse { token: string; expiresAt: number; tenantId: string }  // POST /v1/auth/verify
 export interface MeResponse {
   email: string; tenantId: string; plan: 'free' | 'pro';
@@ -39,7 +41,7 @@ export interface SyncConflict {
   message: string;
   serverVersion?: unknown;
 }
-export interface SyncPushResponse { accepted: string[]; conflicts: SyncConflict[]; cursor: string }
+export interface SyncPushResponse { accepted: string[]; conflicts: SyncConflict[]; cursor: string; /** orario del server (epoch ms): il client può rilevare lo sfasamento dell'orologio */ serverTime?: number }
 export interface SyncPullResponse {                                     // GET /v1/sync/pull?cursor=...
   cursor: string;
   ops: Omit<SyncOp, 'clientTs'>[];
@@ -58,3 +60,7 @@ export interface SdiSubmitResponse { status: 'queued' | 'unsupported'; message?:
 export interface TranscribeResponse { text: string }                    // POST /v1/voice/transcribe (multipart: audio)  — iOS PWA
 export interface InterpretBody { transcript: string; context?: Record<string, unknown> } // POST /v1/voice/interpret (fallback LLM)
 export interface InterpretResponse { intent: string; args: Record<string, unknown>; confidence: number }
+
+// ---- Account: portabilità e cancellazione (GDPR) ----
+// GET /v1/me/export  -> download JSON con tutti i dati del tenant
+export interface DeleteAccountBody { confirmEmail: string }             // DELETE /v1/me ; errori: 'confirmation_mismatch', 'active_subscription' (409)
