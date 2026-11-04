@@ -18,6 +18,19 @@ describe('schema e trigger', () => {
     expect(() => run('INSERT INTO users(id,email,tenant_id,created_at) VALUES (?,?,?,1)', 'u', 'e@x.it', 'inesistente')).toThrow();
   });
 
+  it('INSERT OR REPLACE non aggira i trigger di cancellazione (recursive_triggers=ON): fatture emesse e audit_log', () => {
+    seedTenant(); insertDoc('t1', 'f1', 1, 5000);
+    expect(() => run(`INSERT OR REPLACE INTO documents(tenant_id, id, type, status, number, inv_year, inv_sectional, inv_seq, locked_at, created_at, updated_at, data)
+      VALUES ('t1','f1','fattura','emessa','1/2026',2026,'FT',1,5000,1,1,'{}')`)).toThrow(/documento_bloccato/);
+    // anche sostituendo per numero fattura (indice UNIQUE) con un altro id
+    expect(() => run(`INSERT OR REPLACE INTO documents(tenant_id, id, type, status, number, inv_year, inv_sectional, inv_seq, locked_at, created_at, updated_at, data)
+      VALUES ('t1','altra','fattura','emessa','1/2026',2026,'FT',1,5000,1,1,'{}')`)).toThrow(/documento_bloccato/);
+    expect(one<{ n: number }>('SELECT COUNT(*) n FROM documents')!.n).toBe(1);
+    run("INSERT INTO audit_log(tenant_id, at, action, ref_id) VALUES ('t1', 1, 'a', 'r1')");
+    expect(() => run("INSERT OR REPLACE INTO audit_log(tenant_id, at, action, ref_id) VALUES ('t1', 2, 'b', 'r1')")).toThrow(/append-only/);
+    expect(one<{ action: string }>("SELECT action FROM audit_log WHERE ref_id='r1'")!.action).toBe('a');
+  });
+
   it('fattura bloccata: UPDATE dei campi fiscali e DELETE vietati', () => {
     seedTenant(); insertDoc('t1', 'f1', 1, 5000);
     expect(() => run("UPDATE documents SET data = ? WHERE id='f1'", docJson({ lines: [{ id: 'l', qty: 99 }] }))).toThrow(/documento_bloccato/);

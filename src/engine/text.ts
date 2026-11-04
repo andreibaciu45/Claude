@@ -33,6 +33,8 @@ export function preprocess(input: string): string {
   s = s.replace(/%/g, ' percento ');
   s = s.replace(/\bper\s+cento\b/gi, ' percento ');
   s = s.replace(/\+/g, ' piu ');
+  // segno meno davanti a una cifra: " -5 metri" -> " meno 5 metri" (le quantità negative vanno segnalate)
+  s = s.replace(/(^|[\s(;,])[-−–](?=\d)/g, '$1 meno ');
   // apostrofo tra lettere: segnaposto (la parola prima riceve il flag `apo`), così "Dell'Orto" si ricompone
   s = s.replace(/(\p{L})'(?=\p{L})/gu, `$1${APO}`);
   s = s.replace(/'/g, ' ');
