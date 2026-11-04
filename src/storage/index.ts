@@ -118,6 +118,7 @@ function idbBackend(dbp: Promise<IDBPDatabase>): Backend {
 }
 
 let backend: Backend | null = null;
+let openDbp: Promise<IDBPDatabase> | null = null;
 
 function getBackend(): Backend {
   if (backend) return backend;
@@ -132,6 +133,7 @@ function getBackend(): Backend {
       if (!db.objectStoreNames.contains('documents')) db.createObjectStore('documents', { keyPath: 'id' });
     },
   });
+  openDbp = dbp;
   // se l'apertura fallisce (es. navigazione privata di alcuni browser) ripiega su memoria
   const fallback = memoryBackend();
   let broken = false;
@@ -154,7 +156,11 @@ function getBackend(): Backend {
 }
 
 /** Solo per i test: azzera la connessione memorizzata. */
-export function __resetStorageForTests(): void { backend = null; }
+export async function __resetStorageForTests(): Promise<void> {
+  try { (await openDbp)?.close(); } catch { /* ignore */ }
+  openDbp = null;
+  backend = null;
+}
 
 // ---------------------------------------------------------------- API
 
@@ -193,9 +199,7 @@ export const nextDocumentNumber = async (type: DocType): Promise<string> =>
 // ---------------------------------------------------------------- backup
 
 export async function exportBackup(): Promise<string> {
-  const b = getBackend();
   const [profile, catalog, documents] = await Promise.all([getProfile(), listCatalog(), listDocuments()]);
-  void b;
   return JSON.stringify({ version: BACKUP_VERSION, exportedAt: new Date().toISOString(), profile, catalog, documents }, null, 2);
 }
 

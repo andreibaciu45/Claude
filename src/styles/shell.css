@@ -35,3 +35,6 @@
   .shell-main { padding-bottom: var(--sp-5); padding-top: var(--sp-6); }
 }
 @media (max-width: 899.98px) { .shell-body { display: flex; flex-direction: column; flex: 1; min-width: 0; } }
+.shell-main { display: flex; flex-direction: column; }
+.shell-footer { margin-top: auto; padding-top: var(--sp-6); display: flex; justify-content: center; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.shell-footer a { padding: var(--sp-3) var(--sp-2); }

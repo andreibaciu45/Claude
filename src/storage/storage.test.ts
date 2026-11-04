@@ -15,9 +15,8 @@ const doc = (id: string, date: string, number = 'PRev-0001'): QuoteDocument => (
 });
 
 beforeEach(async () => {
-  __resetStorageForTests();
+  await __resetStorageForTests();
   await deleteDB('vocepreventivo');
-  __resetStorageForTests();
 });
 
 describe('profilo', () => {
