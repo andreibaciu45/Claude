@@ -44,8 +44,12 @@ export function createShutdown(deps: ShutdownDeps): (signal: string, failed?: bo
       // 1-2. niente nuove connessioni; richieste in corso a termine
       const closed = new Promise<void>((resolve) => { try { deps.server.close(() => resolve()); } catch { resolve(); } });
       deps.server.closeIdleConnections?.();
+      // le connessioni che diventano inattive DOPO aver risposto (keep-alive) si chiudono subito, senza aspettare il timeout di keep-alive
+      const sweep = setInterval(() => deps.server.closeIdleConnections?.(), 50);
+      closed.then(() => clearInterval(sweep), () => clearInterval(sweep));
       // lascia ~20% del budget per worker e chiusura del DB
       const drain = await withTimeout(closed, Math.floor(budget * 0.8));
+      clearInterval(sweep);
       if (drain === 'timeout') {
         forced = true;
         logEvent('warn', 'shutdown_forcing_connections');

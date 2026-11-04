@@ -108,6 +108,11 @@ export interface ConfirmSummary {
   warnings: string[];
   /** avviso sulle conseguenze ("dopo l'emissione non si può modificare…") */
   consequence?: string;
+  /**
+   * Versione del documento mostrata nel riepilogo (id + updatedAt). Il gettone la porta fino all'esecuzione: se nel frattempo il
+   * documento è cambiato (altra scheda, sync, modifica a mano) l'azione NON parte — si esegue solo ciò che l'utente ha visto.
+   */
+  docVersion?: { id: string; updatedAt: number };
 }
 
 export interface PendingConfirmation {
@@ -130,6 +135,7 @@ export interface Confirmation {
   readonly idempotencyKey: string;
   readonly command: Command;
   readonly via: 'hold' | 'voice' | 'tap';
+  readonly docVersion?: { id: string; updatedAt: number };
 }
 
 const issued = new WeakSet<object>();
@@ -155,7 +161,7 @@ export function createConfirmation(command: Command, summary: ConfirmSummary, no
 }
 
 function mint(p: PendingConfirmation, via: Confirmation['via']): Confirmation {
-  const token = Object.freeze({ pendingId: p.id, idempotencyKey: p.idempotencyKey, command: p.command, via }) as unknown as Confirmation;
+  const token = Object.freeze({ pendingId: p.id, idempotencyKey: p.idempotencyKey, command: p.command, via, docVersion: p.summary.docVersion }) as unknown as Confirmation;
   issued.add(token);
   return token;
 }
@@ -194,11 +200,12 @@ export class ConfirmationRequiredError extends Error {
  * Usata dall'executor: verifica che il gettone sia autentico, riferito a QUESTO comando e non già usato.
  * Il gettone si consuma (idempotenza: un secondo tentativo con la stessa scheda non rieseguirebbe l'emissione).
  */
-export function consumeConfirmation(token: Confirmation | undefined, command: Command): void {
+export function consumeConfirmation(token: Confirmation | undefined, command: Command): Confirmation {
   if (!token || typeof token !== 'object' || !issued.has(token)) throw new ConfirmationRequiredError();
   if (JSON.stringify(token.command) !== JSON.stringify(command)) throw new ConfirmationRequiredError('La conferma non corrisponde all’azione richiesta.');
   if (consumedKeys.has(token.idempotencyKey)) throw new ConfirmationRequiredError('Azione già eseguita con questa conferma.');
   consumedKeys.add(token.idempotencyKey);
+  return token;
 }
 
 /** Solo per i test. */

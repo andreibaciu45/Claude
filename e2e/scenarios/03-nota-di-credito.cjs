@@ -131,6 +131,7 @@ run('03-nota-di-credito', async (S) => {
 
   // elenco
   await go(page, '/documenti');
+  await page.locator('ul[aria-label="Elenco documenti"]').waitFor();
   await S.shot(page, 'elenco con NC');
   const list = await page.locator('main').innerText();
   S.check('elenco: mostra NC1/2026, NC2/2026, NC3/2026', ['NC1/2026', 'NC2/2026', 'NC3/2026'].every((x) => list.includes(x)));

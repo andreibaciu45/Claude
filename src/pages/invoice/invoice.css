@@ -59,3 +59,7 @@
 .act-list li[data-cat="numerazione"] { border-left-color: var(--c-warning); }
 .act-list time, .act-list .act-subject { color: var(--c-text-2); font-size: var(--fs-xs); }
 .act-list .act-hash { font-family: ui-monospace, monospace; font-size: var(--fs-xs); word-break: break-all; color: var(--c-text-2); }
+
+/* riga di sconto in euro (prezzo negativo) nella scheda documento */
+.dv-line-discount .dv-line-desc { color: #b42318; }
+.dv-line-discount .dv-line-calc strong { color: #b42318; }

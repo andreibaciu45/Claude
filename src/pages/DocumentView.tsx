@@ -27,6 +27,7 @@ import {
   QUOTE_STATUSES, availableActions, daysSince, displayNumber, isCreditNote, isDraftInvoice, isFiscalInvoice, isLegacyInvoice, kindLabel, lastIssuedIso, newInvoiceFiscal, paidAmount, windowExpired,
 } from './invoice/model';
 import './quote/quote.css';
+import { DocLineRow } from './invoice/DocLineRow';
 import './invoice/invoice.css';
 
 type SheetName = 'activity' | 'issue' | 'credit' | 'guide' | 'send' | 'outcome' | 'payment' | 'delete' | 'convert' | 'correct' | 'resubmit' | null;
@@ -402,19 +403,7 @@ export default function DocumentView() {
         </div>
 
         <div role="list" aria-label="Righe del documento">
-          {doc.lines.map((l) => (
-            <div className="dv-line" role="listitem" key={l.id}>
-              <div className="dv-line-desc">{l.description}</div>
-              <div className="dv-line-calc">
-                <span>
-                  {fmtQty(l.qty)} {l.unit} × {fmtNum(l.unitPrice)} €
-                  {l.discountPct ? ` (−${fmtNum(l.discountPct, l.discountPct % 1 ? 1 : 0)}%)` : ''}
-                  {!forf ? ` · IVA ${l.vat}%` : ''}
-                </span>
-                <strong className="num"><Money value={lineAmount(l)} /></strong>
-              </div>
-            </div>
-          ))}
+          {doc.lines.map((l) => <DocLineRow key={l.id} line={l} forfettario={forf} />)}
         </div>
 
         <div className="dv-totals">

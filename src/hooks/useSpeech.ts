@@ -104,6 +104,9 @@ export function useSpeech(lang = 'it-IT'): UseSpeech {
         const res = e.results[i];
         const t = res[0]?.transcript ?? '';
         if (res.isFinal) {
+          // dopo stop() il parziale è già stato consolidato in finalRef: il risultato finale che il browser consegna subito dopo
+          // è lo stesso testo e non va accodato una seconda volta ("tre metri tre metri")
+          if (!wantRef.current && t.trim() && finalRef.current.endsWith(t.trim())) continue;
           finalRef.current = (finalRef.current + ' ' + t).replace(/\s+/g, ' ').trim();
         } else {
           interim += t;

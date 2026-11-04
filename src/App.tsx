@@ -5,6 +5,7 @@ import type { IconName } from './ui';
 import NewQuotePage from './pages/NewQuotePage';
 import { attachSync, SyncBadge } from './sync';
 import './app.css';
+import './pages/customers/nav.css';
 
 // Pagina account (opzionale): caricata solo quando serve; il fallback evita schermate bianche se il chunk non si carica.
 const AccountPage = lazy(() => import('./pages/AccountPage'));
@@ -13,6 +14,7 @@ const loaders = {
   documents: () => import('./pages/DocumentsPage'),
   document: () => import('./pages/DocumentView'),
   catalog: () => import('./pages/CatalogPage'),
+  customers: () => import('./pages/CustomersPage'),
   profile: () => import('./pages/ProfilePage'),
   backup: () => import('./pages/BackupPage'),
   landing: () => import('./pages/LandingPage'),
@@ -22,6 +24,7 @@ const loaders = {
 const DocumentsPage = lazy(loaders.documents);
 const DocumentView = lazy(loaders.document);
 const CatalogPage = lazy(loaders.catalog);
+const CustomersPage = lazy(loaders.customers);
 const ProfilePage = lazy(loaders.profile);
 const BackupPage = lazy(loaders.backup);
 const LandingPage = lazy(loaders.landing);
@@ -40,10 +43,18 @@ function usePreloadRoutes(): boolean {
   return ready;
 }
 
-const TABS: { to: string; label: string; icon: IconName; end?: boolean }[] = [
+// Icona «persone» per la voce Clienti (il kit UI ha solo `user`, già usata dal Profilo).
+const UsersIcon = () => (
+  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.8a3.5 3.5 0 0 1 0 6.4M18 14.2A6.5 6.5 0 0 1 21.5 20" />
+  </svg>
+);
+
+const TABS: { to: string; label: string; icon?: IconName; svg?: boolean; end?: boolean }[] = [
   { to: '/', label: 'Nuovo', icon: 'mic', end: true },
   { to: '/documenti', label: 'Documenti', icon: 'file' },
   { to: '/catalogo', label: 'Catalogo', icon: 'box' },
+  { to: '/clienti', label: 'Clienti', svg: true },
   { to: '/profilo', label: 'Profilo', icon: 'user' },
 ];
 
@@ -97,7 +108,7 @@ function Shell() {
         </Link>
         {TABS.map((t) => (
           <NavLink key={t.to} to={t.to} end={t.end} className="nav-link">
-            <Icon name={t.icon} /> <span>{t.label}</span>
+            {t.svg ? <UsersIcon /> : <Icon name={t.icon!} />} <span>{t.label}</span>
           </NavLink>
         ))}
       </nav>
@@ -129,6 +140,7 @@ export default function App() {
             <Route path="/documenti" element={<DocumentsPage />} />
             <Route path="/documenti/:id" element={<DocumentView />} />
             <Route path="/catalogo" element={<CatalogPage />} />
+            <Route path="/clienti" element={<CustomersPage />} />
             <Route path="/profilo" element={<ProfilePage />} />
             <Route path="/backup" element={<BackupPage />} />
             <Route

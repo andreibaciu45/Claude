@@ -98,7 +98,7 @@ describe('righe', () => {
       lines: [
         line({ description: '', qty: 0 }),
         line({ unitPrice: NaN }),
-        line({ unitPrice: -5 }),
+        line({ unitPrice: -5, qty: 0 }),
         line({ discountPct: 120 }),
         line({ needsReview: true }),
       ],

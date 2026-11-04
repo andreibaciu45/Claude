@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { DocLine, QuoteDocument } from '../../types';
 import { uid } from '../../types';
 import { fmtDate, fmtNum, fmtQty } from '../../pdf';
-import { CREDIT_NOTE_STAMP_NOTE, invoiceTotalsCents } from '../../storage/invoiceTotals';
+import { CREDIT_NOTE_STAMP_NOTE, invoiceTotalsCents, isDiscountLine } from '../../storage/invoiceTotals';
 import { creditResidual, effectiveCreditNotes } from '../../storage/creditResidual';
 import { Field, Segmented, Sheet, Textarea } from '../../ui';
 import { NumInput } from '../quote/NumInput';
@@ -45,7 +45,9 @@ export function CreditNoteSheet({ open, onClose, doc, busy, creditNotes = [], fo
   const partialTotal = tot.netCents / 100;
   const reasonOk = reason.trim().length > 0;
   const linesOk = mode === 'totale' || picked.length > 0;
-  const canGo = reasonOk && linesOk && !exhausted;
+  // una nota di credito deve avere importo positivo: lo sconto (riga a prezzo negativo) da solo non si storna
+  const amountOk = mode === 'totale' || tot.netCents > 0;
+  const canGo = reasonOk && linesOk && amountOk && !exhausted;
 
   return (
     <Sheet open={open} onClose={onClose} title="Annulla con nota di credito">
@@ -70,7 +72,11 @@ export function CreditNoteSheet({ open, onClose, doc, busy, creditNotes = [], fo
                   <input type="checkbox" aria-label={`Storna riga ${i + 1}: ${l.description}`} checked={on} disabled={left <= 0} onChange={(e) => setSel((s) => ({ ...s, [l.id]: e.target.checked ? left : 0 }))} />
                   <div>
                     <div style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{l.description}</div>
-                    <small className="muted">Fatturato: {fmtQty(l.qty)} {l.unit} × {fmtNum(l.unitPrice)} € · stornabile: {fmtQty(left)}</small>
+                    <small className="muted">
+                      {isDiscountLine(l)
+                        ? `Sconto di ${fmtNum(-l.qty * l.unitPrice)} € · riducerebbe l’importo stornato`
+                        : `Fatturato: ${fmtQty(l.qty)} ${l.unit} × ${fmtNum(l.unitPrice)} € · stornabile: ${fmtQty(left)}`}
+                    </small>
                   </div>
                   <NumInput label={`Quantità da stornare riga ${i + 1}`} value={sel[l.id] ?? 0} max={left} onChange={(n) => setSel((s) => ({ ...s, [l.id]: n }))} />
                 </div>
@@ -78,6 +84,7 @@ export function CreditNoteSheet({ open, onClose, doc, busy, creditNotes = [], fo
             })}
             <p className="muted" style={{ margin: 0 }}>Importo stornato (senza bollo): {fmtNum(partialTotal)} €</p>
             {touched && picked.length === 0 && <p className="field-error" role="alert">Seleziona almeno una riga.</p>}
+            {picked.length > 0 && !amountOk && <p className="field-error" role="alert">L’importo stornato deve essere positivo: la riga di sconto non si può stornare da sola, seleziona anche le righe a cui si riferisce.</p>}
           </fieldset>
         )}
         <p className="muted" style={{ fontSize: 'var(--fs-sm)', margin: 0 }} data-testid="nc-stamp">
@@ -89,7 +96,7 @@ export function CreditNoteSheet({ open, onClose, doc, busy, creditNotes = [], fo
           busy={busy}
           onConfirm={() => onCreate({ reason: reason.trim(), lines: mode === 'parziale' ? picked : undefined })}
         />
-        {!canGo && <p className="muted" style={{ fontSize: 'var(--fs-sm)', margin: 0 }}>{!reasonOk ? 'Scrivi il motivo per continuare.' : 'Seleziona almeno una riga da stornare.'}</p>}
+        {!canGo && <p className="muted" style={{ fontSize: 'var(--fs-sm)', margin: 0 }}>{!reasonOk ? 'Scrivi il motivo per continuare.' : !linesOk ? 'Seleziona almeno una riga da stornare.' : 'L’importo stornato deve essere positivo.'}</p>}
       </div>
     </Sheet>
   );

@@ -79,6 +79,8 @@ export class NativeSpeechProvider extends Emitter implements SpeechProvider {
   private errored = false;
   private finished = true;
   private fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  /** start() ancora in attesa (permessi, listener) non deve avviare il microfono dopo una cancel() */
+  private gen = 0;
 
   constructor(private readonly lang = 'it-IT', private readonly opts: NativeSpeechOptions = {}) { super(); }
 
@@ -94,6 +96,8 @@ export class NativeSpeechProvider extends Emitter implements SpeechProvider {
   async start(): Promise<void> {
     if (this.state === 'listening' || this.state === 'starting') return;
     this.cancelled = false; this.errored = false; this.lastMatches = []; this.finished = false;
+    const gen = ++this.gen;
+    const stale = () => gen !== this.gen || this.cancelled;
     this.setState('starting');
     try {
       const p = await this.load();
@@ -101,6 +105,7 @@ export class NativeSpeechProvider extends Emitter implements SpeechProvider {
       try { if (!(await p.available()).available) { this.fail('unsupported'); return; } } catch { /* alcune versioni non espongono available(): si prosegue */ }
       let perm = (await p.checkPermissions()).speechRecognition;
       if (perm !== 'granted') perm = (await p.requestPermissions()).speechRecognition;
+      if (stale()) return;
       if (perm !== 'granted') { this.fail('not-allowed'); return; }
 
       await this.detach();
@@ -125,6 +130,7 @@ export class NativeSpeechProvider extends Emitter implements SpeechProvider {
         this.fail(code);
       }));
 
+      if (stale()) { await this.detach(); return; }
       const res = await p.start({
         language: this.lang,
         maxResults: 3,
@@ -137,7 +143,7 @@ export class NativeSpeechProvider extends Emitter implements SpeechProvider {
       if ((this.state as string) === 'starting') this.setState('listening');
       if (res?.matches?.length) this.finishFromPlugin();
     } catch (err) {
-      if (this.cancelled) return;
+      if (stale()) return;
       const msg = err instanceof Error ? err.message : String(err);
       this.errored = true;
       this.fail(mapError(msg));
@@ -153,7 +159,7 @@ export class NativeSpeechProvider extends Emitter implements SpeechProvider {
   }
 
   cancel(): void {
-    this.cancelled = true; this.finished = true;
+    this.cancelled = true; this.finished = true; this.gen++;
     this.clearTimer();
     const p = this.plugin;
     if (p) void (p.forceStop ? p.forceStop({ timeout: 500 }) : p.stop()).catch(() => { /* ignore */ });

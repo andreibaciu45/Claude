@@ -6,13 +6,15 @@
 import type { Customer, DocLine, Profile, QuoteDocument, ValidationIssue } from '../types';
 import { fitText, chunkText } from './text';
 import { el, leaf, optLeaf, renderNode, type XNode } from './xmlWriter';
-import { formatCents, formatDecimal, discountBasisPoints, type DocumentTotalsCents } from '../fiscal/money';
+import { formatCents, formatDecimal, discountBasisPoints, planEuroDiscounts, type DocumentTotalsCents } from '../fiscal/money';
 import { isValidEmail, isValidIban, isValidProvinciaIt } from '../fiscal/validators';
 import {
   CAUSALE_BOLLO,
   CAUSALE_FORFETTARIO,
   CAUSALE_NO_RITENUTA,
   DESC_RIMBORSO_BOLLO,
+  EURO_DISCOUNT_XML_MODE,
+  documentLineInputs,
   LIMITS,
   RIF_NORM_FORFETTARIO,
   RIF_NORM_N1,
@@ -29,8 +31,11 @@ import {
   resolveRecipient,
   splitPersonName,
   trimmed,
+  type EuroDiscountMode,
 } from './common';
 import { validateInvoiceForIssue, type ValidateOptions } from './validate';
+
+export type { EuroDiscountMode };
 
 export interface FatturaPAResult {
   xml: string;
@@ -203,7 +208,7 @@ const datiGenerali = (doc: QuoteDocument, totals: DocumentTotalsCents): XNode =>
   );
 };
 
-const dettaglioLinea = (n: number, l: DocLine, totalCents: number): XNode => {
+const dettaglioLinea = (n: number, l: DocLine, totalCents: number, euroDiscountCents = 0): XNode => {
   const disc = discountBasisPoints(l.discountPct);
   return el(
     'DettaglioLinee',
@@ -213,7 +218,9 @@ const dettaglioLinea = (n: number, l: DocLine, totalCents: number): XNode => {
     optLeaf('UnitaMisura', fit(l.unit, LIMITS.unitaMisura)),
     leaf('PrezzoUnitario', formatDecimal(l.unitPrice)),
     disc > 0 && el('ScontoMaggiorazione', leaf('Tipo', 'SC'), leaf('Percentuale', formatDecimal(disc / 100, 2, 2))),
-    leaf('PrezzoTotale', formatCents(totalCents)),
+    // sconto in euro assorbito dalla riga (solo modalità 'sconto_su_riga'): applicato DOPO l'eventuale sconto percentuale
+    euroDiscountCents > 0 && el('ScontoMaggiorazione', leaf('Tipo', 'SC'), leaf('Importo', formatCents(euroDiscountCents))),
+    leaf('PrezzoTotale', formatCents(totalCents - euroDiscountCents)),
     leaf('AliquotaIVA', '0.00'),
     leaf('Natura', lineNatura(l)),
   );
@@ -245,13 +252,17 @@ const datiRiepilogo = (totals: DocumentTotalsCents): XNode[] =>
     );
   });
 
-const datiBeniServizi = (doc: QuoteDocument, totals: DocumentTotalsCents): XNode =>
-  el(
+const datiBeniServizi = (doc: QuoteDocument, profile: Profile, totals: DocumentTotalsCents, mode: EuroDiscountMode): XNode => {
+  // 'sconto_su_riga': le righe di sconto assorbibili spariscono e il loro importo va in ScontoMaggiorazione/Importo delle righe positive
+  const plan = mode === 'sconto_su_riga' ? planEuroDiscounts(documentLineInputs(doc, profile), totals.lineTotals) : null;
+  const rows = doc.lines.map((l, i) => ({ l, i })).filter(({ i }) => !plan?.absorbed.has(i));
+  return el(
     'DatiBeniServizi',
-    ...doc.lines.map((l, i) => dettaglioLinea(i + 1, l, totals.lineTotals[i])),
-    totals.stampReimbursementCents > 0 && rimborsoBollo(doc.lines.length + 1, totals.stampReimbursementCents),
+    ...rows.map(({ l, i }, k) => dettaglioLinea(k + 1, l, totals.lineTotals[i], plan?.shareCents[i] ?? 0)),
+    totals.stampReimbursementCents > 0 && rimborsoBollo(rows.length + 1, totals.stampReimbursementCents),
     ...datiRiepilogo(totals),
   );
+};
 
 const datiPagamento = (doc: QuoteDocument, profile: Profile, totals: DocumentTotalsCents, due?: string): XNode | null => {
   const inv = doc.invoice as NonNullable<QuoteDocument['invoice']>;
@@ -304,7 +315,7 @@ export const generateFatturaPA = (
   const body = el(
     'FatturaElettronicaBody',
     datiGenerali(doc, totals),
-    datiBeniServizi(doc, totals),
+    datiBeniServizi(doc, profile, totals, options.euroDiscountMode ?? EURO_DISCOUNT_XML_MODE),
     datiPagamento(doc, profile, totals, options.paymentDueDate),
   );
   const xml =

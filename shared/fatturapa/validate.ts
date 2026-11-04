@@ -14,11 +14,13 @@ import {
   isValidPec,
   isValidProvinciaIt,
 } from '../fiscal/validators';
-import { STAMP_DUTY_THRESHOLD_CENTS, formatCents } from '../fiscal/money';
+import { STAMP_DUTY_THRESHOLD_CENTS, formatCents, isDiscountLine, lineTotalCents, planEuroDiscounts } from '../fiscal/money';
 import {
   ALLOWED_NATURE,
+  EURO_DISCOUNT_XML_MODE,
   LIMITS,
   computeInvoiceTotals,
+  documentLineInputs,
   daysBetween,
   isIsoDate,
   lineNatura,
@@ -29,6 +31,7 @@ import {
   resolveCustomerIds,
   resolveRecipient,
   trimmed,
+  type EuroDiscountMode,
 } from './common';
 import { fitText, sanitizeText } from './text';
 
@@ -37,6 +40,8 @@ export interface ValidateOptions {
   now?: Date;
   /** Data (ISO) dell'ultima fattura emessa nello stesso sezionale, per il controllo cronologico. */
   lastIssuedDate?: string;
+  /** Rappresentazione XML dello sconto in euro (default: EURO_DISCOUNT_XML_MODE). Serve solo ai test e agli avvisi. */
+  euroDiscountMode?: EuroDiscountMode;
 }
 
 /** Oltre questo numero di giorni dalla data operazione scatta l'avviso (art. 21 c. 4 DPR 633/72) [DA VERIFICARE]. */
@@ -171,10 +176,18 @@ const checkLine = (c: Collector, l: DocLine, i: number, forfettario: boolean): v
   const n = i + 1;
   if (!trimmed(l.description)) c.error(`${f}.description`, 'required', `Riga ${n}: la descrizione è obbligatoria.`);
   c.text(`${f}.description`, `La descrizione della riga ${n}`, l.description, LIMITS.descrizione);
-  if (!Number.isFinite(l.qty) || l.qty <= 0) c.error(`${f}.qty`, 'invalid_qty', `Riga ${n}: la quantità deve essere maggiore di zero.`);
+  if (Number.isFinite(l.qty) && l.qty < 0 && Number.isFinite(l.unitPrice) && l.unitPrice < 0) {
+    c.error(`${f}.qty`, 'both_negative', `Riga ${n}: quantità e prezzo sono entrambi negativi (il risultato sembrerebbe positivo). Per uno sconto usa quantità positiva e prezzo negativo; per stornare usa una nota di credito.`);
+  } else if (!Number.isFinite(l.qty) || l.qty <= 0) c.error(`${f}.qty`, 'invalid_qty', `Riga ${n}: la quantità deve essere maggiore di zero.`);
   if (!Number.isFinite(l.unitPrice)) c.error(`${f}.unitPrice`, 'invalid_price', `Riga ${n}: il prezzo non è un numero valido.`);
-  else if (l.unitPrice < 0) c.error(`${f}.unitPrice`, 'negative_price', `Riga ${n}: il prezzo non può essere negativo (per stornare usa una nota di credito).`);
-  else if (l.unitPrice === 0) c.warn(`${f}.unitPrice`, 'zero_price', `Riga ${n}: il prezzo è zero.`);
+  else if (l.unitPrice < 0) {
+    // prezzo negativo = riga di SCONTO in euro (quantità positiva): ammessa; altrimenti non è una riga valida
+    if (isDiscountLine(l)) {
+      if (l.discountPct) c.error(`${f}.discountPct`, 'discount_on_discount', `Riga ${n}: una riga di sconto non può avere a sua volta uno sconto percentuale.`);
+    } else if (!(Number.isFinite(l.qty) && l.qty < 0)) {
+      c.error(`${f}.unitPrice`, 'negative_price', `Riga ${n}: il prezzo negativo è ammesso solo per una riga di sconto con quantità positiva (per stornare usa una nota di credito).`);
+    }
+  } else if (l.unitPrice === 0) c.warn(`${f}.unitPrice`, 'zero_price', `Riga ${n}: il prezzo è zero.`);
   if (l.discountPct !== undefined && (!Number.isFinite(l.discountPct) || l.discountPct < 0 || l.discountPct > 100)) {
     c.error(`${f}.discountPct`, 'invalid_discount', `Riga ${n}: lo sconto deve essere tra 0 e 100%.`);
   }
@@ -244,16 +257,44 @@ const checkCreditNote = (c: Collector, doc: QuoteDocument): void => {
   }
 };
 
-const checkTotalsAndStamp = (c: Collector, doc: QuoteDocument, profile: Profile): void => {
+/** Importo (centesimi) delle sole righe positive prima di ogni sconto: serve a spiegare l'effetto dello sconto sul bollo. */
+const listPriceCents = (doc: QuoteDocument): number =>
+  doc.lines.reduce((s, l) => (isDiscountLine(l) ? s : s + Math.max(0, lineTotalCents({ qty: l.qty, unitPrice: l.unitPrice }))), 0);
+
+const checkTotalsAndStamp = (c: Collector, doc: QuoteDocument, profile: Profile, opts: ValidateOptions): void => {
   const inv = doc.invoice;
   if (!inv || !Array.isArray(doc.lines) || doc.lines.length === 0) return;
   const t = computeInvoiceTotals(doc, profile);
-  if (t.totalCents <= 0) c.error('lines', 'zero_total', 'Il totale del documento deve essere maggiore di zero.');
+  const discountLines = doc.lines.map((l, i) => ({ l, i })).filter(({ l }) => isDiscountLine(l));
+  const discountCents = -discountLines.reduce((s, { i }) => s + Math.min(0, t.lineTotals[i]), 0);
+  const positiveCents = t.lineTotals.reduce((s, x) => s + Math.max(0, x), 0);
+  if (discountLines.length > 1) {
+    c.warn('lines', 'multiple_discount_lines', `Ci sono ${discountLines.length} righe di sconto: di solito ne basta una. Controlla di non aver applicato lo stesso sconto due volte.`);
+  }
+  if (discountLines.length > 0 && discountCents > positiveCents) {
+    c.error('lines', 'discount_exceeds_total', `Lo sconto (${formatCents(discountCents)} €) supera l'importo delle righe (${formatCents(positiveCents)} €): il totale sarebbe negativo.`);
+  } else if (discountLines.length > 0 && t.summary.some((g) => g.taxableCents < 0)) {
+    c.error('lines', 'discount_exceeds_group', 'Una riga di sconto supera l\'importo delle righe con la stessa natura IVA: lo sconto deve restare entro l\'imponibile del suo gruppo.');
+  } else if (t.totalCents < 0) {
+    c.error('lines', 'negative_total', 'Il totale del documento è negativo: una fattura o una nota di credito non può avere importo negativo (per stornare usa una nota di credito).');
+  } else if (t.totalCents === 0) {
+    c.error('lines', 'zero_total', discountLines.length ? 'Lo sconto azzera il totale: il totale del documento deve essere maggiore di zero.' : 'Il totale del documento deve essere maggiore di zero.');
+  }
+  if (discountLines.length > 0 && (opts.euroDiscountMode ?? EURO_DISCOUNT_XML_MODE) === 'sconto_su_riga') {
+    const plan = planEuroDiscounts(documentLineInputs(doc, profile), t.lineTotals);
+    if (discountLines.some(({ i }) => t.lineTotals[i] < 0 && !plan.absorbed.has(i))) {
+      c.warn('lines', 'discount_not_associable', 'Lo sconto in euro non è associabile alle righe (nessuna riga con la stessa natura IVA o importo insufficiente): resterà come riga a importo negativo.');
+    }
+  }
   if (profile.regimeForfettario) {
     if (inv.stampDuty !== t.stampDue) {
       c.warn('invoice.stampDuty', 'stamp_recomputed', t.stampDue
         ? `Il bollo da 2,00 € è dovuto (importo ${formatCents(t.linesNetCents)} € oltre 77,47 €): verrà inserito.`
         : `Il bollo non è dovuto (importo ${formatCents(t.linesNetCents)} € non oltre ${formatCents(STAMP_DUTY_THRESHOLD_CENTS)} €): non verrà inserito.`);
+    }
+    const before = listPriceCents(doc);
+    if (t.linesNetCents > 0 && (discountLines.length > 0 || doc.lines.some((l) => l.discountPct)) && (before > STAMP_DUTY_THRESHOLD_CENTS) !== t.stampDue) {
+      c.warn('invoice.stampDuty', 'stamp_after_discount', `La soglia del bollo (77,47 €) è valutata sull'importo dopo lo sconto (${formatCents(t.linesNetCents)} €), non sul prezzo di listino (${formatCents(before)} €) [DA VERIFICARE col commercialista].`);
     }
     if (t.stampDue) {
       c.warn('invoice.stampDuty', 'stamp_due', inv.stampDutyChargedToCustomer
@@ -287,7 +328,7 @@ export const validateInvoiceForIssue = (
     checkDates(c, doc, opts);
     checkNumber(c, doc);
     checkCreditNote(c, doc);
-    checkTotalsAndStamp(c, doc, profile);
+    checkTotalsAndStamp(c, doc, profile, opts);
   } catch (e) {
     c.error('document', 'validation_failed', `Controllo non riuscito: ${e instanceof Error ? e.message : String(e)}`);
   }

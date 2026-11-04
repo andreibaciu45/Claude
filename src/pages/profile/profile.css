@@ -1,0 +1,4 @@
+/* IBAN: campo a 2 righe con a capo automatico (nessun taglio a 360-390 px, font 16px: niente zoom iOS) + lettura a gruppi di 4 sotto. */
+.textarea.pf-iban { font-variant-numeric: tabular-nums; letter-spacing: .02em; text-transform: uppercase; overflow-wrap: anywhere; word-break: break-all; resize: none; min-height: calc(2 * 1.5em + 20px); overflow: hidden; }
+.pf-iban-groups { margin-top: var(--sp-1); font-variant-numeric: tabular-nums; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--c-text-2); overflow-wrap: anywhere; min-height: 1.4em; }
+.pf-iban-groups[data-empty="true"] { display: none; }

@@ -10,7 +10,7 @@ run('01-onboarding-preventivo', async (S) => {
   await go(page, '/');
   await S.shot(page, 'home primo avvio');
   S.check('home: campo testo e Interpreta presenti', await page.getByLabel('Testo del preventivo').isVisible() && await page.getByRole('button', { name: 'Interpreta' }).isVisible());
-  S.check('home: avviso catalogo vuoto', await page.getByText('Il tuo catalogo è vuoto').first().isVisible());
+  S.check('home: avviso catalogo vuoto', await page.getByText(/catalogo è (ancora )?vuoto/i).first().isVisible());
 
   await fillProfile(S, page);
   await page.reload();

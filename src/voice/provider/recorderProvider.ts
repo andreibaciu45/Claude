@@ -27,6 +27,10 @@ export class RecorderProvider extends Emitter implements SpeechProvider {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private pending: Blob | null = null;
   private cancelled = false;
+  /** incrementato a ogni start/cancel: una start() ancora in attesa del permesso non deve riprendere dopo una cancel() */
+  private gen = 0;
+  /** stop() arrivato mentre si attende il permesso del microfono (rilascio rapido del push-to-talk) */
+  private stopRequested = false;
 
   constructor(private readonly opts: TranscribeOptions & RecorderDeps = {}) { super(); }
 
@@ -37,18 +41,24 @@ export class RecorderProvider extends Emitter implements SpeechProvider {
   async start(): Promise<void> {
     if (this.state === 'listening' || this.state === 'starting' || this.state === 'processing') return;
     this.cancelled = false;
+    this.stopRequested = false;
     this.pending = null;
+    const gen = ++this.gen;
     this.setState('starting');
     const MR = this.opts.MediaRecorderCtor ?? (typeof MediaRecorder !== 'undefined' ? MediaRecorder : undefined);
     if (!MR) { this.fail('unsupported', 'Questo dispositivo non può registrare l’audio. Scrivi il comando.'); return; }
+    let stream: MediaStream;
     try {
-      this.stream = await this.gum({ audio: { echoCancellation: true, noiseSuppression: true } });
+      stream = await this.gum({ audio: { echoCancellation: true, noiseSuppression: true } });
     } catch (e) {
+      if (gen !== this.gen || this.cancelled) return;
       const m = micMessage((e as { name?: string })?.name ?? '');
       this.fail(m.code, m.message);
       return;
     }
-    if (this.cancelled) { this.release(); return; }
+    if (gen !== this.gen || this.cancelled) { stream.getTracks().forEach((t) => { try { t.stop(); } catch { /* ignore */ } }); return; }
+    this.stream = stream;
+    if (this.stopRequested) { this.release(); this.setState('idle'); return; } // l'utente ha già rilasciato: niente registrazione "fantasma"
     const mime = MIME_CANDIDATES.find((m) => { try { return MR.isTypeSupported(m); } catch { return false; } });
     try {
       this.mr = mime ? new MR(this.stream, { mimeType: mime }) : new MR(this.stream);
@@ -68,6 +78,7 @@ export class RecorderProvider extends Emitter implements SpeechProvider {
   }
 
   stop(): void {
+    if (this.state === 'starting' && !this.mr) this.stopRequested = true;
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     const mr = this.mr;
     if (mr && mr.state !== 'inactive') { try { mr.stop(); } catch { /* ignore */ } }
@@ -75,6 +86,7 @@ export class RecorderProvider extends Emitter implements SpeechProvider {
 
   cancel(): void {
     this.cancelled = true;
+    this.gen++;
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     const mr = this.mr;
     this.mr = null;

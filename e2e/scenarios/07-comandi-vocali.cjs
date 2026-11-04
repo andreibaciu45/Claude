@@ -17,6 +17,7 @@ run('07-comandi-vocali', async (S) => {
   const say = async (text, { label } = {}) => {
     const input = page.getByLabel('Scrivi un comando').or(page.getByLabel('Scrivi la frase di conferma')).first();
     if (!(await input.isVisible().catch(() => false))) {
+      if (!(await page.locator('.vc-fab').isVisible())) await go(page, '/documenti'); // il FAB e nascosto in alcune schermate (es. dettatura)
       await page.locator('.vc-fab').click();
       await input.waitFor();
     }
@@ -29,7 +30,7 @@ run('07-comandi-vocali', async (S) => {
   const closeSheet = async () => { if (await page.getByRole('dialog').count()) { await page.getByRole('dialog').locator('button.icon-btn[aria-label="Chiudi"]').click(); await sleep(300); } };
 
   // --- FAB: dimensione e apertura
-  await go(page, '/');
+  await go(page, '/documenti');
   const fab = await page.locator('.vc-fab').boundingBox();
   S.check('FAB voce: target >= 44px', fab.width >= 44 && fab.height >= 44, fab);
   await page.locator('.vc-fab').click();
@@ -40,7 +41,7 @@ run('07-comandi-vocali', async (S) => {
   await closeSheet();
 
   // --- 1) nuova fattura per Rossi due ore di manodopera
-  await go(page, '/');
+  await go(page, '/documenti');
   await say('nuova fattura per Rossi due ore di manodopera', { label: 'nuova fattura per Rossi' });
   await sleep(600);
   const url1 = page.url();

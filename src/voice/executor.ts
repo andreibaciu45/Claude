@@ -13,7 +13,8 @@ import {
   appendAudit, createCreditNote, createInvoiceFromQuote, getDocument, getProfile, issueInvoice, listCatalog, listDocuments,
   nextDocumentNumber, recordPayment, recordSdiEvent, saveDocument, deleteDocument,
 } from '../storage';
-import { computeTotals, parseDictation } from '../engine';
+import { computeTotals, matchCustomer, parseDictation } from '../engine';
+import { listCustomers } from '../storage/customers';
 import { generateDocumentPdf } from '../pdf';
 import type { AuditEntry, Customer, DocLine, InvoiceFiscal, Profile, QuoteDocument } from '../types';
 import { roundMoney, uid } from '../types';
@@ -30,6 +31,8 @@ export interface ExecContext {
   now?: Date;
   /** salvataggio file (default: link temporaneo). Iniettabile nei test. */
   download?: (blob: Blob, filename: string) => void;
+  /** impostato da executeCommand dal gettone di conferma: versione del documento che l'utente ha visto nel riepilogo */
+  expectedVersion?: { id: string; updatedAt: number };
 }
 
 export type PlanResult =
@@ -78,6 +81,23 @@ async function voiceAudit(docId: string, action: AuditEntry['action'], ctx: Exec
   } catch { /* l'audit non deve mai far fallire l'azione già eseguita */ }
 }
 
+/** Testo libero che arriva dalla voce o dal campo di testo: niente caratteri di controllo/invisibili/bidi, lunghezza limitata. */
+export function cleanFreeText(s: string, max: number): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202E\u2060-\u2069\uFEFF]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+/** Annullamento sicuro: ripristina lo stato precedente SOLO se il documento è ancora come l'ha lasciato il comando. */
+async function ensureUntouched(id: string, stamp: number | undefined): Promise<void> {
+  const cur = await getDocument(id);
+  if (!cur || cur.updatedAt !== stamp) {
+    throw new VoiceExecError('Il documento è stato modificato dopo il comando: non posso annullare senza perdere le tue modifiche.');
+  }
+}
+async function ensureAbsent(id: string): Promise<void> {
+  if (await getDocument(id)) throw new VoiceExecError('Il documento esiste di nuovo: non posso ripristinarlo sopra la versione attuale.');
+}
+
 const isImmutable = (e: unknown) => (e as { constructor?: { name?: string } })?.constructor?.name === 'ImmutableDocumentError';
 
 function wrapStorageError(e: unknown): never {
@@ -104,6 +124,21 @@ export function findKnownCustomer(name: string, docs: QuoteDocument[]): Customer
   const part = sorted.filter((d) => { const n = normName(d.customer?.name ?? '').split(' '); return toks.every((t) => n.includes(t)); });
   const names = new Set(part.map((d) => normName(d.customer.name)));
   return names.size === 1 ? { ...part[0].customer } : undefined;
+}
+
+/**
+ * «nuova fattura per <cliente>»: aggancia il cliente della rubrica (solo se l'aggancio è sicuro: `matched`; ambiguo o debole
+ * non si aggancia e si ripiega sui dati dei documenti). Un errore di lettura della rubrica non blocca mai il comando.
+ */
+export async function findBookCustomer(name: string): Promise<Customer | undefined> {
+  try {
+    const book = await listCustomers();
+    const { match } = matchCustomer(name, book);
+    const c = match.status === 'matched' ? book.find((x) => x.id === match.id) : undefined;
+    if (!c) return undefined;
+    const { createdAt: _c, updatedAt: _u, ...rest } = c;
+    return rest;
+  } catch { return undefined; }
 }
 
 function freshInvoiceFiscal(profile: Profile, doc: Pick<QuoteDocument, 'lines' | 'date'>): InvoiceFiscal {
@@ -155,7 +190,7 @@ export async function planCommand(command: Command, ctx: ExecContext = {}): Prom
         return { status: 'ready', command, summary: { headline: `Nuovo ${command.docType}`, fields: [], warnings: [], consequence: 'Apro la schermata di dettatura.' }, target: {} };
       }
       if (!res.customerName) return blocked('Non ho capito per quale cliente.', 'Prova così: «preventivo per Rossi, tre metri di tubo».');
-      const known = findKnownCustomer(res.customerName, docs);
+      const known = (await findBookCustomer(res.customerName)) ?? findKnownCustomer(res.customerName, docs);
       const review = res.lines.filter((l) => l.needsReview).length;
       return {
         status: 'ready', command, target: {},
@@ -180,7 +215,7 @@ export async function planCommand(command: Command, ctx: ExecContext = {}): Prom
   const d = r.doc;
   const pinned = pin(command, d.id);
   const t = totalsOf(d, profile);
-  const ready = (summary: ConfirmSummary, target: TargetInfo = {}): PlanResult => ({ status: 'ready', command: pinned, summary, target });
+  const ready = (summary: ConfirmSummary, target: TargetInfo = {}): PlanResult => ({ status: 'ready', command: pinned, summary: { ...summary, docVersion: { id: d.id, updatedAt: d.updatedAt } }, target });
   const noRev = d.lines.filter((l) => l.needsReview).length;
 
   switch (command.type) {
@@ -224,7 +259,7 @@ export async function planCommand(command: Command, ctx: ExecContext = {}): Prom
         fields: [
           ...baseFields(d, profile),
           field('Storno', 'totale'),
-          field('Motivo', command.reason ?? 'Annullamento fattura'),
+          field('Motivo', cleanFreeText(command.reason ?? '', 200) || 'Annullamento fattura'),
         ],
         warnings: [],
         consequence: 'La nota di credito viene emessa subito e collegata alla fattura originale. Non si può annullare: eventuali correzioni richiedono un nuovo documento.',
@@ -317,13 +352,23 @@ function triggerDownload(blob: Blob, filename: string): void {
 
 const safeName = (s: string) => s.replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'documento';
 
+/** comandi in esecuzione adesso (stessa identità = doppio tocco / doppio enunciato): il secondo non parte */
+const inFlight = new Set<string>();
+
 export async function executeCommand(command: Command, ctx: ExecContext = {}, confirmation?: Confirmation): Promise<ExecResult> {
-  // difesa in profondità: gli irreversibili non partono senza gettone valido, qualunque sia il chiamante
-  if (riskOf(command) === 'irreversible') consumeConfirmation(confirmation, command);
+  // difesa in profondità: gli irreversibili non partono senza gettone valido, qualunque sia il chiamante.
+  // Un gettone presentato per un'azione "a tocco" si consuma comunque: vale una sola volta (niente doppio incasso).
+  let token: Confirmation | undefined;
+  if (riskOf(command) === 'irreversible' || confirmation) token = consumeConfirmation(confirmation, command);
+  const key = JSON.stringify(command);
+  if (inFlight.has(key)) throw new VoiceExecError('Questo comando è già in esecuzione.');
+  inFlight.add(key);
   try {
-    return await run(command, ctx);
+    return await run(command, token?.docVersion ? { ...ctx, expectedVersion: token.docVersion } : ctx);
   } catch (e) {
     return wrapStorageError(e);
+  } finally {
+    inFlight.delete(key);
   }
 }
 
@@ -331,6 +376,9 @@ async function load(ref: DocRef | undefined, command: Command, ctx: ExecContext)
   if (ref?.kind === 'id') {
     const d = await getDocument(ref.id);
     if (!d) throw new VoiceExecError('Il documento non esiste più.');
+    if (ctx.expectedVersion && ctx.expectedVersion.id === d.id && ctx.expectedVersion.updatedAt !== d.updatedAt) {
+      throw new VoiceExecError('Il documento è cambiato dopo il riepilogo che hai visto: non eseguo nulla. Riapri il documento e ripeti il comando.');
+    }
     return d;
   }
   // senza riferimento fissato (uso diretto): stessa risoluzione della pianificazione
@@ -352,12 +400,12 @@ async function run(command: Command, ctx: ExecContext): Promise<ExecResult> {
       const res = parseDictation(command.dictation, catalog);
       if (!res.customerName && !res.lines.length) return { message: 'Detta il documento.', navigateTo: '/' };
       if (!res.customerName) throw new VoiceExecError('Non ho capito per quale cliente.');
-      const customer: Customer = findKnownCustomer(res.customerName, docs) ?? { id: uid(), name: res.customerName };
-      const lines: DocLine[] = res.lines.map((l) => ({ ...l, id: l.id || uid() }));
+      const customer: Customer = (await findBookCustomer(res.customerName)) ?? findKnownCustomer(res.customerName, docs) ?? { id: uid(), name: cleanFreeText(res.customerName, 80) };
+      const lines: DocLine[] = res.lines.map((l) => ({ ...l, id: l.id || uid(), description: cleanFreeText(l.description, 1000) }));
       const doc: QuoteDocument = {
         id: uid(), type: command.docType,
         number: command.docType === 'preventivo' ? await nextDocumentNumber('preventivo') : '',
-        date: today, customer, lines, status: 'bozza', transcript: ctx.transcript ?? command.dictation, createdAt: now, updatedAt: now,
+        date: today, customer, lines, status: 'bozza', transcript: cleanFreeText(ctx.transcript ?? command.dictation, 2000), createdAt: now, updatedAt: now,
       };
       if (doc.type === 'fattura') doc.invoice = freshInvoiceFiscal(profile, doc);
       await saveDocument(doc);
@@ -366,7 +414,7 @@ async function run(command: Command, ctx: ExecContext): Promise<ExecResult> {
       return {
         message: `${doc.type === 'preventivo' ? 'Preventivo' : 'Bozza di fattura'} per ${customer.name}: ${lines.length} ${lines.length === 1 ? 'voce' : 'voci'}${rev ? `, ${rev} da verificare` : ''}.`,
         navigateTo: `/documenti/${doc.id}`,
-        undo: async () => { await deleteDocument(doc.id); },
+        undo: async () => { await ensureUntouched(doc.id, now); await deleteDocument(doc.id); },
       };
     }
 
@@ -408,10 +456,15 @@ async function run(command: Command, ctx: ExecContext): Promise<ExecResult> {
       const before = structuredClone(q);
       const inv = await createInvoiceFromQuote(q.id);
       await voiceAudit(inv.id, 'convert_quote', ctx, `da ${q.number}`);
+      const [invAfter, qAfter] = await Promise.all([getDocument(inv.id), getDocument(q.id)]);
       return {
         message: `Bozza di fattura creata da ${docLabel(q)}.`,
         navigateTo: `/documenti/${inv.id}`,
-        undo: async () => { await deleteDocument(inv.id); await saveDocument(before); },
+        undo: async () => {
+          await ensureUntouched(inv.id, invAfter?.updatedAt);
+          await ensureUntouched(q.id, qAfter?.updatedAt);
+          await deleteDocument(inv.id); await saveDocument(before);
+        },
       };
     }
 
@@ -427,7 +480,7 @@ async function run(command: Command, ctx: ExecContext): Promise<ExecResult> {
     case 'credit_note': {
       const d = await load(command.ref, command, ctx);
       if (d.type !== 'fattura' || !isIssued(d) || isCreditNote(d) || d.status === 'stornata') throw new VoiceExecError(`${docLabel(d)} non può essere stornata.`);
-      const nc = await createCreditNote(d.id, { reason: command.reason?.trim() || 'Annullamento fattura' });
+      const nc = await createCreditNote(d.id, { reason: cleanFreeText(command.reason ?? '', 200) || 'Annullamento fattura' });
       await voiceAudit(nc.id, 'credit_note', ctx, `storno di ${d.number}`);
       return { message: `Nota di credito ${nc.number} emessa per ${docLabel(d)}.`, navigateTo: `/documenti/${nc.id}` };
     }
@@ -438,7 +491,9 @@ async function run(command: Command, ctx: ExecContext): Promise<ExecResult> {
       const residual = roundMoney(totalsOf(d, profile).gross - paidSoFar(d));
       const amount = roundMoney(command.amount ?? residual);
       if (d.type !== 'fattura' || !d.invoice?.lockedAt) throw new VoiceExecError(`${docLabel(d)} non è una fattura emessa.`);
-      if (!(amount > 0)) throw new VoiceExecError('Importo non valido.');
+      // riverifica al momento dell'incasso: un secondo tocco / un altro dispositivo non devono registrare due volte lo stesso pagamento
+      if (residual <= 0.004) throw new VoiceExecError(`${docLabel(d)} risulta già pagata per intero.`);
+      if (!Number.isFinite(amount) || !(amount > 0)) throw new VoiceExecError('Importo non valido.');
       await recordPayment(d.id, { date: today, amount });
       await voiceAudit(d.id, 'payment', ctx, fmtEur(amount));
       return { message: `Incasso di ${fmtEur(amount)} registrato su ${docLabel(d)}.`, navigateTo: `/documenti/${d.id}` };
@@ -450,7 +505,7 @@ async function run(command: Command, ctx: ExecContext): Promise<ExecResult> {
         const before = structuredClone(d);
         await saveDocument({ ...d, status: 'inviato', updatedAt: now });
         await voiceAudit(d.id, 'edit', ctx, 'preventivo inviato');
-        return { message: `${docLabel(d)} segnato come inviato.`, undo: async () => { await saveDocument(before); } };
+        return { message: `${docLabel(d)} segnato come inviato.`, undo: async () => { await ensureUntouched(d.id, now); await saveDocument(before); } };
       }
       await recordSdiEvent(d.id, { at: now, type: 'INVIO', channel: 'portale_ade', note: 'Registrato da comando vocale' });
       await voiceAudit(d.id, 'mark_sent', ctx);
@@ -463,7 +518,7 @@ async function run(command: Command, ctx: ExecContext): Promise<ExecResult> {
       const before = structuredClone(d);
       await saveDocument({ ...d, status: command.status, updatedAt: now });
       await voiceAudit(d.id, 'edit', ctx, command.status);
-      return { message: `${docLabel(d)}: ${command.status}.`, undo: async () => { await saveDocument(before); } };
+      return { message: `${docLabel(d)}: ${command.status}.`, undo: async () => { await ensureUntouched(d.id, now); await saveDocument(before); } };
     }
 
     case 'duplicate': {
@@ -478,7 +533,7 @@ async function run(command: Command, ctx: ExecContext): Promise<ExecResult> {
       if (d.type === 'fattura') copy.invoice = freshInvoiceFiscal(profile, copy);
       await saveDocument(copy);
       await voiceAudit(copy.id, 'duplicate', ctx, `da ${d.number || 'bozza'}`);
-      return { message: `Duplicato come nuova bozza.`, navigateTo: `/documenti/${copy.id}`, undo: async () => { await deleteDocument(copy.id); } };
+      return { message: `Duplicato come nuova bozza.`, navigateTo: `/documenti/${copy.id}`, undo: async () => { await ensureUntouched(copy.id, now); await deleteDocument(copy.id); } };
     }
 
     case 'add_line': {
@@ -488,14 +543,14 @@ async function run(command: Command, ctx: ExecContext): Promise<ExecResult> {
       const parsed = parseDictation(command.dictation, catalog);
       if (!parsed.lines.length) throw new VoiceExecError('Non ho riconosciuto nessuna voce da aggiungere.');
       const before = structuredClone(d);
-      const added = parsed.lines.map((l) => ({ ...l, id: uid() }));
+      const added = parsed.lines.map((l) => ({ ...l, id: uid(), description: cleanFreeText(l.description, 1000) }));
       await saveDocument({ ...d, lines: [...d.lines, ...added], updatedAt: now });
       await voiceAudit(d.id, 'edit', ctx, `aggiunte ${added.length} righe`);
       const rev = added.filter((l) => l.needsReview).length;
       return {
         message: `${added.length} ${added.length === 1 ? 'voce aggiunta' : 'voci aggiunte'}${rev ? `, ${rev} da verificare` : ''}.`,
         navigateTo: `/documenti/${d.id}`,
-        undo: async () => { await saveDocument(before); },
+        undo: async () => { await ensureUntouched(d.id, now); await saveDocument(before); },
       };
     }
 
@@ -507,7 +562,7 @@ async function run(command: Command, ctx: ExecContext): Promise<ExecResult> {
       const before = structuredClone(d);
       await deleteDocument(d.id);
       await voiceAudit(d.id, 'delete_draft', ctx, docLabel(d));
-      return { message: `${docLabel(d)} eliminato.`, navigateTo: '/documenti', undo: async () => { await saveDocument(before); } };
+      return { message: `${docLabel(d)} eliminato.`, navigateTo: '/documenti', undo: async () => { await ensureAbsent(d.id); await saveDocument(before); } };
     }
   }
 }

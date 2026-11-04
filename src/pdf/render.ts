@@ -5,7 +5,7 @@ import { documentTotals } from './totals';
 import { derivePayment, legalNotesFor } from '../../shared/fatturapa';
 import { isValidIban } from '../../shared/fiscal';
 import {
-  COURTESY_TEXT, DRAFT_TEXT, LEGACY_COURTESY_TEXT, addDays, creditNoteLines, docDate, docTitle, fmtDate, fmtEuro, fmtNum, fmtQty, isDraft, isFiscal, isNote, lineAmount,
+  COURTESY_TEXT, DRAFT_TEXT, LEGACY_COURTESY_TEXT, addDays, creditNoteLines, docDate, docTitle, fmtDate, fmtEuro, fmtNum, fmtQty, isDiscountLine, isDraft, isFiscal, isNote, lineAmount,
 } from './index';
 
 /* ---------- colori ---------- */
@@ -118,6 +118,8 @@ export function renderDocumentPdf(doc: QuoteDocument, profile: Profile, opts: { 
     ? [['Descrizione', 'Qtà', 'U.M.', 'Prezzo', 'Sconto', 'Importo']]
     : [['Descrizione', 'Qtà', 'U.M.', 'Prezzo', 'Sconto', 'IVA', 'Importo']];
   const body = doc.lines.map((l) => {
+    // riga di sconto in euro (prezzo negativo): solo "Sconto" e importo negativo, senza qtà/unità/prezzo/IVA incoerenti
+    if (isDiscountLine(l)) return [{ content: l.description?.trim() || 'Sconto', colSpan: head[0].length - 1 }, fmtNum(lineAmount(l))];
     const base = [l.description || '-', fmtQty(l.qty), l.unit, fmtNum(l.unitPrice), l.discountPct ? `${fmtNum(l.discountPct, l.discountPct % 1 ? 1 : 0)}%` : '-'];
     return forf ? [...base, fmtNum(lineAmount(l))] : [...base, `${fmtNum(l.vat, 0)}%`, fmtNum(lineAmount(l))];
   });
@@ -148,6 +150,11 @@ export function renderDocumentPdf(doc: QuoteDocument, profile: Profile, opts: { 
     headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.3 },
     columnStyles: colStyles,
     didParseCell: (d) => {
+      if (d.section === 'body' && isDiscountLine(doc.lines[d.row.index] ?? { qty: 0, unitPrice: 0 })) {
+        d.cell.styles.fontStyle = 'bold';
+        if (d.column.index > 0) d.cell.styles.halign = 'right';
+        d.cell.styles.textColor = [180, 35, 24];
+      }
       if (d.section === 'head' && [1, 3, 4, 5, 6].includes(d.column.index) && d.column.index >= (forf ? 1 : 1)) {
         if (d.column.index !== 2) d.cell.styles.halign = 'right';
       }

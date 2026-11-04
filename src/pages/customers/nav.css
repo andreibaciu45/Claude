@@ -1,0 +1,4 @@
+/* Barra di navigazione a 5 voci: sui telefoni stretti (360-390 px) le etichette restano intere, senza «…». */
+@media (max-width: 899.98px) {
+  .nav-link { font-size: min(var(--fs-xs), .6875rem); letter-spacing: -.01em; }
+}

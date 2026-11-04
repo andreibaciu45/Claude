@@ -5,10 +5,14 @@ import { Badge, Button, Card, Field, Input, Money, Select, Textarea } from '../.
 import { NumInput } from './NumInput';
 import { CatalogSheet } from './CatalogSheet';
 import { CustomerFiscalFields } from '../invoice/CustomerFiscalFields';
+import { CustomerPicker } from './CustomerPicker';
 import './quote.css';
 
 const VAT_RATES = [22, 10, 4, 0];
 export const lineTotal = (l: DocLine) => roundMoney(l.qty * l.unitPrice * (1 - (l.discountPct ?? 0) / 100));
+
+/** Riga di sconto in euro: prezzo negativo (l'importo 0 appena azzerato resta -0). */
+const isDiscount = (l: DocLine) => l.unitPrice < 0 || Object.is(l.unitPrice, -0);
 
 export const newLine = (vat: number): DocLine => ({ id: uid(), description: '', qty: 1, unit: 'pz', unitPrice: 0, vat });
 
@@ -29,6 +33,14 @@ interface Props {
   defaultVat: number;
   catalog: CatalogItem[];
   customerError?: string;
+  /** Rubrica clienti: abilita l'autocompletamento nel campo Cliente. */
+  customers?: Customer[];
+  /** Selezione di un cliente dalla rubrica (compila tutti i dati). Se assente, si usa `onCustomer`. */
+  onPickCustomer?: (c: Customer) => void;
+  /** Blocco mostrato sotto il campo Cliente (suggerimenti, «salva in rubrica»). */
+  customerExtra?: ReactNode;
+  /** Note per riga dal motore di dettatura (stanza, numero di mani, conversione di unità). */
+  lineMeta?: Record<string, { note?: string; coats?: number; converted?: string }>;
   /** Blocchi extra (es. dati fiscali della bozza di fattura) mostrati prima del riepilogo. */
   extra?: ReactNode;
 }
@@ -67,22 +79,25 @@ export function QuoteEditor(p: Props) {
   const setC = (ch: Partial<Customer>) => onCustomer({ ...customer, ...ch });
   const toReview = lines.filter((l) => l.needsReview).length;
   const isInvoice = p.type === 'fattura';
-  const extraOpen = isInvoice || !!(customer.address || customer.email || customer.phone || customer.vatOrFiscalCode);
+  const extraOpen = isInvoice || !!(customer.address || customer.email || customer.phone || customer.vatOrFiscalCode || customer.vatNumber || customer.fiscalCode);
 
   return (
     <div className="qe stack">
       <Card>
         <div className="stack-sm">
-          <Field label="Cliente" error={p.customerError}>
-            <Input
-              id="qe-customer"
-              value={customer.name}
-              onChange={(e) => setC({ name: e.target.value })}
-              placeholder="Nome e cognome o ragione sociale"
-              autoComplete="off"
-              aria-invalid={p.customerError ? true : undefined}
-            />
-          </Field>
+          <CustomerPicker
+            value={customer.name}
+            customers={p.customers ?? []}
+            linkedId={customer.id}
+            error={p.customerError}
+            onName={(name) => {
+              // il nome cambia dopo la scelta in rubrica: non è più quel cliente -> nuovo id (i dati copiati restano modificabili)
+              const linked = (p.customers ?? []).some((c) => c.id === customer.id);
+              onCustomer(linked ? { ...customer, id: uid(), name } : { ...customer, name });
+            }}
+            onPick={(c) => (p.onPickCustomer ? p.onPickCustomer(c) : onCustomer({ ...c }))}
+          />
+          {p.customerExtra}
           <details className="qe-details" open={extraOpen}>
             <summary>{isInvoice ? 'Dati fiscali del cliente' : 'Indirizzo, email, telefono (facoltativi)'}</summary>
             <div className="stack-sm qe-details-body">
@@ -93,7 +108,7 @@ export function QuoteEditor(p: Props) {
                     <Field label="Email"><Input type="email" inputMode="email" value={customer.email ?? ''} onChange={(e) => setC({ email: e.target.value })} /></Field>
                     <Field label="Telefono"><Input type="tel" inputMode="tel" value={customer.phone ?? ''} onChange={(e) => setC({ phone: e.target.value })} /></Field>
                   </div>
-                  <Field label="P.IVA / Codice fiscale"><Input value={customer.vatOrFiscalCode ?? ''} onChange={(e) => setC({ vatOrFiscalCode: e.target.value })} /></Field>
+                  <Field label="P.IVA / Codice fiscale"><Input value={customer.vatOrFiscalCode ?? customer.vatNumber ?? customer.fiscalCode ?? ''} onChange={(e) => setC({ vatOrFiscalCode: e.target.value, vatNumber: undefined, fiscalCode: undefined })} /></Field>
                 </>
               )}
             </div>
@@ -107,7 +122,26 @@ export function QuoteEditor(p: Props) {
           {toReview > 0 && <Badge tone="warning">{toReview} da verificare</Badge>}
         </div>
         {lines.length === 0 && <p className="muted">Nessuna riga per ora. Aggiungi una voce dal catalogo o scrivila a mano: il totale si calcola da solo.</p>}
-        {lines.map((l, i) => (
+        {lines.map((l, i) => isDiscount(l) ? (
+          <article key={l.id} id={`f-lines[${i}]`} tabIndex={-1} className="qe-line" data-discount="true" data-review={l.needsReview ? 'true' : undefined} aria-label={`Riga ${i + 1}: sconto`}>
+            <div className="qe-line-top">
+              <Badge tone={l.needsReview ? 'warning' : 'info'}>{l.needsReview ? 'Sconto da verificare' : 'Sconto'}</Badge>
+              <button type="button" className="qe-iconbtn qe-del" aria-label={`Elimina riga ${i + 1}`} onClick={() => remove(l.id)}>
+                <Icon d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14M10 10v6M14 10v6" />
+              </button>
+            </div>
+            <div className="qe-fields">
+              <label className="qe-mini"><span>Descrizione</span>
+                <Input aria-label={`Descrizione sconto riga ${i + 1}`} value={l.description} onChange={(e) => patch(l.id, { description: e.target.value })} />
+              </label>
+              <label className="qe-mini"><span>Importo dello sconto €</span>
+                <NumInput label={`Importo sconto riga ${i + 1}`} value={roundMoney(-l.unitPrice)} onChange={(n) => patch(l.id, { unitPrice: -Math.abs(n), qty: 1, needsReview: false })} />
+              </label>
+            </div>
+            {l.needsReview && <p className="qe-review-hint">Non hai detto se lo sconto era in percentuale o in euro: controlla l’importo.</p>}
+            <div className="qe-line-total"><span>Sconto (si sottrae dal totale)</span><strong className="num"><Money value={lineTotal(l)} /></strong></div>
+          </article>
+        ) : (
           <article key={l.id} id={`f-lines[${i}]`} tabIndex={-1} className="qe-line" data-review={l.needsReview ? 'true' : undefined} aria-label={`Riga ${i + 1}: ${l.description || 'senza descrizione'}`}>
             <div className="qe-line-top">
               {l.needsReview ? <Badge tone="warning">Da verificare</Badge> : <span className="muted qe-line-n">Voce {i + 1}</span>}
@@ -125,6 +159,13 @@ export function QuoteEditor(p: Props) {
             />
             {l.needsReview && (
               <p className="qe-review-hint">Voce non trovata nel catalogo: controlla prezzo e unità.</p>
+            )}
+            {p.lineMeta?.[l.id] && (
+              <p className="muted qe-note">
+                {[p.lineMeta[l.id].note && `Dettaglio: ${p.lineMeta[l.id].note}`,
+                  p.lineMeta[l.id].coats && `${p.lineMeta[l.id].coats} mani (la quantità non è moltiplicata)`,
+                  p.lineMeta[l.id].converted && `Conversione: ${p.lineMeta[l.id].converted}`].filter(Boolean).join(' · ')}
+              </p>
             )}
             <div className="qe-line-actions">
               <Button type="button" variant={l.needsReview ? 'primary' : 'ghost'} size="sm" onClick={() => setPickFor(l.id)}>

@@ -167,6 +167,8 @@ async function go(page, p) {
   await page.goto(url(p));
   await page.waitForLoadState('domcontentloaded');
   await sleep(150);
+  // la UI mostra uno Skeleton (aria-busy) mentre carica pagine lazy / dati: aspetto che sparisca
+  await page.locator('.skeleton[aria-busy="true"], .qe-loading').first().waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
 }
 const docIdOf = (page) => (/#\/documenti\/([^/?#]+)/.exec(page.url()) || [])[1];
 

@@ -3,7 +3,7 @@
  * Lunghezze: [DA VERIFICARE] sull'XSD ufficiale (non scaricato in sessione) — vedi docs/FISCAL-SPEC.md §5.3.
  */
 import type { Customer, DocLine, NaturaIva, Profile, QuoteDocument } from '../types';
-import { computeDocumentTotals, type DocumentTotalsCents } from '../fiscal/money';
+import { computeDocumentTotals, type DocumentLineInput, type DocumentTotalsCents } from '../fiscal/money';
 import { BOLLO_LEGAL_TEXT, FORFETTARIO_LEGAL_TEXT, NO_RITENUTA_LEGAL_TEXT } from './legalText';
 import { isValidCodiceDestinatario, isValidPartitaIva, isValidPec } from '../fiscal/validators';
 
@@ -33,6 +33,27 @@ export const RIF_NORM_FORFETTARIO = 'Art. 1, c. 54-89, L. 190/2014 - Regime forf
 export const RIF_NORM_N1 = 'Escluso art. 15 DPR 633/72';
 export const RIF_NORM_N1_BOLLO = 'Escluso art. 15 DPR 633/72 - Rimborso bollo';
 export const DESC_RIMBORSO_BOLLO = 'Rimborso imposta di bollo';
+
+/**
+ * SCONTO IN EURO nello XML [DA VERIFICARE col commercialista e sull'XSD/controlli SDI: non verificabile in sessione].
+ * Il motore di dettatura produce una riga "Sconto" (quantità 1, PREZZO NEGATIVO) quando lo sconto è detto in euro.
+ * Due rappresentazioni possibili nell'XML:
+ *  - 'riga_negativa' (DEFAULT, scelta prudente): la riga resta una DettaglioLinee con PrezzoUnitario e PrezzoTotale
+ *    negativi. Motivi: (1) PDF, scheda e XML mostrano le STESSE righe e gli stessi importi (è una copia di cortesia dell'XML);
+ *    (2) nessuna ripartizione inventata dall'app: nessun arrotondamento aggiuntivo, nessuna riga alterata;
+ *    (3) lo schema ammette il segno meno su PrezzoUnitario/PrezzoTotale e il riepilogo (ImponibileImporto) è la somma
+ *    algebrica delle righe dello stesso gruppo; (4) lo sconto non è associabile a una singola riga (è "sul totale").
+ *    Rischio residuo: alcuni gestionali del destinatario gestiscono male le righe negative.
+ *  - 'sconto_su_riga': ScontoMaggiorazione Tipo=SC con Importo sulle righe positive dello stesso gruppo aliquota/natura,
+ *    ripartito in proporzione all'importo delle righe, centesimi interi, resto sull'ULTIMA riga (vedi planEuroDiscounts).
+ *    Più "canonico" per lo SDI (che confronta PrezzoTotale con Prezzo×Quantità ± ScontoMaggiorazione), ma: le righe nel
+ *    PDF/scheda (con la riga "Sconto") non coinciderebbero più con quelle dell'XML; lo sconto detto dall'utente sarebbe
+ *    spalmato su voci che non ha scelto. Se lo sconto non è assorbibile (nessuna riga positiva nel gruppo, o supera il
+ *    gruppo) resta comunque come riga negativa. I TOTALI sono identici nelle due modalità.
+ * Per commutare: cambiare questa costante (o passare `euroDiscountMode` a generateFatturaPA nei test).
+ */
+export type EuroDiscountMode = 'riga_negativa' | 'sconto_su_riga';
+export const EURO_DISCOUNT_XML_MODE: EuroDiscountMode = 'riga_negativa';
 
 export const DEFAULT_NATURA: NaturaIva = 'N2.2';
 export const ALLOWED_NATURE: readonly NaturaIva[] = ['N2.2', 'N1'];
@@ -131,16 +152,20 @@ export const isNaturalPersonCf = (cf: string): boolean => cf.length === 16;
 
 export const lineNatura = (l: DocLine): NaturaIva => l.natura ?? DEFAULT_NATURA;
 
+/** Ingressi di calcolo di un documento (forfettario: aliquota sempre 0). */
+export const documentLineInputs = (doc: QuoteDocument, profile: Profile): DocumentLineInput[] =>
+  doc.lines.map((l) => ({
+    qty: l.qty,
+    unitPrice: l.unitPrice,
+    discountPct: l.discountPct,
+    vatRate: profile.regimeForfettario ? 0 : l.vat,
+    natura: lineNatura(l),
+  }));
+
 /** Totali del documento: nel forfettario l'aliquota è SEMPRE 0 (qualunque `vat` di riga viene ignorato). */
 export const computeInvoiceTotals = (doc: QuoteDocument, profile: Profile): DocumentTotalsCents =>
   computeDocumentTotals(
-    doc.lines.map((l) => ({
-      qty: l.qty,
-      unitPrice: l.unitPrice,
-      discountPct: l.discountPct,
-      vatRate: profile.regimeForfettario ? 0 : l.vat,
-      natura: lineNatura(l),
-    })),
+    documentLineInputs(doc, profile),
     {
       regimeForfettario: profile.regimeForfettario,
       stampDutyChargedToCustomer: !!doc.invoice?.stampDutyChargedToCustomer,

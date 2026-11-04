@@ -12,7 +12,7 @@ run('04-immutabilita', async (S) => {
   S.check('bozza: link Modifica presente', await page.getByRole('link', { name: 'Modifica' }).isVisible());
   S.check('bozza: pulsante "Elimina bozza" presente', await page.getByRole('button', { name: 'Elimina bozza' }).isVisible());
   await go(page, `/?edit=${draftId}`);
-  await page.getByText('Modifica bozza di fattura').waitFor();
+  await page.getByRole('heading', { name: 'Modifica bozza di fattura' }).waitFor();
   await S.shot(page, 'modifica bozza');
   await page.getByLabel('Descrizione riga 1').fill('Bozza modificata');
   await page.getByRole('button', { name: 'Salva modifiche' }).click();

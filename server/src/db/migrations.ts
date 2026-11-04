@@ -11,6 +11,12 @@ export function registerMigration(version: number, name: string, sql: string): v
   migrations.push({ version, name, sql });
 }
 
+/** Solo test: toglie una migrazione registrata (es. una volutamente rotta). */
+export function unregisterMigration(version: number): void {
+  const i = migrations.findIndex((m) => m.version === version);
+  if (i >= 0) migrations.splice(i, 1);
+}
+
 /** Campi di una fattura emessa che restano modificabili (eventi SDI, pagamenti, stato). */
 const LOCKED_ALLOWED_PATHS = `'$.status','$.updatedAt','$.invoice.sdiEvents','$.invoice.payments','$.invoice.paymentStatus'`;
 

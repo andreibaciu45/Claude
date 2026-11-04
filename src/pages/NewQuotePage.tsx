@@ -3,7 +3,10 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { CatalogItem, Customer, DocLine, DocType, Profile, QuoteDocument } from '../types';
 import { uid } from '../types';
 import { getDocument, getProfile, listCatalog, nextDocumentNumber, saveDocument } from '../storage';
-import { parseDictation } from '../engine';
+import { parseDictationWithContext, prepareCatalog } from '../engine';
+import type { CustomerCandidate } from '../engine';
+import { docBelongsTo, listCustomers, upsertCustomer, type StoredCustomer } from '../storage/customers';
+import { listDocuments } from '../storage';
 import { draftTotals } from '../pdf/totals';
 import { Button, Card, EmptyState, Field, PageHeader, Segmented, Skeleton, Textarea, useToast, Money } from '../ui';
 import { useSpeech } from '../hooks/useSpeech';
@@ -20,10 +23,16 @@ import { checkAllowanceNow, useDocumentAllowance } from '../billing/useAllowance
 import { usePlan } from '../billing/usePlan';
 import { recordDocumentCreated } from '../billing/usage';
 import './quote/quote.css';
+import './quote/customerPicker.css';
 
 const EXAMPLE = 'preventivo per Mario Rossi, tre metri di tubo rame da sedici, due ore di manodopera';
 const join = (a: string, b: string) => (a && b ? `${a.replace(/\s+$/, '')} ${b}` : a || b);
 const emptyCustomer = (): Customer => ({ id: uid(), name: '' });
+/** Cliente di rubrica -> cliente del documento (copia dei dati; il campo legacy v1 resta vuoto). */
+const fromBook = (c: StoredCustomer): Customer => { const { createdAt: _c, updatedAt: _u, ...rest } = c; return rest; };
+
+/** Proposta dopo la dettatura: aggancio automatico (matched), suggerimento (weak) o scelta tra più clienti (ambiguous). */
+interface CustomerHint { kind: 'matched' | 'weak' | 'ambiguous'; spoken: string; candidates: { id: string; name: string }[] }
 
 const MicIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -42,6 +51,13 @@ export default function NewQuotePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [book, setBook] = useState<StoredCustomer[]>([]);
+  const [saveToBook, setSaveToBook] = useState(true);
+  const [hint, setHint] = useState<CustomerHint | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [lineMeta, setLineMeta] = useState<Record<string, { note?: string; coats?: number; converted?: string }>>({});
+  const [refPrev, setRefPrev] = useState(false);
+  const [prevQuotes, setPrevQuotes] = useState<QuoteDocument[]>([]);
   const [original, setOriginal] = useState<QuoteDocument | null>(null);
   const [lockedDoc, setLockedDoc] = useState<QuoteDocument | null>(null);
   const [operationDate, setOperationDate] = useState(todayIso());
@@ -80,10 +96,12 @@ export default function NewQuotePage() {
     setLoadError(null);
     (async () => {
       try {
-        const [p, c] = await Promise.all([getProfile(), listCatalog()]);
+        const [p, c, b] = await Promise.all([getProfile(), listCatalog(), listCustomers().catch(() => [] as StoredCustomer[])]);
         if (!alive) return;
         setProfile(p);
         setCatalog(c);
+        setBook(b);
+        try { prepareCatalog(c); } catch { /* l'indice si costruisce alla prima dettatura */ }
         setStampCharged(!!p.stampDutyDefaultChargedToCustomer);
         if (editId) {
           const d = await getDocument(editId);
@@ -133,13 +151,26 @@ export default function NewQuotePage() {
     if (!t) return;
     setInterpreting(true);
     try {
-      const res = parseDictation(t, catalog);
+      const res = parseDictationWithContext(t, catalog, { customers: book.map((c) => ({ id: c.id, name: c.name })) });
       if (!res.lines.length && !res.customerName) {
         toast('Non ho riconosciuto nessuna voce. Prova con una frase più completa o compila a mano.');
         return;
       }
-      setCustomer((c) => ({ ...c, name: res.customerName ?? c.name }));
+      const spoken = res.customerName ?? '';
+      const m = res.customerMatch;
+      const bound = m?.status === 'matched' ? book.find((c) => c.id === (res.customerId ?? m.id)) : undefined;
+      if (bound) {
+        setCustomer(fromBook(bound));
+        setHint({ kind: 'matched', spoken, candidates: [{ id: bound.id, name: bound.name }] });
+      } else {
+        setCustomer((c) => ({ ...c, id: book.some((b) => b.id === c.id) ? uid() : c.id, name: res.customerName ?? c.name }));
+        const cands: CustomerCandidate[] = (res.customerCandidates ?? []).slice(0, 3);
+        setHint(m && (m.status === 'weak' || m.status === 'ambiguous') && cands.length ? { kind: m.status, spoken, candidates: cands.map((x) => ({ id: x.id, name: x.name })) } : null);
+      }
       setLines(res.lines.map((l) => ({ ...l, id: l.id || uid() })));
+      setLineMeta(res.lineMeta ?? {});
+      setWarnings(res.warnings ?? []);
+      setRefPrev(!!res.referencesPrevious);
       setLeftovers(res.leftovers ?? []);
       if (/\bfattur/i.test(t)) setType('fattura');
       setStage('edit');
@@ -149,7 +180,7 @@ export default function NewQuotePage() {
     } finally {
       setInterpreting(false);
     }
-  }, [catalog, toast]);
+  }, [catalog, book, toast]);
 
   interpretRef.current = interpret;
   // Auto-interpretazione al termine della dettatura (piccolo ritardo per i risultati finali tardivi)
@@ -188,8 +219,37 @@ export default function NewQuotePage() {
 
   const restart = () => {
     if ((lines.length || customer.name) && !window.confirm('Ricominciare? Le righe attuali andranno perse.')) return;
-    setLines([]); setCustomer(emptyCustomer()); setNotes(''); setText(''); setLeftovers([]);
+    setLines([]); setCustomer(emptyCustomer()); setNotes(''); setText(''); setLeftovers([]); setHint(null); setWarnings([]); setLineMeta({}); setRefPrev(false);
     baseRef.current = ''; speech.reset(); clearDraft(); setStage('input');
+  };
+
+  const pickCustomer = (c: Customer) => {
+    const b = book.find((x) => x.id === c.id);
+    setCustomer(b ? fromBook(b) : c);
+    setCustomerError(undefined);
+    setHint(null);
+  };
+  const rejectHint = () => {
+    if (hint) setCustomer((c) => ({ ...c, id: uid(), name: hint.spoken || c.name }));
+    setHint(null);
+  };
+
+  // «come da preventivo precedente»: propone i preventivi di riferimento (dello stesso cliente se noto)
+  useEffect(() => {
+    if (!refPrev) return;
+    let alive = true;
+    void listDocuments().then((all) => {
+      if (!alive) return;
+      const q = all.filter((d) => d.type === 'preventivo');
+      const same = customer.name.trim() ? q.filter((d) => docBelongsTo(d, customer)) : [];
+      setPrevQuotes((same.length ? same : q).slice(0, 5));
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [refPrev, customer.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const copyFrom = (d: QuoteDocument) => {
+    setLines((cur) => [...cur, ...d.lines.map((l) => ({ ...l, id: uid() }))]);
+    setRefPrev(false);
+    toast(`Righe copiate da ${d.number}`);
   };
 
   const validate = (): boolean => {
@@ -214,7 +274,12 @@ export default function NewQuotePage() {
       const now = Date.now();
       const isInv = t === 'fattura';
       const date = isInv ? operationDate || todayIso() : todayIso();
-      const cust = isInv ? normalizeCustomerForInvoice({ ...customer, name: customer.name.trim() }) : { ...customer, name: customer.name.trim() };
+      let cust = isInv ? normalizeCustomerForInvoice({ ...customer, name: customer.name.trim() }) : { ...customer, name: customer.name.trim() };
+      // Rubrica: nuovo cliente salvato in automatico (se l'utente non l'ha escluso); se esiste già si completano solo i campi vuoti.
+      // Un errore qui non blocca mai la creazione del documento.
+      if (saveToBook) {
+        try { const r = await upsertCustomer(cust); cust = { ...cust, id: r.customer.id }; } catch { /* rubrica non disponibile */ }
+      }
       // Fattura fiscale: bozza SENZA numero (lo assegna issueInvoice). Nessuna chiamata a nextDocumentNumber.
       const doc: QuoteDocument = {
         id: uid(), type: t, number: isInv ? '' : await nextDocumentNumber(t), date,
@@ -415,7 +480,54 @@ export default function NewQuotePage() {
             <p className="muted qe-note">Catalogo vuoto: <Link to="/catalogo">aggiungi le tue voci</Link> per far trovare prezzi e unità in automatico.</p>
           )}
 
+          {warnings.length > 0 && (
+            <div className="qe-leftovers" role="status">
+              <strong>Attenzione:</strong>
+              <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{warnings.map((w) => <li key={w}>{w}</li>)}</ul>
+            </div>
+          )}
+          {refPrev && (
+            <div className="cp-banner" role="status">
+              <span>Hai detto «come da preventivo precedente»: <strong>non ho copiato nulla</strong>. Scegli il preventivo di riferimento per aggiungere le sue righe, oppure ignora e compila a mano.</span>
+              <div className="cp-banner-btns">
+                {prevQuotes.map((d) => (
+                  <Button key={d.id} size="sm" variant="secondary" onClick={() => copyFrom(d)}>{d.number} · {d.customer.name || 'senza cliente'}</Button>
+                ))}
+                {prevQuotes.length === 0 && <span className="muted">Non ci sono preventivi salvati.</span>}
+                <Button size="sm" variant="ghost" onClick={() => setRefPrev(false)}>Ignora</Button>
+              </div>
+            </div>
+          )}
+
           <QuoteEditor
+            customers={book}
+            onPickCustomer={pickCustomer}
+            lineMeta={lineMeta}
+            customerExtra={<>
+              {hint?.kind === 'matched' && (
+                <div className="cp-banner" role="status">
+                  <span>Cliente in rubrica: <strong>{hint.candidates[0].name}</strong>. Ho compilato i suoi dati.</span>
+                  <div className="cp-banner-btns"><Button size="sm" variant="ghost" onClick={rejectHint}>Non è lui{hint.spoken ? `: usa «${hint.spoken}»` : ''}</Button></div>
+                </div>
+              )}
+              {hint && hint.kind !== 'matched' && (
+                <div className="cp-banner" role="status">
+                  <span>{hint.kind === 'ambiguous' ? `Ho trovato più clienti simili a «${hint.spoken}»: quale intendevi?` : `Intendevi ${hint.candidates[0].name}?`}</span>
+                  <div className="cp-banner-btns">
+                    {hint.candidates.map((c) => (
+                      <Button key={c.id} size="sm" variant="secondary" onClick={() => pickCustomer({ id: c.id, name: c.name })}>{hint.kind === 'weak' ? `Sì, ${c.name}` : c.name}</Button>
+                    ))}
+                    <Button size="sm" variant="ghost" onClick={() => setHint(null)}>No, è un cliente nuovo</Button>
+                  </div>
+                </div>
+              )}
+              {!editing && customer.name.trim() && (
+                <label className="cp-check">
+                  <input type="checkbox" checked={saveToBook} onChange={(e) => setSaveToBook(e.target.checked)} />
+                  <span>{book.some((b) => b.id === customer.id) ? 'Completa la scheda in rubrica con i dati nuovi' : 'Salva questo cliente in rubrica'}</span>
+                </label>
+              )}
+            </>}
             type={type}
             customer={customer}
             onCustomer={(c) => { setCustomer(c); if (c.name.trim()) setCustomerError(undefined); }}

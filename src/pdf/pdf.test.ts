@@ -95,4 +95,19 @@ describe('generateDocumentPdf', () => {
     const nc = renderDocumentPdf(fakeCreditNote(), fakeProfile({ regimeForfettario: true }), { compress: false }).output();
     expect(nc).not.toContain('Scadenza:');
   });
+
+  it('riga di sconto in euro: "Sconto" con importo negativo, senza colonne incoerenti; bollo dopo sconto', () => {
+    const lines: DocLine[] = [
+      { id: 'a', description: 'Lavoro', qty: 1, unit: 'corpo', unitPrice: 100, vat: 0, natura: 'N2.2' },
+      { id: 's', description: 'Sconto', qty: 1, unit: 'corpo', unitPrice: -30, vat: 0, natura: 'N2.2' },
+    ];
+    const pdf = renderDocumentPdf(fakeInvoice({ lines }), fakeProfile({ regimeForfettario: true }), { compress: false });
+    const txt = pdf.output();
+    expect(txt).toContain('(Sconto)');
+    expect(txt).toContain('(-30,00)');
+    expect(txt).toContain('70,00'); // imponibile = totale dopo lo sconto
+    // 70 € <= 77,47 €: nessun bollo (dicitura assente), anche se il listino (100 €) lo avrebbe richiesto
+    expect(txt).not.toContain('Rimborso imposta di bollo');
+    expect(txt).not.toContain(BOLLO_LEGAL_TEXT.replace(/[()]/g, (c) => `\\${c}`));
+  });
 });

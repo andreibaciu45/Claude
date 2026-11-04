@@ -7,6 +7,7 @@ const EMAIL = `qa.${Date.now()}@example.test`;
 async function login(S, ctx, page, email) {
   await go(page, '/account');
   await page.getByLabel('Email').fill(email);
+  await acceptTerms(page);
   await page.getByRole('button', { name: 'Inviami il codice' }).click();
   await page.getByLabel('Codice a 6 cifre').waitFor();
   const code = S.devCodes[ctx.__label];
@@ -19,6 +20,10 @@ async function login(S, ctx, page, email) {
   const mig = await page.getByText('Prima sincronizzazione').waitFor({ timeout: 4000 }).then(() => true, () => false);
   if (mig) { await page.getByRole('button', { name: 'Carica e sincronizza' }).click(); await page.getByText('Tutto aggiornato').waitFor({ timeout: 15000 }); }
   return mig;
+}
+async function acceptTerms(page) {
+  const cb = page.getByRole('checkbox', { name: /Ho letto/ });
+  if (await cb.count()) await cb.check();
 }
 const token = (page) => page.evaluate(() => localStorage.getItem('vp:sync:token'));
 async function serverGet(tok, path) {
@@ -51,7 +56,17 @@ run('08-account-sync', async (S) => {
   await A.getByRole('button', { name: 'Inviami il codice' }).click();
   S.check('login: email non valida rifiutata lato client', await A.getByText('Inserisci un indirizzo email valido').isVisible());
   await A.getByLabel('Email').fill(EMAIL);
+  await sleep(300);
+  S.check('login: l\'errore "email non valida" sparisce dopo aver corretto l\'email', (await A.getByText('Inserisci un indirizzo email valido').count()) === 0, 'errore ancora visibile con email valida');
   await A.getByRole('button', { name: 'Inviami il codice' }).click();
+  await sleep(400);
+  const needTerms = await A.getByRole('checkbox', { name: /Ho letto/ }).count();
+  if (needTerms) {
+    S.check('login: senza accettare Termini/Privacy/DPA non si procede', await A.getByText(/devi confermare di aver letto/).first().isVisible() && (await A.getByLabel('Codice a 6 cifre').count()) === 0);
+    await S.shot(A, 'consenso richiesto');
+    await acceptTerms(A);
+    await A.getByRole('button', { name: 'Inviami il codice' }).click();
+  }
   await A.getByLabel('Codice a 6 cifre').waitFor();
   S.check('login: devCode restituito dal server di test', /^\d{6}$/.test(S.devCodes.A || ''), S.devCodes.A);
   await A.getByLabel('Codice a 6 cifre').fill(S.devCodes.A === '000000' ? '111111' : '000000');

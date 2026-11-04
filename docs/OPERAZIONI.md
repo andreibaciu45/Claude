@@ -1,0 +1,282 @@
+# Operazioni — guida per chi gestisce VocePreventivo (senza essere DevOps)
+
+Questa guida è per **una persona sola** che tiene in piedi il servizio. Non serve sapere programmare: servono un terminale con SSH sul VPS e un po' di abitudine. Per l'installazione iniziale vedi `docs/DEPLOY.md`; qui c'è la vita di tutti i giorni.
+
+> Fiscalità e privacy: l'app è uno strumento di supporto; i tempi di conservazione e le risposte GDPR indicati qui sono **da verificare con il commercialista e con il consulente privacy**.
+
+## 0. Cosa devi sapere in 2 minuti
+
+| Cosa | Dove / comando |
+|---|---|
+| Collegarsi al server | `ssh deploy@IP_DEL_SERVER` (vedi DEPLOY.md §2) |
+| Stato del servizio | `systemctl status vocepreventivo-server` |
+| Log | `sudo journalctl -u vocepreventivo-server -n 100 -f` (JSON, senza email né token) |
+| Configurazione e segreti | `/etc/vocepreventivo/server.env` (permessi 600, **non** nel repository) |
+| Database | `/var/lib/vocepreventivo/vocepreventivo.sqlite` (+ `-wal`, `-shm`) |
+| Backup giornalieri | `/var/lib/vocepreventivo/backups/` (14 giorni) + replica Litestream sul bucket |
+| Strumento di amministrazione | `admin.sh` (sotto) |
+
+### Lo strumento di amministrazione (`admin.sh`)
+Tutto quello che serve all'operatore è un unico comando, da lanciare **sul VPS**:
+
+```bash
+sudo -u vocepreventivo /opt/vocepreventivo/current/server/scripts/admin.sh <comando> [opzioni]
+```
+
+(Per comodità: `alias vpadmin='sudo -u vocepreventivo /opt/vocepreventivo/current/server/scripts/admin.sh'` nel tuo `~/.bashrc`; negli esempi sotto scrivo `vpadmin`.)
+Carica da solo `server.env`, quindi usa lo stesso database e le stesse chiavi del server. Sul tuo PC di sviluppo il comando equivalente è `npx tsx server/scripts/admin.ts <comando>` con `DB_PATH=...`.
+`vpadmin help` elenca tutto. **Codici di uscita**: `0` tutto bene · `1` errore o problema grave · `2` solo avvisi · `64` comando scritto male. Se il database non esiste il comando si ferma con un messaggio chiaro (non ne crea uno nuovo per sbaglio).
+
+| Comando | A cosa serve |
+|---|---|
+| `vpadmin tenants` | elenco clienti: piano, ultimo accesso, documenti del mese (`--cerca testo`, `--json`) |
+| `vpadmin info mario@x.it` | dettaglio di un cliente e storico delle azioni amministrative |
+| `vpadmin grant-pro <email> --giorni 30` o `--fino-al 2026-12-31` | regala/concede Pro a mano (`--nota "motivo"`) |
+| `vpadmin revoke-pro <email>` | toglie la concessione manuale |
+| `vpadmin export-tenant <email>` / `delete-tenant <email>` | richieste GDPR |
+| `vpadmin stats` | numeri del servizio (utenti attivi, documenti, fatture, conflitti, errori) |
+| `vpadmin integrity-check` | controlla il database (corruzione, trigger, numerazione fatture) |
+| `vpadmin backup` / `restore-test` | backup a caldo / prova di ripristino |
+| `vpadmin rotate-key` | cambio della chiave di cifratura (§9) |
+| `vpadmin create-invite-code` | codici invito per il lancio privato (§4) |
+
+---
+
+## 1. Routine
+
+### Ogni giorno (5 minuti, meglio se al mattino)
+1. **Servizio vivo**: apri `https://app.tuodominio.it/health/deep` (o guarda l'avviso del monitor, §6). Deve dire `"status":"ok"`. `degraded` = qualcosa da guardare oggi; `fail` (HTTP 503) = intervieni subito (§7).
+2. **Numeri**: `vpadmin stats`. Guarda la riga *Errori* (idealmente 0 nelle ultime 24 ore) e *Job SDI* (se compare `dead`, una fattura non è stata inviata: guarda §7.6).
+3. **Posta di supporto**: rispondi alle richieste (vedi `docs/FAQ-SUPPORTO.md`). Una richiesta GDPR ha una scadenza (§5).
+
+### Ogni settimana (15 minuti)
+1. `vpadmin integrity-check` → deve finire con «Tutto in ordine». Un **AVVISO** sui buchi nella numerazione può essere solo un dispositivo che non ha ancora sincronizzato: se dopo qualche giorno c'è ancora, scrivi al cliente (la numerazione è assegnata dal suo dispositivo; non si "ripara" a mano).
+2. **Backup**: `ls -lh /var/lib/vocepreventivo/backups | tail -3` (file di ieri e di oggi) e, nel pannello del bucket, file Litestream recenti.
+3. **Disco**: `df -h /var/lib/vocepreventivo` (sotto l'80%).
+4. **Aggiornamenti di sicurezza**: se esiste `/var/run/reboot-required`, pianifica un riavvio in un orario tranquillo (`sudo reboot`; il servizio riparte da solo e chiude il database in modo ordinato).
+5. Licenze regalate in scadenza: `vpadmin tenants | grep manuale`.
+
+### Ogni mese (30 minuti)
+1. **Prova di ripristino vera**: `vpadmin restore-test` (copia fresca) e `vpadmin restore-test /var/lib/vocepreventivo/backups/vocepreventivo-XXXX.sqlite.gz` (l'ultimo backup giornaliero). Deve finire con «ESITO: OK». Il timer mensile di DEPLOY.md §8 fa lo stesso sul bucket: controlla `systemctl --failed`. *Un backup mai provato non è un backup.*
+2. **Copia fuori sede**: scarica l'ultimo backup sul tuo PC (cifrato o su disco cifrato) o verifica lo snapshot del VPS dal pannello del provider.
+3. **Segreti e accessi**: nessun `CHANGE_ME` in `server.env`; chiavi SSH ancora solo le tue; revisione di chi ha accesso al bucket.
+4. **Aggiornamenti**: applica gli aggiornamenti del repository (§8).
+5. **Costi** (VPS, bucket, SMTP, Stripe) e **piano** degli utenti: `vpadmin stats` (Pro Stripe / Pro manuale / Free).
+
+---
+
+## 2. Cosa vedere guardando `vpadmin stats`
+```
+Clienti:     42 attivi (3 cancellati) · Pro Stripe 5 · Pro manuale 2 · Free 35
+Utenti:      45 registrati · attivi 7 giorni 18 · attivi 30 giorni 31 · nuovi 7g 4 / 30g 12
+Documenti:   310 totali · creati questo mese 66 · preventivi 190 · bozze fattura 12
+Fatture:     108 emesse (23 negli ultimi 30 giorni) · 2 scartate dallo SDI
+Conflitti sync 7g:  quota_exceeded: 9, stale: 2
+Job SDI:     done: 40, dead: 1
+Errori:      0 nelle ultime 24 ore · 1 negli ultimi 7 giorni
+```
+- **quota_exceeded** alto = clienti Free che toccano il limite di 3 documenti al mese: sono i candidati naturali all'abbonamento (o a una prova regalata).
+- **stale / locked_document** occasionali sono normali (due dispositivi che modificano la stessa cosa). Se aumentano all'improvviso, c'è un client con l'orologio sballato o un bug: segnalalo agli sviluppatori.
+- **duplicate_invoice_number**: due dispositivi hanno emesso lo stesso numero offline. Il secondo è stato rifiutato e il cliente vede il conflitto nell'app. Non toccare il database.
+- **Errori**: ogni riga mostra data, rotta e nome dell'errore (mai dati dei clienti). Con il nome e la rotta, gli sviluppatori trovano la causa nei log (`journalctl`, cerca l'ora indicata).
+
+---
+
+## 3. Concedere una licenza Pro a mano (prova, regalo, assistenza, pagamento fuori Stripe)
+
+```bash
+vpadmin grant-pro mario@example.it --giorni 30 --nota "prova per Mario, concordata via mail"
+vpadmin grant-pro mario@example.it --fino-al 2026-12-31 --nota "bonifico ricevuto 04/11"
+vpadmin info mario@example.it        # vedi piano e storico
+vpadmin revoke-pro mario@example.it  # annulla prima della scadenza
+```
+- Il cliente deve **aver già fatto il primo accesso** (altrimenti: «Nessun utente con email …»). Chiedigli di registrarsi, poi concedi.
+- `--fino-al AAAA-MM-GG` è **inclusivo**: la licenza vale per tutto quel giorno (UTC). Massimo 10 anni. Una nuova concessione **sostituisce** la precedente (anche accorciandola).
+- Scade **da sola**: non devi ricordarti di toglierla. Non serve riavviare nulla, il cliente la vede al successivo refresh dell'app.
+- Ogni concessione/revoca è scritta in un registro **che non si può modificare né cancellare** (`admin_actions`) con data, chi l'ha fatta (utente di sistema), scadenza e nota. Nel registro non c'è l'email del cliente, solo l'identificativo interno.
+
+**Precedenza tra licenza manuale e abbonamento Stripe** (regola unica): il piano effettivo è il **più favorevole** dei due.
+- Un evento Stripe (disdetta, pagamento fallito, rinnovo…) **non cancella né accorcia** la concessione manuale; la concessione manuale **non tocca** lo stato di Stripe.
+- `revoke-pro` toglie **solo** la concessione manuale: se il cliente paga con Stripe resta Pro (il comando te lo dice).
+- Esempio: Mario ha una concessione fino al 31/12 e disdice Stripe a ottobre → resta Pro fino al 31/12. Se invece la concessione scade a ottobre ma Stripe è attivo → resta Pro per Stripe.
+- Un cliente con sola concessione manuale non ha un «abbonamento da gestire»: l'app mostra Pro senza portale di pagamento, e può comunque abbonarsi in qualsiasi momento.
+
+---
+
+## 4. Lancio privato con codici invito (facoltativo)
+Per aprire il servizio a poche persone invitate:
+1. In `/etc/vocepreventivo/server.env` aggiungi `INVITE_ONLY=1`, poi `sudo systemctl restart vocepreventivo-server`.
+2. Crea i codici: `vpadmin create-invite-code --quanti 5 --giorni 14 --nota "beta artigiani"` (oppure `--email lei@x.it` per un codice valido solo per quell'indirizzo).
+3. Mandali alle persone (vedi i codici **una sola volta**: nel database resta solo l'impronta).
+4. Controllo: `vpadmin invite-codes` (disponibile / usato / scaduto); `vpadmin revoke-invite VP-XXXX-XXXX-XXXX` per annullarne uno non usato.
+
+Il codice serve **solo per creare un account**; chi ha già un account accede come sempre. Ogni codice si usa una volta. Per riaprire a tutti: togli `INVITE_ONLY=1` e riavvia. *Nota per i client*: la schermata di accesso deve mostrare un campo «codice invito» e inviarlo come `inviteCode` a `POST /v1/auth/verify` (il server risponde `403 invite_required` / `invite_invalid` senza consumare il codice OTP).
+
+---
+
+## 5. Richieste GDPR (accesso, portabilità, cancellazione)
+**Prima di tutto**: verifica che la richiesta arrivi dall'indirizzo email dell'account (o dall'app, dopo il login). Il termine di risposta è in genere **un mese** (da verificare con il consulente privacy). Annota data e esito.
+
+### Export («dammi i miei dati»)
+Il cliente può farlo da solo (l'API `GET /v1/me/export` esiste; la pagina Account dell'app la usa se la funzione è esposta). Se chiede a te:
+```bash
+cd /tmp && vpadmin export-tenant mario@example.it --out /tmp/export-mario.json
+```
+Il file (JSON, permessi 600) contiene account, profilo, catalogo, documenti, dispositivi, consumi, accettazioni, registro. Invialo **con un canale sicuro** (link protetto, file cifrato; mai allegato in chiaro) e **cancellalo subito** (`shred -u /tmp/export-mario.json`).
+
+### Cancellazione («cancella il mio account»)
+```bash
+vpadmin delete-tenant mario@example.it
+```
+Il comando riassume cosa succederà e chiede di **riscrivere l'email** per confermare. Regole (identiche a quelle del pulsante nell'app):
+- **Sempre eliminati**: sessioni, dispositivi, profilo, catalogo, **bozze e preventivi**, log di sincronizzazione, utente (l'email torna libera).
+- **Fatture emesse**: per obbligo di conservazione (10 anni, **da verificare col commercialista**) **restano**. In quel caso l'account viene *anonimizzato* (nessun nome, nessun login possibile, nessun utente). Se non ce ne sono, il cliente viene **eliminato del tutto**.
+- **Restano sempre** (pseudonimi): il registro audit e la prova di accettazione di Termini/DPA.
+- **Abbonamento Stripe attivo**: il comando si rifiuta. Annullalo prima dal pannello Stripe (o chiedi al cliente di farlo dal portale), oppure usa `--ack-subscription` e **poi annulla a mano** su Stripe, altrimenti continua ad addebitare.
+- **Backup**: contengono i dati fino alla scadenza della retention (14 giorni per i backup locali e Litestream). Va scritto nell'informativa e comunicato al cliente. Non si modificano i backup a mano.
+- Per script e automazioni esiste `--conferma <email>` al posto della domanda interattiva.
+Ogni cancellazione ed export è registrata in `admin_actions`. Ricordati di rispondere al cliente.
+
+---
+
+## 6. Monitoraggio: `/metrics`, `/health/deep`, uptime
+
+### Avviso «è giù» (obbligatorio, gratuito)
+Su UptimeRobot / Better Stack crea un monitor **HTTPS ogni 5 minuti** su `https://app.tuodominio.it/health/deep` con controllo della parola chiave `"status":"ok"` (così ti avvisa anche per `degraded`/`fail`) e un secondo, più semplice, su `/health`. Avviso email/Telegram se giù da più di 2 minuti.
+
+`/health/deep` controlla: **db_write** (il database accetta scritture), **migrations** (schema aggiornato), **disk** (spazio libero: `degraded` sotto 1 GB o 10%, `fail`/503 sotto 200 MB o 3%), **backup** (età dell'ultimo file in `BACKUP_DIR`; `degraded` oltre 36 ore), **maintenance** (pulizia periodica in corso). Senza token mostra solo ok/warn/fail; con `Authorization: Bearer $METRICS_TOKEN` anche i numeri:
+```bash
+curl -s -H "Authorization: Bearer $METRICS_TOKEN" https://app.tuodominio.it/health/deep
+```
+
+### Metriche (facoltative, per chi vuole i grafici)
+1. Genera un token: `openssl rand -hex 24` e mettilo in `server.env` come `METRICS_TOKEN=...`; riavvia. **Senza token (o con meno di 16 caratteri) `/metrics` non esiste** (risponde 404).
+2. Provalo: `curl -s -H "Authorization: Bearer $METRICS_TOKEN" https://app.tuodominio.it/metrics | head -40`.
+3. Collega Grafana Cloud (gratuito) o un Prometheus: target `app.tuodominio.it`, `scheme: https`, `metrics_path: /metrics`, `authorization: { type: Bearer, credentials: <token> }`.
+4. Il token è un segreto: non metterlo in chat, in git o in URL (in query string **non** funziona, di proposito).
+
+Le metriche **non contengono dati personali** (nessuna email, token, codice OTP, indirizzo IP, id di cliente o documento): solo conteggi per rotta, stato e motivo.
+
+| Metrica | Come leggerla | Quando preoccuparsi |
+|---|---|---|
+| `vp_db_up` | 1 = il DB risponde | `0` |
+| `vp_http_requests_total{route,method,status}` | richieste per rotta | molti `status="5xx"`; salto di `429` (limiti di frequenza: attacco o client impazzito) |
+| `vp_http_request_duration_seconds` | latenza per rotta (istogramma) | p95 > 1 s costante |
+| `vp_errors_total{kind}` | errori interni (500) | `> 0` ripetuto: guarda `vpadmin stats` e i log |
+| `vp_sync_push_ops_total{result}`, `vp_sync_conflicts_total{reason}` | operazioni accettate/in conflitto | `stale`/`locked_document` in crescita improvvisa |
+| `vp_quota_exceeded_total` | rifiuti per quota Free | alto = opportunità commerciale |
+| `vp_sdi_jobs{status}`, `vp_sdi_jobs_processed_total` | coda SDI | `dead > 0`, `queued` che cresce |
+| `vp_active_users{window}`, `vp_users`, `vp_tenants` | utenti attivi 1/7/30 giorni | andamento |
+| `vp_tenants_by_stripe_plan`, `vp_manual_grants_active` | piani | — |
+| `vp_signups_total`, `vp_logins_total`, `vp_otp_requests_total` | accessi | molte richieste OTP e pochi login = problema email (SMTP) |
+| `vp_db_size_bytes`, `vp_db_free_bytes`, `vp_db_wal_bytes` | dimensioni | WAL che cresce senza fermarsi (> 500 MB): vedi §7.3 |
+| `vp_last_backup_age_seconds` | età dell'ultimo backup | > 129600 (36 ore) |
+| `vp_last_housekeeping_timestamp_seconds` | ultima pulizia automatica | più di 3 ore fa |
+| `vp_process_resident_memory_bytes` | memoria | vicino al limite di 768 MB del servizio |
+
+I contatori ripartono da zero a ogni riavvio (normale: Prometheus lo gestisce).
+
+### Cosa fa il server da solo (manutenzione)
+Ogni ora: elimina sessioni scadute, codici OTP, contatori dei limiti, eventi di fatturazione e job SDI completati vecchi, bozze/preventivi/voci di catalogo già eliminati (dopo 180 giorni), errori vecchi, inviti scaduti; fa un `wal_checkpoint(PASSIVE)` (non blocca nessuno). Una volta al giorno `PRAGMA optimize`. **Mai** tocca le fatture emesse. Il `VACUUM` (compattazione del database) è **spento** di default perché riscrive tutto il file e Litestream deve ricopiarlo; accendilo solo se il database ha molto spazio inutilizzato (`vp_db_free_bytes`): `MAINTENANCE_VACUUM=1` in `server.env` (agisce alle 03:00 UTC, al massimo ogni 7 giorni, solo se serve e c'è spazio su disco).
+
+---
+
+## 7. Quando qualcosa va storto
+
+**Regola d'oro**: prima di toccare qualunque cosa, `vpadmin backup` (se il server è su) oppure copia il file del database a servizio fermo. Poi un cambiamento alla volta.
+
+### 7.1 Il server è giù (il monitor ti ha avvisato)
+1. `curl -i https://app.tuodominio.it/health`: se risponde ma il sito no → problema Caddy (`systemctl status caddy`, `journalctl -u caddy -n 50`; spesso certificato o DNS).
+2. `systemctl status vocepreventivo-server` e `sudo journalctl -u vocepreventivo-server -n 100`.
+3. Fermato per errore? `sudo systemctl restart vocepreventivo-server`, poi `curl -s http://127.0.0.1:8787/health/deep`.
+4. Si riavvia in loop? Cerca nel log la riga `"event":"uncaught_exception"` o un errore di configurazione (`AUTH_SECRET`, `SMTP_URL`, `APP_ENCRYPTION_KEY`: il server rifiuta di partire se mancano o sono invalide). Se hai appena modificato `server.env`, annulla la modifica.
+5. Se è dopo un aggiornamento: rollback (§8).
+6. VPS non risponde del tutto → pannello del provider, riavvio dal pannello; se persiste, ripristino su nuovo VPS (DEPLOY.md §8, «Se il server è perso»).
+7. Intanto l'app **continua a funzionare** sui dispositivi (i dati sono locali): solo la sincronizzazione aspetta. Puoi scrivere agli utenti che non perdono nulla.
+
+### 7.2 Disco pieno
+Sintomi: `/health/deep` → `disk` in `fail`/`warn` oppure `db_write` in `fail`; errori «disk full» nei log.
+1. `df -h` e `sudo du -xh /var/lib/vocepreventivo /var/log --max-depth=1 | sort -h | tail`.
+2. Libera spazio **senza toccare il database**: `sudo journalctl --vacuum-size=200M`; vecchi backup oltre 14 giorni in `/var/lib/vocepreventivo/backups` (`sudo find /var/lib/vocepreventivo/backups -type f -mtime +14 -print -delete`); `sudo apt clean`.
+3. **Non** cancellare `*.sqlite-wal` / `*.sqlite-shm` a mano a server acceso (contengono scritture non ancora integrate).
+4. Se la causa è il WAL enorme: `sudo systemctl restart vocepreventivo-server` (la chiusura ordinata integra il WAL) e controlla che Litestream sia attivo (`systemctl status vocepreventivo-litestream`): se la replica è ferma, il WAL non si può ridurre.
+5. Se serve più spazio: ingrandisci il disco dal pannello del provider.
+6. Dopo: `vpadmin integrity-check`.
+Evita di lanciare `VACUUM` con il disco quasi pieno (serve fino al doppio dello spazio del database).
+
+### 7.3 Database corrotto o dati strani
+Sintomi: errori «database disk image is malformed», `integrity-check` con `ERRORE`, `/health/deep` → `db_write` fail con disco libero.
+1. **Non cancellare niente.** `sudo systemctl stop vocepreventivo-server` (e `vocepreventivo-litestream`, per non replicare un file rovinato).
+2. Metti da parte il file: `sudo cp -a /var/lib/vocepreventivo/vocepreventivo.sqlite* /root/db-corrotto-$(date +%F)/` (serve a capire cos'è successo).
+3. Prova prima di tutto che sia davvero corrotto: `vpadmin integrity-check --file /root/db-corrotto-.../vocepreventivo.sqlite`.
+4. **Ripristino**, sempre prima in prova (DEPLOY.md §8):
+   ```bash
+   cd /opt/vocepreventivo/current/infra/scripts
+   sudo -u vocepreventivo ./restore.sh litestream --test                 # ultimo stato replicato
+   sudo -u vocepreventivo ./restore.sh litestream --at 2026-11-04T08:00:00Z --test   # un momento PRIMA del guasto
+   sudo ./restore.sh litestream --live --yes                             # sostituisce il DB (il vecchio resta come .before-restore-...)
+   ```
+   In alternativa dal backup giornaliero: `restore.sh snapshot /var/lib/vocepreventivo/backups/vocepreventivo-XXXX.sqlite.gz --live --yes`.
+5. Riavvia (`systemctl start vocepreventivo-server vocepreventivo-litestream`) e verifica: `vpadmin integrity-check`, `curl -s http://127.0.0.1:8787/health/deep`, `vpadmin stats`.
+6. **Cosa si è perso**: le modifiche fatte tra il momento del ripristino e il guasto. L'app è *local-first*: i dispositivi dei clienti hanno ancora i loro dati e li rimandano alla sincronizzazione successiva. Le fatture emesse in quell'intervallo tornano tramite sync; se due dispositivi avevano riusato numeri, il server segnala conflitto di numerazione (`duplicate_invoice_number`) e il cliente lo vede nell'app. Avvisa i clienti più attivi e controlla `vpadmin integrity-check` nei giorni seguenti (buchi nella numerazione). *(Procedura da verificare con una simulazione prima del lancio.)*
+7. Se anche i backup sono inutilizzabili: `restore-test` sui file più vecchi per trovare l'ultimo buono, e chiedi aiuto agli sviluppatori **prima** di qualsiasi azione distruttiva.
+
+### 7.4 Le email di accesso non arrivano
+Sintomo: `vp_otp_requests_total` sale ma `vp_logins_total` no; i clienti scrivono «non mi arriva il codice». Nei log compare `"error":"mail_failed"`. Controlla `SMTP_URL`/credenziali del fornitore, la quota giornaliera, lo spam. Il server non registra mai il codice né l'indirizzo.
+
+### 7.5 Molti errori `429` (troppe richieste)
+Un indirizzo o un client sta superando i limiti. Se è un attacco, i limiti già proteggono; se invece **tutti** i clienti ricevono 429, probabilmente `TRUST_PROXY` non è corretto e tutti sembrano lo stesso IP (nei log: `xff_ignored_public_peer`). Vedi `server/README.md` (TRUST_PROXY).
+
+### 7.6 Fatture bloccate sullo SDI (`dead`)
+`vpadmin stats` mostra `dead: N`. Significa che l'invio automatico è fallito più volte. Se il provider SDI non è attivo (versione attuale: invio manuale dal portale dell'Agenzia delle Entrate) non dovrebbero esserci job. Altrimenti: controlla le credenziali del provider e avvisa il cliente di scaricare l'XML e inviarlo a mano dal portale gratuito.
+
+### 7.7 Chiave di cifratura persa
+Senza `APP_ENCRYPTION_KEY` i campi cifrati (anagrafica clienti, note, XML) **non si recuperano**. Per questo: copia in un gestore password, mai solo sul server. `vpadmin integrity-check` segnala «righe cifrate NON leggibili» se la chiave configurata è sbagliata: **non** riavviare con una chiave nuova senza averla prima impostata come descritto in §9.
+
+### 7.8 Sospetta violazione di dati
+Isola (ferma il servizio se serve), conserva i log (`sudo journalctl -u vocepreventivo-server --since "7 days ago" > /root/log.txt`), ruota i segreti (`infra/scripts/rotate-secrets.md`) e contatta il consulente privacy: una violazione di dati personali va notificata al Garante **entro 72 ore** dalla scoperta (da verificare con il consulente).
+
+---
+
+## 8. Aggiornare il servizio
+1. **Prima** un backup e una prova: `vpadmin backup` e `vpadmin restore-test`.
+2. Esegui il deploy come da DEPLOY.md (§6/§7): workflow «Deploy produzione» su GitHub oppure `deploy-nodocker.sh`. Il deploy fa un backup di sicurezza, cambia il link `current`, riavvia e controlla `/health`; se il controllo fallisce **torna da solo** alla versione precedente.
+3. All'avvio il server applica le **migrazioni** del database (solo «in avanti»). Dopo l'aggiornamento verifica:
+   ```bash
+   curl -s http://127.0.0.1:8787/health/deep     # "migrations": "ok"
+   vpadmin integrity-check
+   vpadmin stats
+   ```
+4. Rollback manuale del codice: DEPLOY.md §7. **Attenzione**: tornare alla versione precedente non annulla le migrazioni; se una migrazione ha dato problemi, ripristina il backup pre-deploy (§7.3) e chiedi agli sviluppatori.
+5. Durante il riavvio il server chiude **in modo ordinato** (entro 10 secondi): nuove richieste ricevono 503 per un istante, quelle in corso finiscono, il database viene chiuso. Con systemd lascia `TimeoutStopSec=20`.
+6. Nuove variabili d'ambiente: leggi `server/.env.example` (ogni variabile è commentata) e aggiungi a `server.env` solo quelle che ti servono.
+
+---
+
+## 9. Chiavi e segreti
+- **`APP_ENCRYPTION_KEY`** (cifratura dei dati sensibili). Rotazione, **con un backup prima**:
+  1. `openssl rand -base64 32` → nuova chiave.
+  2. In `server.env`: `APP_ENCRYPTION_KEY=<nuova>`, `APP_ENCRYPTION_KEY_ID=k2`, `APP_ENCRYPTION_OLD_KEYS="k1:<vecchia>"`. Riavvia (nessun fermo: le nuove scritture usano `k2`, le vecchie si leggono ancora).
+  3. Simulazione: `vpadmin rotate-key --report`. Poi `vpadmin rotate-key` (fa da solo un backup, poi ricifra bozze, preventivi, profili e log di sync). Le **fatture emesse** si ricifrano solo con `--include-locked` (sospende per un attimo la protezione di immutabilità, in transazione: farlo solo se serve, con un backup).
+  4. Quando il comando dice che nessun dato usa più le chiavi vecchie, e hai archiviato o scaduto i backup che ne dipendono, togli la vecchia chiave da `OLD_KEYS`. Il registro audit (non modificabile) resta con la chiave originale: **conservala**.
+- **`AUTH_SECRET`**: cambiarlo invalida i codici OTP in corso (nessun danno: se ne richiede un altro).
+- **`METRICS_TOKEN`**: cambia quando vuoi; aggiorna il collettore.
+- Rotazione di tutti i segreti: `infra/scripts/rotate-secrets.md`. Mai segreti in chat o nel repository.
+
+---
+
+## 10. Riferimento rapido
+
+| Voglio… | Comando |
+|---|---|
+| Vedere i clienti | `vpadmin tenants` |
+| Regalare 30 giorni di Pro | `vpadmin grant-pro <email> --giorni 30 --nota "..."` |
+| Sapere se il database è sano | `vpadmin integrity-check` |
+| Fare un backup ora | `vpadmin backup` |
+| Provare che i backup funzionano | `vpadmin restore-test` |
+| Rispondere a una richiesta GDPR | `vpadmin export-tenant <email>` / `vpadmin delete-tenant <email>` |
+| Stato del servizio | `curl -s http://127.0.0.1:8787/health/deep` |
+| Riavviare | `sudo systemctl restart vocepreventivo-server` |
+| Leggere i log | `sudo journalctl -u vocepreventivo-server -n 100 -f` |
+
+Variabili d'ambiente delle operazioni (tutte opzionali, commentate in `server/.env.example`): `METRICS_TOKEN`, `INVITE_ONLY`, `BACKUP_DIR`, `BACKUP_MAX_AGE_HOURS`, `DISK_WARN_FREE_MB`, `DISK_CRIT_FREE_MB`, `MAINTENANCE_VACUUM` (+ `MAINTENANCE_HOUR_UTC`, `MAINTENANCE_VACUUM_MIN_DAYS`, `MAINTENANCE_VACUUM_MIN_FREE_MB`, `MAINTENANCE_VACUUM_MAX_MB`), `MAINTENANCE_CHECKPOINT`, `TOMBSTONE_RETENTION_DAYS`, `SHUTDOWN_TIMEOUT_MS`.

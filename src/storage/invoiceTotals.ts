@@ -4,12 +4,15 @@
  * (shared/fiscal/money: un solo arrotondamento half-up per riga, imposta per aliquota).
  * Modulo PURO: nessun accesso allo storage.
  *
+ * Sconti: le righe a PREZZO NEGATIVO (sconto in euro) e lo sconto % di riga entrano nell'importo di riga (centesimi);
+ * la soglia del bollo si valuta quindi sull'importo DOPO lo sconto [DA VERIFICARE col commercialista].
  * Bollo [DA VERIFICARE]: dovuto se forfettario e imponibile > 77,47 €; entra nel totale (riga di rimborso N1)
  * solo se addebitato al cliente. Sulle note di credito vale la stessa soglia valutata sull'importo della nota
  * (regola prudente di FISCAL-SPEC §1.4: il bollo della fattura originale non viene stornato).
  */
 import type { DocLine } from '../types';
-import { computeDocumentTotals, lineTotalCents } from '../../shared/fiscal/money';
+import { computeDocumentTotals, isDiscountLine, lineTotalCents } from '../../shared/fiscal/money';
+export { isDiscountLine };
 
 export interface InvoiceTotalsCents {
   lineCents: number[];
@@ -21,6 +24,8 @@ export interface InvoiceTotalsCents {
   /** Bollo addebitato al cliente (incluso nel totale). */
   stampChargedCents: number;
   grossCents: number;
+  /** Somma degli sconti in euro (righe a prezzo negativo), come numero POSITIVO. */
+  euroDiscountCents: number;
 }
 
 export function invoiceTotalsCents(
@@ -48,6 +53,7 @@ export function invoiceTotalsCents(
     stampDueCents: t.stampCents,
     stampChargedCents,
     grossCents: t.totalCents + stampChargedCents,
+    euroDiscountCents: -(lines ?? []).reduce((sum, l, i) => (isDiscountLine(l) ? sum + Math.min(0, t.lineTotals[i]) : sum), 0),
   };
 }
 

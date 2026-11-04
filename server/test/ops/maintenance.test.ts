@@ -104,6 +104,7 @@ describe('checkpoint, optimize, VACUUM', () => {
     expect(maybeVacuum()).toBe('skipped:too-soon');
     expect(one<any>("SELECT value FROM ops_state WHERE key='last_vacuum_at'")).toBeTruthy();
     // dati e trigger intatti
+    run("INSERT INTO audit_log(tenant_id, at, action) VALUES ('t', 1, 'x')");
     expect(() => run('DELETE FROM audit_log')).toThrow(/append-only/);
   });
 

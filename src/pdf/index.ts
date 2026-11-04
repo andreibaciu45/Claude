@@ -1,6 +1,7 @@
 import type { DocLine, Profile, QuoteDocument } from '../types';
 import { documentTotals } from './totals';
-import { lineEuro } from '../storage/invoiceTotals';
+import { lineEuro, isDiscountLine } from '../storage/invoiceTotals';
+export { isDiscountLine };
 import { BOLLO_LEGAL_TEXT, FORFETTARIO_LEGAL_TEXT } from '../../shared/fatturapa';
 export { documentTotals, draftTotals } from './totals';
 export type { DocTotals } from './totals';

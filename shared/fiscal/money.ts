@@ -85,7 +85,20 @@ export const lineTotalCents = (line: LineAmountInput): number => {
   return Number(divRoundHalfUp(numerator, 10n ** 18n));
 };
 
-/** Bollo: dovuto se forfettario (nessuna IVA) e importo complessivo > 77,47 €. */
+/**
+ * Riga di SCONTO in euro: quantità positiva e prezzo NEGATIVO (es. "Sconto", 1 corpo, -20,00 €), come la produce
+ * il motore di dettatura. Il suo importo di riga è negativo e riduce l'imponibile del gruppo (aliquota/natura) cui appartiene.
+ * Una riga con quantità e prezzo entrambi negativi NON è una riga di sconto (è un errore: validate la blocca).
+ */
+export const isDiscountLine = (l: { qty: number; unitPrice: number }): boolean =>
+  Number.isFinite(l.qty) && l.qty > 0 && Number.isFinite(l.unitPrice) && l.unitPrice < 0;
+
+/**
+ * Bollo: dovuto se forfettario (nessuna IVA) e importo complessivo > 77,47 €.
+ * L'importo è quello DOPO gli sconti (percentuali di riga e righe di sconto in euro): la soglia si valuta sul
+ * corrispettivo effettivamente fatturato, non sul prezzo di listino [DA VERIFICARE col commercialista: la norma parla
+ * di "importo" del documento; qui si assume l'importo netto di sconto incondizionato].
+ */
 export const isStampDutyDue = (opts: { regimeForfettario: boolean; amountCents: number }): boolean =>
   opts.regimeForfettario && opts.amountCents > STAMP_DUTY_THRESHOLD_CENTS;
 
@@ -118,6 +131,46 @@ export const summarizeByRate = (lines: RateLineInput[]): RateSummary[] => {
   const out = [...groups.values()];
   for (const g of out) g.taxCents = taxCents(g.taxableCents, g.vatRate);
   return out;
+};
+
+export interface DiscountPlan {
+  /** Per ogni riga: centesimi di sconto in euro assorbiti da quella riga (>0 solo sulle righe positive). */
+  shareCents: number[];
+  /** Indici delle righe di sconto interamente assorbite dalle righe positive (da non scrivere più come righe). */
+  absorbed: Set<number>;
+}
+
+/**
+ * Ripartizione degli sconti in euro (righe a prezzo negativo) sulle righe positive dello STESSO gruppo
+ * (aliquota + natura), in centesimi interi e in modo deterministico:
+ *  - quota di ogni riga = floor(sconto × importo riga / somma importi positivi);
+ *  - il resto (< n centesimi) va sull'ULTIMA riga positiva del gruppo.
+ * Se in un gruppo non ci sono righe positive, se lo sconto supera la somma o se una quota supererebbe l'importo della
+ * sua riga, il gruppo NON viene toccato: la riga di sconto resta negativa (scelta prudente, mai importi inventati).
+ * La somma righe − quote è sempre uguale alla somma originale (totale invariato).
+ */
+export const planEuroDiscounts = (lines: DocumentLineInput[], lineTotals: number[]): DiscountPlan => {
+  const shareCents = lines.map(() => 0);
+  const absorbed = new Set<number>();
+  const groups = new Map<string, number[]>();
+  lines.forEach((l, i) => {
+    const key = `${l.vatRate}|${l.natura ?? ''}`;
+    groups.set(key, [...(groups.get(key) ?? []), i]);
+  });
+  for (const idx of groups.values()) {
+    const neg = idx.filter((i) => isDiscountLine(lines[i]) && lineTotals[i] < 0);
+    if (!neg.length) continue;
+    const pos = idx.filter((i) => lineTotals[i] > 0);
+    const discount = -neg.reduce((s, i) => s + lineTotals[i], 0);
+    const base = pos.reduce((s, i) => s + lineTotals[i], 0);
+    if (!pos.length || discount <= 0 || discount > base) continue;
+    const shares = pos.map((i) => Number((BigInt(discount) * BigInt(lineTotals[i])) / BigInt(base)));
+    shares[shares.length - 1] += discount - shares.reduce((s, x) => s + x, 0);
+    if (shares.some((sh, k) => sh > lineTotals[pos[k]])) continue;
+    pos.forEach((i, k) => { shareCents[i] = shares[k]; });
+    neg.forEach((i) => absorbed.add(i));
+  }
+  return { shareCents, absorbed };
 };
 
 export interface DocumentLineInput extends LineAmountInput {

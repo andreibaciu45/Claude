@@ -5,7 +5,10 @@ import { getProfile, saveProfile } from '../storage';
 import type { Profile } from '../types';
 import LogoField from './profile/LogoField';
 import NumberingCard from './profile/NumberingCard';
+import './profile/profile.css';
 import { formatIban, isEmail, isValidFiscalCode, isValidIban, isValidVat } from './profile/validators';
+
+const normalizeIban = (v: string) => v.replace(/\s/g, '').toUpperCase();
 import { s } from './catalog/styles';
 
 type Errors = Partial<Record<keyof Profile, string>>;
@@ -138,7 +141,20 @@ export default function ProfilePage() {
             <Field label="Email" error={errors.email}><Input {...text('email')} {...fd('email')} onBlur={blur('email')} type="email" autoComplete="email" /></Field>
             <Field label="PEC" error={errors.pec}><Input {...text('pec')} {...fd('pec')} onBlur={blur('pec')} type="email" /></Field>
             <Field label="IBAN" error={errors.iban} hint="Per ricevere il bonifico: compare nei documenti">
-              <Input {...text('iban')} {...fd('iban')} onBlur={() => { if (p.iban) set('iban', formatIban(p.iban)); setErrors((e) => ({ ...e, iban: validate({ ...p, iban: p.iban })['iban'] })); }} autoCapitalize="characters" autoComplete="off" />
+              {/* Il campo (2 righe, a capo automatico, mai tagliato a 360 px) mostra il valore compatto; sotto, a gruppi di 4, la lettura per controllarlo.
+                  Gli spazi si ignorano in digitazione e incolla; al salvataggio l'IBAN è formattato a gruppi come prima. */}
+              <Textarea
+                value={normalizeIban(p.iban ?? '')}
+                onChange={(e) => set('iban', normalizeIban(e.target.value))}
+                {...fd('iban')}
+                className="pf-iban"
+                rows={2}
+                onBlur={() => setErrors((e) => ({ ...e, iban: validate(p)['iban'] }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+                autoCapitalize="characters" autoCorrect="off" spellCheck={false} autoComplete="off" maxLength={40}
+                aria-describedby="pf-iban-groups"
+              />
+              <div id="pf-iban-groups" className="pf-iban-groups" aria-live="off" data-empty={p.iban ? undefined : 'true'}>{p.iban ? formatIban(p.iban) : ''}</div>
             </Field>
           </div>
         </Card>
