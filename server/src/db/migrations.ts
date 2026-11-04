@@ -191,6 +191,37 @@ WHEN OLD.locked_at IS NOT NULL AND NOT (
 BEGIN SELECT RAISE(ABORT, 'documento_bloccato: modifica vietata'); END;
 `);
 
+registerMigration(2, 'hardening', `
+-- Periodo di grazia di billing (getPlan lo rispetta) e soft-delete dell'account (GDPR).
+ALTER TABLE entitlements ADD COLUMN grace_until INTEGER;
+ALTER TABLE tenants ADD COLUMN deleted_at INTEGER;
+
+-- Accettazione di Termini/DPA (prova del consenso). Nessun FK: la prova sopravvive alla cancellazione dell'account.
+CREATE TABLE legal_acceptances (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id TEXT NOT NULL,
+  user_id TEXT,
+  kind TEXT NOT NULL,            -- 'terms' | 'dpa'
+  version TEXT NOT NULL,
+  accepted_at INTEGER NOT NULL,  -- orologio del SERVER
+  client_accepted_at INTEGER,    -- dichiarato dal client (solo informativo)
+  ip_hash TEXT                   -- HMAC(AUTH_SECRET, ip), solo se TERMS_STORE_IP_HASH=1
+);
+CREATE INDEX idx_legal_tenant ON legal_acceptances(tenant_id, id);
+CREATE TRIGGER trg_legal_no_update BEFORE UPDATE ON legal_acceptances
+BEGIN SELECT RAISE(ABORT, 'legal_acceptances append-only: UPDATE vietato'); END;
+CREATE TRIGGER trg_legal_no_delete BEFORE DELETE ON legal_acceptances
+BEGIN SELECT RAISE(ABORT, 'legal_acceptances append-only: DELETE vietato'); END;
+
+-- Backoff esponenziale per coppia (email+IP) sulle verifiche OTP: non blocca mai la vittima, solo chi sbaglia.
+CREATE TABLE auth_backoff (
+  key TEXT PRIMARY KEY,
+  fails INTEGER NOT NULL,
+  blocked_until INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+`);
+
 export function runMigrations(db: DatabaseSync): void {
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at INTEGER NOT NULL)');
   const done = new Set((db.prepare('SELECT version FROM schema_migrations').all() as { version: number }[]).map((r) => r.version));

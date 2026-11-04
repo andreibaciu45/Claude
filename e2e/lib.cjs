@@ -175,6 +175,8 @@ async function toast(page, text, timeout = 8000) {
 
 /** Pressione prolungata (HoldButton): mouse giu', attesa, su. */
 async function hold(page, locator, ms = 1700) {
+  // i toast (3,5 s) coprono la parte bassa della scheda e intercettano il puntatore (v. QA-REPORT): aspetto che spariscano
+  await page.locator('.toast').first().waitFor({ state: 'detached', timeout: 6000 }).catch(() => {});
   await locator.scrollIntoViewIfNeeded();
   const box = await locator.boundingBox();
   if (!box) throw new Error('hold: pulsante senza bounding box');

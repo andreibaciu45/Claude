@@ -11,6 +11,6 @@ run('dbg3', async (S) => {
   await d.getByRole('checkbox', { name: /Storna riga 1/ }).check();
   const b = d.locator('.hold-btn').first();
   console.log(await b.boundingBox(), await b.isDisabled());
-  await hold(page, b);
+  console.log(await page.evaluate(()=>{const bb=document.querySelector('.sheet .hold-btn').getBoundingClientRect();const e=document.elementFromPoint(bb.x+bb.width/2,bb.y+bb.height/2);const sh=document.querySelector('.sheet').getBoundingClientRect();return [e.className,e.tagName,JSON.stringify(sh)]}));await S.shot(page,'x');await hold(page, b);
   for (let i=0;i<10;i++){ console.log(await page.locator('.toast').allInnerTexts(), page.url()); await sleep(500); }
 });
