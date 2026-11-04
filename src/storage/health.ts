@@ -21,6 +21,8 @@ export type StorageReason =
   | 'quota' // spazio esaurito (QuotaExceededError)
   | 'aborted' // transazione annullata dal browser
   | 'low-space' // meno di 50 MB liberi
+  | 'memory-recovered' // alla riapertura sono stati trasferiti i dati creati in memoria (avviso informativo)
+  | 'recovery-failed' // il trasferimento dei dati creati in memoria è fallito: restano in memoria
   | 'unknown';
 
 export const LOW_SPACE_BYTES = 50 * 1024 * 1024;
@@ -41,6 +43,10 @@ export interface StorageStatus {
   /** Esito di navigator.storage.persist() (undefined = non richiesto/non supportato). */
   persisted?: boolean;
   since?: number;
+  /** Quanti documenti sono stati recuperati dalla memoria (solo con reason 'memory-recovered'). */
+  recoveredDocuments?: number;
+  /** Elementi (documenti, clienti, voci di listino) ancora SOLO in memoria dopo un trasferimento fallito. */
+  unrecoveredItems?: number;
 }
 
 /** Errore lanciato quando un'operazione non può essere eseguita (o salvata) su un archivio persistente. */
@@ -73,6 +79,10 @@ export function reasonMessage(reason: StorageReason): string {
       return 'Il browser ha annullato l\'ultimo salvataggio: l\'operazione NON è stata registrata. Riprova.';
     case 'low-space':
       return 'Lo spazio libero sul dispositivo sta per finire (meno di 50 MB): libera spazio e scarica un backup.';
+    case 'memory-recovered':
+      return 'Abbiamo recuperato i documenti creati mentre l\'archivio non era disponibile.';
+    case 'recovery-failed':
+      return 'L\'archivio è tornato disponibile, ma non sono riuscito a trasferire i dati creati nel frattempo: sono ancora in memoria e NON sono al sicuro. Scarica il backup di emergenza, poi riprova.';
     default:
       return 'Errore dell\'archivio dei dati: l\'ultima operazione NON è stata salvata.';
   }
@@ -91,6 +101,8 @@ interface Internal {
   freeBytes?: number;
   persisted?: boolean;
   since?: number;
+  /** Esito del recupero dei dati scritti in memoria (vedi db.ts). */
+  recovery?: { kind: 'recovered' | 'failed'; documents: number; items: number };
 }
 
 let state: Internal = { persistent: false, memoryOnly: false, retrying: false, lowSpace: false };
@@ -102,6 +114,14 @@ function derive(s: Internal): StorageStatus {
   if (!s.persistent && s.lostReason) return { ...base, health: 'unavailable', reason: s.lostReason, message: reasonMessage(s.lostReason) };
   if (s.writeFailure) return { ...base, health: 'degraded', reason: s.writeFailure, message: reasonMessage(s.writeFailure) };
   if (s.lowSpace) return { ...base, health: 'degraded', reason: 'low-space', message: reasonMessage('low-space') };
+  if (s.recovery?.kind === 'failed') return { ...base, health: 'degraded', reason: 'recovery-failed', message: reasonMessage('recovery-failed'), unrecoveredItems: s.recovery.items };
+  if (s.recovery?.kind === 'recovered') {
+    const n = s.recovery.documents;
+    const msg = n > 0
+      ? `Abbiamo recuperato ${n} ${n === 1 ? 'documento creato' : 'documenti creati'} mentre l'archivio non era disponibile. Ora sono salvati.`
+      : `Abbiamo recuperato ${s.recovery.items} ${s.recovery.items === 1 ? 'elemento creato' : 'elementi creati'} (rubrica o listino) mentre l'archivio non era disponibile. Ora sono salvati.`;
+    return { ...base, health: 'degraded', reason: 'memory-recovered', message: msg, recoveredDocuments: n };
+  }
   // stato iniziale (archivio non ancora aperto): non è un problema
   return { ...base, health: 'ok', message: 'Archivio dei dati funzionante.' };
 }
