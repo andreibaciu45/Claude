@@ -142,9 +142,9 @@ function applyDocument(ctx: PushContext, op: Raw): Result {
     }
     const owner = findInvoiceNumberOwner(tenantId, inv.sectional, inv.year, inv.seq);
     if (owner && owner !== doc.id) return bad('duplicate_invoice_number', `Numero ${inv.sectional} ${inv.year}/${inv.seq} già utilizzato`);
-    // Il numero mostrato in fattura (testo) non può comparire due volte tra le emesse dello stesso tenant, anche se sezionale/seq differiscono
-    // solo per maiuscole o formattazione: l'indice UNIQUE guarda solo (sezionale, anno, seq).
-    const textOwner = findInvoiceNumberTextOwner(tenantId, [doc.number, inv.number], doc.id);
+    // Il numero mostrato in fattura (testo) non può comparire due volte nella stessa serie (tenant, sezionale, anno) con seq diversi:
+    // l'indice UNIQUE guarda solo (sezionale, anno, seq).
+    const textOwner = findInvoiceNumberTextOwner(tenantId, inv.sectional, inv.year, [doc.number, inv.number], doc.id);
     if (textOwner) return bad('duplicate_invoice_number', `Il numero ${inv.number} è già utilizzato da un'altra fattura emessa`);
   }
 

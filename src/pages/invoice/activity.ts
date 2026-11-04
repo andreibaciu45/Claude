@@ -89,7 +89,7 @@ export function activityCsv(entries: AuditEntry[], docs: Parameters<typeof subje
       csvText(subjectOf(e, docs)),
       csvText(titleOf(e)),
       csvText([e.detail, e.voiceTranscript && `Detto a voce: "${e.voiceTranscript}"`].filter(Boolean).join(' — ')),
-      e.xmlSha256 ?? '',
+      csvText(e.xmlSha256 ?? ''), // REV-H1: arriva anche da backup/sync, non è garantito esadecimale
     ].join(';'));
   }
   return lines.join('\r\n') + '\r\n';

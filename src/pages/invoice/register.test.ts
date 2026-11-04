@@ -28,7 +28,9 @@ describe('soglia forfettario (ricavi per cassa)', () => {
     expect(thresholdStatus(mk(67_999.99), 2026).level).toBe('ok');
     expect(thresholdStatus(mk(68_000), 2026)).toMatchObject({ level: 'warn', remainingCents: 1_700_000 });
     expect(thresholdStatus(mk(84_999.99), 2026).level).toBe('warn');
-    expect(thresholdStatus(mk(85_000), 2026)).toMatchObject({ level: 'over', remainingCents: 0 });
+    // REV-D2: 85.000,00 esatti = al limite, non oltre; 'over' solo da 85.000,01
+    expect(thresholdStatus(mk(85_000), 2026)).toMatchObject({ level: 'warn', remainingCents: 0 });
+    expect(thresholdStatus(mk(85_000.01), 2026).level).toBe('over');
     expect(thresholdStatus(mk(90_000), 2026).ratio).toBeGreaterThan(1);
     expect(FORFETTARIO_THRESHOLD).toBe(85_000);
   });

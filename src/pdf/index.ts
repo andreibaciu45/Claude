@@ -1,6 +1,7 @@
 import type { DocLine, Profile, QuoteDocument } from '../types';
 import { documentTotals } from './totals';
 import { lineEuro, isDiscountLine } from '../storage/invoiceTotals';
+import { discountBasisPoints, formatDecimal } from '../../shared/fiscal/money';
 export { isDiscountLine };
 import { BOLLO_LEGAL_TEXT, FORFETTARIO_LEGAL_TEXT } from '../../shared/fatturapa';
 export { documentTotals, draftTotals } from './totals';
@@ -14,9 +15,18 @@ export const fmtNum = (n: number, decimals = 2): string => {
   return (neg ? '-' : '') + group(i) + (d ? ',' + d : '');
 };
 export const fmtEuro = (n: number): string => `€ ${fmtNum(n)}`;
-export const fmtQty = (n: number): string => {
-  return fmtNum(n, 3).replace(/,?0+$/, '');
+/** Decimale it-IT con cifre tra min e max (zeri finali tolti oltre min), separatore delle migliaia. Aritmetica sulla stringa, nessun arrotondamento extra. */
+export const fmtDec = (n: number, min: number, max: number): string => {
+  const s = formatDecimal(Math.abs(n), min, max);
+  const [i, d] = s.split('.');
+  return (n < 0 && Number(s) !== 0 ? '-' : '') + group(i) + (d ? ',' + d : '');
 };
+/** REV-F1: quantità fino a 8 decimali (come nell'XML), non 3. */
+export const fmtQty = (n: number): string => fmtDec(n, 0, 8);
+/** REV-F1: prezzo unitario fino a 8 decimali (come nell'XML): 0,125 non diventa "0,13". */
+export const fmtPrice = (n: number): string => fmtDec(n, 2, 8);
+/** Sconto % come usato nel calcolo (centesimi di punto): 12,25% non diventa "12,3%". */
+export const fmtDiscount = (pct: number): string => `${fmtDec(discountBasisPoints(pct) / 100, 0, 2)}%`;
 export const fmtDate = (iso: string): string => {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;

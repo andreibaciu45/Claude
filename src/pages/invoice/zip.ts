@@ -43,7 +43,7 @@ function dosDateTime(d: Date): { time: number; date: number } {
 
 /** Nome sicuro per un file nello zip: niente percorsi assoluti, '..', caratteri di controllo né backslash. */
 export function safeZipName(name: string): string {
-  const cleaned = name.replace(/\\/g, '/').split('/').filter((p) => p && p !== '.' && p !== '..').join('/')
+  const cleaned = name.replace(/\\/g, '/').split('/').map((p) => p.replace(/^[A-Za-z]:/, '')).filter((p) => p && p !== '.' && p !== '..').join('/')
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f]/g, '_');
   return cleaned || 'file';

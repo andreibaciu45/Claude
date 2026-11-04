@@ -9,15 +9,24 @@
 	encode zstd gzip
 
 	header {
+		# HSTS: 1 anno + sottodomini. NON aggiungere "preload" finche' tutto il dominio (e i sottodomini) non
+		# e' sicuramente servito solo in HTTPS: l'iscrizione alla preload list di Chrome e' di fatto irreversibile.
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
-		Permissions-Policy "camera=(), geolocation=(), payment=(), microphone=(self)"
+		# Solo il microfono (dettatura), e solo per la nostra origine. Tutto il resto disattivato.
+		Permissions-Policy "microphone=(self), camera=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), hid=(), midi=(), display-capture=(), accelerometer=(), gyroscope=(), magnetometer=(), interest-cohort=()"
 		Cross-Origin-Opener-Policy "same-origin"
-		# CSP restrittiva. Se una nuova funzione del client richiede altre origini
-		# (es. un provider esterno) va ampliata QUI in modo esplicito.
-		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'self' blob:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		Cross-Origin-Resource-Policy "same-origin"
+		X-Permitted-Cross-Domain-Policies "none"
+		# CSP SENZA 'unsafe-inline'/'unsafe-eval'. Gli <style> inline (index.html, offline.html, pagine legali, prodotto.html)
+		# e l'unico style="" delle guide sono ammessi per HASH: se si modifica uno di quei file, rigenerare gli hash con
+		#   node scripts/audit/csp-hashes.cjs dist --print     (e verificare con: node scripts/audit/csp-hashes.cjs dist)
+		# connect-src 'self': l'API e' sullo stesso dominio (/v1). Le app native (Capacitor) caricano file locali: NON ricevono
+		# questi header; la loro CSP e i loro CORS sono descritti in docs/SECURITY-FRONTEND.md.
+		# Se una nuova funzione richiede altre origini (provider esterno) va ampliata QUI in modo esplicito.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'sha256-4MWPxY0bL4Pl5llTmapaNp6of4PXEcseaplxWchvgiw=' 'sha256-anX6GAZGUBvaf1gQokAHoG2DM/hW/TacPbHxnzce1dY=' 'sha256-897EOE4PR6kdWYBuzbGGcNoQsYbOEKQtA2T6V35dzEI=' 'sha256-n0oMAZ1cEmYz43+rX456In++CJBb4k61DnOrFRDjOdE='; style-src-attr 'unsafe-hashes' 'sha256-oJJaKPCjNH03t5E0AX2r5Wz1sontZpvKyfyFqStOGFo='; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'none'; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 		-Server
 	}
 

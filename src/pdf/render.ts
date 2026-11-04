@@ -2,10 +2,11 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { Profile, QuoteDocument } from '../types';
 import { documentTotals } from './totals';
+import { discountBasisPoints } from '../../shared/fiscal/money';
 import { derivePayment, legalNotesFor } from '../../shared/fatturapa';
 import { isValidIban } from '../../shared/fiscal';
 import {
-  COURTESY_TEXT, DRAFT_TEXT, LEGACY_COURTESY_TEXT, addDays, creditNoteLines, docDate, docTitle, fmtDate, fmtEuro, fmtNum, fmtQty, isDiscountLine, isDraft, isFiscal, isNote, lineAmount,
+  COURTESY_TEXT, DRAFT_TEXT, LEGACY_COURTESY_TEXT, addDays, creditNoteLines, docDate, docTitle, fmtDate, fmtDiscount, fmtEuro, fmtNum, fmtPrice, fmtQty, isDiscountLine, isDraft, isFiscal, isNote, lineAmount,
 } from './index';
 
 /* ---------- colori ---------- */
@@ -103,14 +104,18 @@ export function renderDocumentPdf(doc: QuoteDocument, profile: Profile, opts: { 
   } else if (c.vatOrFiscalCode) custLines.push(`P.IVA / C.F.: ${c.vatOrFiscalCode}`);
   const cc = [c.email, c.phone && `Tel. ${c.phone}`].filter(Boolean).join('   ');
   if (cc) custLines.push(cc);
-  const boxH = 9.5 + custLines.length * 4.4;
+  // REV-F2: il nome del cliente va mostrato per intero (prima solo la prima riga: "Società ... S.r.l." tagliata)
+  pdf.setFont('helvetica', 'bold').setFontSize(11);
+  const nameParts = pdf.splitTextToSize(c.name || '-', W - 2 * M - 8) as string[];
+  const nameExtra = (nameParts.length - 1) * 4.8;
+  const boxH = 9.5 + nameExtra + custLines.length * 4.4;
   pdf.setFillColor(...SOFT).roundedRect(M, y - 4, W - 2 * M, boxH, 2, 2, 'F');
   pdf.setFont('helvetica', 'bold').setFontSize(7.5).setTextColor(...MUTED);
   pdf.text(doc.type === 'preventivo' ? 'PREVENTIVO PER' : note ? 'INTESTATA A' : 'FATTURATO A', M + 4, y + 0.5);
   pdf.setFont('helvetica', 'bold').setFontSize(11).setTextColor(...INK);
-  pdf.text((pdf.splitTextToSize(c.name || '-', W - 2 * M - 8) as string[])[0], M + 4, y + 6);
+  pdf.text(nameParts, M + 4, y + 6);
   pdf.setFont('helvetica', 'normal').setFontSize(9).setTextColor(...INK);
-  custLines.forEach((l, i) => pdf.text(l, M + 4, y + 10.8 + i * 4.4));
+  custLines.forEach((l, i) => pdf.text(l, M + 4, y + 10.8 + nameExtra + i * 4.4));
   y += boxH + 5;
 
   /* ---------- tabella righe ---------- */
@@ -120,7 +125,7 @@ export function renderDocumentPdf(doc: QuoteDocument, profile: Profile, opts: { 
   const body = doc.lines.map((l) => {
     // riga di sconto in euro (prezzo negativo): solo "Sconto" e importo negativo, senza qtà/unità/prezzo/IVA incoerenti
     if (isDiscountLine(l)) return [{ content: l.description?.trim() || 'Sconto', colSpan: head[0].length - 1 }, fmtNum(lineAmount(l))];
-    const base = [l.description || '-', fmtQty(l.qty), l.unit, fmtNum(l.unitPrice), l.discountPct ? `${fmtNum(l.discountPct, l.discountPct % 1 ? 1 : 0)}%` : '-'];
+    const base = [l.description || '-', fmtQty(l.qty), l.unit, fmtPrice(l.unitPrice), discountBasisPoints(l.discountPct) > 0 ? fmtDiscount(l.discountPct as number) : '-'];
     return forf ? [...base, fmtNum(lineAmount(l))] : [...base, `${fmtNum(l.vat, 0)}%`, fmtNum(lineAmount(l))];
   });
   const right = { halign: 'right' as const };

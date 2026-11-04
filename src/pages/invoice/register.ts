@@ -7,6 +7,7 @@
  */
 import type { QuoteDocument } from '../../types';
 import { documentTotals } from '../../pdf/totals';
+import { toCents as sharedToCents } from '../../../shared/fiscal/money';
 import { SDI_INFO, isCreditNote, isFiscalInvoice } from './model';
 
 /** Soglia dei ricavi del regime forfettario [DA VERIFICARE]. */
@@ -21,7 +22,8 @@ export const docDateIso = (d: QuoteDocument): string => (isFiscalInvoice(d) && d
 export const docYear = (d: QuoteDocument): number => yearOfDate(docDateIso(d)) || new Date(d.createdAt).getFullYear();
 export const docQuarter = (d: QuoteDocument): number => Math.floor(((Number(docDateIso(d).slice(5, 7)) || 1) - 1) / 3) + 1;
 
-const toCents = (n: number): number => Math.round(n * 100);
+// REV-D1: stessa conversione in centesimi di tutto il resto dell'app (Math.round(n*100) sbaglia su 1,005 e simili)
+const toCents = (n: number): number => sharedToCents(n);
 
 /** Incassi registrati nell'anno (per data di incasso) sulle fatture emesse non stornate né scartate. */
 export function cashCollectedCents(docs: QuoteDocument[], year: number): number {
@@ -40,7 +42,8 @@ export function thresholdStatus(docs: QuoteDocument[], year: number, threshold =
   const collectedCents = cashCollectedCents(docs, year);
   const thresholdCents = toCents(threshold);
   const ratio = thresholdCents > 0 ? collectedCents / thresholdCents : 0;
-  const level: ThresholdLevel = ratio >= 1 ? 'over' : ratio >= WARN_RATIO ? 'warn' : 'ok';
+  // REV-D2: il limite è "non superiore a 85.000": a 85.000,00 esatti non si è oltre
+  const level: ThresholdLevel = collectedCents > thresholdCents ? 'over' : ratio >= WARN_RATIO ? 'warn' : 'ok';
   return { collectedCents, thresholdCents, ratio, level, remainingCents: Math.max(0, thresholdCents - collectedCents) };
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { DocLine, QuoteDocument } from '../../types';
 import { uid } from '../../types';
-import { fmtDate, fmtNum, fmtQty } from '../../pdf';
+import { fmtDate, fmtNum, fmtPrice, fmtQty } from '../../pdf';
 import { CREDIT_NOTE_STAMP_NOTE, invoiceTotalsCents, isDiscountLine } from '../../storage/invoiceTotals';
 import { creditResidual, effectiveCreditNotes } from '../../storage/creditResidual';
 import { Field, Segmented, Sheet, Textarea } from '../../ui';
@@ -75,7 +75,7 @@ export function CreditNoteSheet({ open, onClose, doc, busy, creditNotes = [], fo
                     <small className="muted">
                       {isDiscountLine(l)
                         ? `Sconto di ${fmtNum(-l.qty * l.unitPrice)} € · riducerebbe l’importo stornato`
-                        : `Fatturato: ${fmtQty(l.qty)} ${l.unit} × ${fmtNum(l.unitPrice)} € · stornabile: ${fmtQty(left)}`}
+                        : `Fatturato: ${fmtQty(l.qty)} ${l.unit} × ${fmtPrice(l.unitPrice)} € · stornabile: ${fmtQty(left)}`}
                     </small>
                   </div>
                   <NumInput label={`Quantità da stornare riga ${i + 1}`} value={sel[l.id] ?? 0} max={left} onChange={(n) => setSel((s) => ({ ...s, [l.id]: n }))} />

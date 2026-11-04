@@ -272,8 +272,8 @@ describe('esiti SDI e pagamenti', () => {
     const ns = await recordSdiEvent('a', { ...sdi('NS', 2000), errorCodes: ['00305'] });
     expect(ns.status).toBe('scartata');
     expect((await recordSdiEvent('a', sdi('INVIO', 2000 + 4 * 86400000))).status).toBe('inviata');
-    await recordSdiEvent('a', sdi('NS', 3_000_000));
-    await expect(recordSdiEvent('a', sdi('INVIO', 3_000_000 + 6 * 86400000))).rejects.toThrow(/più di 5 giorni/);
+    await recordSdiEvent('a', sdi('NS', 2000 + 4 * 86400000 + 3_000_000));
+    await expect(recordSdiEvent('a', sdi('INVIO', 2000 + 4 * 86400000 + 3_000_000 + 6 * 86400000))).rejects.toThrow(/più di 5 giorni/);
   });
 
   it('non si stornano le scartate; nota di credito su consegnata ok', async () => {
@@ -285,11 +285,11 @@ describe('esiti SDI e pagamenti', () => {
   });
 
   it('pagamenti: parziale poi pagata', async () => {
-    await saveDocument(draft('a')); // 150 + bollo 2 (non addebitato) => totale 152
+    await saveDocument(draft('a')); // 150 + bollo 2 a carico dell'emittente (non addebitato) => totale 150
     await issueInvoice('a');
     let d = await recordPayment('a', { date: '2026-04-01', amount: 50, method: 'bonifico' });
     expect(d.invoice!.paymentStatus).toBe('parziale');
-    d = await recordPayment('a', { date: '2026-04-02', amount: 102 });
+    d = await recordPayment('a', { date: '2026-04-02', amount: 100 });
     expect(d.invoice!.paymentStatus).toBe('pagata');
     expect(d.invoice!.payments).toHaveLength(2);
     expect(d.status).toBe('emessa');

@@ -58,7 +58,7 @@ describe('createZip (store)', () => {
 
   it('nomi duplicati resi unici; nomi pericolosi ripuliti', () => {
     const zip = createZip([{ name: 'a.xml', data: '1' }, { name: 'a.xml', data: '2' }, { name: 'a.xml', data: '3' }, { name: '../../etc/passwd', data: 'x' }, { name: 'C:\\x\\y.xml', data: 'y' }], when);
-    expect(readZipStore(zip).map((f) => f.name)).toEqual(['a.xml', 'a-2.xml', 'a-3.xml', 'etc/passwd', 'C:/x/y.xml']);
+    expect(readZipStore(zip).map((f) => f.name)).toEqual(['a.xml', 'a-2.xml', 'a-3.xml', 'etc/passwd', 'x/y.xml']);
     expect(safeZipName('/abs/./x//y')).toBe('abs/x/y');
     expect(safeZipName('')).toBe('file');
   });

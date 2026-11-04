@@ -34,10 +34,13 @@ export function SdiEventSheet({ open, onClose, mode, busy, onSave }: EvProps) {
   const [codes, setCodes] = useState('');
   const [ident, setIdent] = useState('');
   const [note, setNote] = useState('');
-  useEffect(() => { if (!open) { setOutcome('RC'); setChannel('portale_ade'); setCodes(''); setIdent(''); setNote(''); } }, [open]);
+  const [day, setDay] = useState(todayIso());
+  useEffect(() => { if (!open) { setDay(todayIso()); setOutcome('RC'); setChannel('portale_ade'); setCodes(''); setIdent(''); setNote(''); } }, [open]);
 
   const save = () => {
-    const ev: SdiEvent = { at: Date.now(), type: mode === 'send' ? 'INVIO' : outcome, channel };
+    // REV-E2: la data è quella reale dell'invio/della notifica (la finestra dei 5 giorni parte da lì), non il momento in cui la si registra
+    const at = !day || day >= todayIso() ? Date.now() : new Date(`${day}T12:00:00`).getTime();
+    const ev: SdiEvent = { at, type: mode === 'send' ? 'INVIO' : outcome, channel };
     if (ident.trim()) ev.sdiIdentifier = ident.trim();
     if (mode === 'outcome' && outcome === 'NS') {
       const list = codes.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
@@ -59,6 +62,9 @@ export function SdiEventSheet({ open, onClose, mode, busy, onSave }: EvProps) {
             </Select>
           </Field>
         )}
+        <Field label={mode === 'send' ? 'Data di invio' : 'Data in cui hai ricevuto l’esito'} hint="Se l’hai ricevuto giorni fa, indica la data vera: da lì contano i 5 giorni per rinviare una fattura scartata.">
+          <Input type="date" value={day} max={todayIso()} onChange={(e) => setDay(e.target.value)} />
+        </Field>
         <Field label="Canale usato">
           <Select value={channel} onChange={(e) => setChannel(e.target.value as 'portale_ade' | 'pec')}>
             <option value="portale_ade">Portale Fatture e Corrispettivi</option>

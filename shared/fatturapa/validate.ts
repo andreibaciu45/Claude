@@ -30,6 +30,8 @@ import {
   normalizeVat,
   resolveCustomerIds,
   resolveRecipient,
+  isNaturalPersonCf,
+  splitPersonName,
   trimmed,
   type EuroDiscountMode,
 } from './common';
@@ -131,6 +133,10 @@ const checkCustomerIds = (c: Collector, cu: Customer): void => {
     if (foreign.length > LIMITS.idCodiceEstero) {
       c.error('customer.vatNumber', 'too_long', `L'identificativo fiscale estero supera ${LIMITS.idCodiceEstero} caratteri.`);
     }
+    // REV-X2: l'identificativo estero finisce nell'XML senza pulizia: un carattere di controllo o fuori Latin-1 rendeva il file non valido
+    if (sanitizeText(foreign).text !== foreign) {
+      c.error('customer.vatNumber', 'invalid_chars', 'L\'identificativo fiscale estero contiene caratteri non ammessi (solo lettere, cifre e simboli semplici).');
+    }
   }
 };
 
@@ -154,6 +160,14 @@ const checkCustomerAddress = (c: Collector, cu: Customer): void => {
 const checkCustomer = (c: Collector, cu: Customer): void => {
   if (!trimmed(cu.name)) c.error('customer.name', 'required', 'Il nome o la denominazione del cliente è obbligatorio.');
   c.text('customer.name', 'Il nome del cliente', cu.name, LIMITS.denominazione);
+  {
+    // REV-X4: persona fisica = Nome e Cognome separati, ciascuno max 60: oltre veniva troncato senza avviso
+    const ids = resolveCustomerIds(cu);
+    const person = !ids.vat && isNaturalPersonCf(ids.fiscalCode) ? splitPersonName(sanitizeText(cu.name ?? '').text) : null;
+    if (person && (person.nome.length > LIMITS.nome || person.cognome.length > LIMITS.cognome)) {
+      c.warn('customer.name', 'too_long', `Nome o cognome del cliente superano ${LIMITS.cognome} caratteri: nel file XML verranno troncati.`);
+    }
+  }
   checkCustomerIds(c, cu);
   checkCustomerAddress(c, cu);
   const rawCode = trimmed(cu.codiceDestinatario).toUpperCase();
@@ -171,10 +185,24 @@ const checkCustomer = (c: Collector, cu: Customer): void => {
   }
 };
 
+const MAX_FIELD = 1e11;
+const MAX_TOTAL_CENTS = 1e13;
+
 const checkLine = (c: Collector, l: DocLine, i: number, forfettario: boolean): void => {
   const f = `lines[${i}]`;
   const n = i + 1;
-  if (!trimmed(l.description)) c.error(`${f}.description`, 'required', `Riga ${n}: la descrizione è obbligatoria.`);
+  // REV-X3: conta la descrizione DOPO la pulizia dei caratteri (solo caratteri di controllo -> <Descrizione/> vuota, non valida)
+  if (!sanitizeText(l.description ?? '').text) c.error(`${f}.description`, 'required', `Riga ${n}: la descrizione è obbligatoria.`);
+  // REV-X1: lo schema ammette 11 cifre intere; oltre, toFixed produce notazione esponenziale o file rifiutati dallo SDI
+  if ((Number.isFinite(l.qty) && Math.abs(l.qty) >= MAX_FIELD) || (Number.isFinite(l.unitPrice) && Math.abs(l.unitPrice) >= MAX_FIELD)) {
+    c.error(`${f}.unitPrice`, 'amount_too_large', `Riga ${n}: quantità o prezzo troppo grandi (massimo 99.999.999.999).`);
+  }
+  // REV-X4: nell'XML quantità e prezzo hanno al massimo 8 decimali
+  for (const [k, v] of [['qty', l.qty], ['unitPrice', l.unitPrice]] as const) {
+    if (Number.isFinite(v) && Math.abs(v) < MAX_FIELD && Math.abs(v * 1e8 - Math.round(v * 1e8)) > 1e-3) {
+      c.warn(`${f}.${k}`, 'precision_rounded', `Riga ${n}: ${k === 'qty' ? 'la quantità' : 'il prezzo'} ha più di 8 decimali: nel file XML verrà arrotondato.`);
+    }
+  }
   c.text(`${f}.description`, `La descrizione della riga ${n}`, l.description, LIMITS.descrizione);
   if (Number.isFinite(l.qty) && l.qty < 0 && Number.isFinite(l.unitPrice) && l.unitPrice < 0) {
     c.error(`${f}.qty`, 'both_negative', `Riga ${n}: quantità e prezzo sono entrambi negativi (il risultato sembrerebbe positivo). Per uno sconto usa quantità positiva e prezzo negativo; per stornare usa una nota di credito.`);
@@ -265,6 +293,10 @@ const checkTotalsAndStamp = (c: Collector, doc: QuoteDocument, profile: Profile,
   const inv = doc.invoice;
   if (!inv || !Array.isArray(doc.lines) || doc.lines.length === 0) return;
   const t = computeInvoiceTotals(doc, profile);
+  if (t.lineTotals.some((x) => Math.abs(x) >= MAX_TOTAL_CENTS) || t.totalCents >= MAX_TOTAL_CENTS || t.summary.some((g) => Math.abs(g.taxableCents) >= MAX_TOTAL_CENTS)) {
+    c.error('lines', 'amount_too_large', 'Gli importi superano il massimo consentito dallo schema (99.999.999.999,99 €).');
+    return;
+  }
   const discountLines = doc.lines.map((l, i) => ({ l, i })).filter(({ l }) => isDiscountLine(l));
   const discountCents = -discountLines.reduce((s, { i }) => s + Math.min(0, t.lineTotals[i]), 0);
   const positiveCents = t.lineTotals.reduce((s, x) => s + Math.max(0, x), 0);

@@ -45,12 +45,12 @@ export function findInvoiceNumberOwner(tenantId: string, sectional: string, year
   return one<{ id: string }>('SELECT id FROM documents WHERE tenant_id=? AND upper(inv_sectional)=upper(?) AND inv_year=? AND inv_seq=?', tenantId, sectional, year, seq)?.id;
 }
 
-/** Altra fattura EMESSA dello stesso tenant che mostra uno dei numeri (testo) indicati. */
-export function findInvoiceNumberTextOwner(tenantId: string, numbers: (string | undefined)[], exceptId: string): string | undefined {
+/** Altra fattura EMESSA della stessa serie (tenant, sezionale senza maiuscole, anno) che mostra uno dei numeri (testo) indicati. */
+export function findInvoiceNumberTextOwner(tenantId: string, sectional: string, year: number, numbers: (string | undefined)[], exceptId: string): string | undefined {
   for (const n of new Set(numbers.filter((x): x is string => typeof x === 'string' && x !== ''))) {
     const r = one<{ id: string }>(
       `SELECT id FROM documents WHERE tenant_id=? AND locked_at IS NOT NULL AND deleted_at IS NULL AND id<>? AND type='fattura'
-       AND (number=? OR json_extract(data,'$.invoice.number')=?) LIMIT 1`, tenantId, exceptId, n, n);
+       AND upper(inv_sectional)=upper(?) AND inv_year=? AND (number=? OR json_extract(data,'$.invoice.number')=?) LIMIT 1`, tenantId, exceptId, sectional, year, n, n);
     if (r) return r.id;
   }
   return undefined;

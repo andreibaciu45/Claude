@@ -69,6 +69,19 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers(); });
 
+describe('DocumentView: bozza collegata a una scartata (QA BUG-06)', () => {
+  it('la bozza creata con "Rifai con un nuovo numero" mostra il collegamento alla fattura scartata', async () => {
+    const rej = fakeInvoice({ id: 'rej1', status: 'scartata' });
+    const d = draft();
+    d.invoice = { ...d.invoice!, resubmissionOf: 'rej1' };
+    await render(d, [rej, d]);
+    const note = host.querySelector('[data-testid="resubmission-of"]');
+    expect(note?.textContent).toContain('Rifà la fattura scartata');
+    expect(note?.textContent).toContain('n. 12/2026');
+    expect(note?.querySelector('a')?.getAttribute('href')).toContain('/documenti/rej1');
+  });
+});
+
 describe('DocumentView: pulsanti per stato', () => {
   it('bozza di fattura: Emetti fattura, Modifica, Elimina bozza; BOZZA ben visibile; niente XML/nota di credito', async () => {
     await render(draft());
