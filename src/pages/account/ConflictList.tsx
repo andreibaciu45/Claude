@@ -12,6 +12,7 @@ const REASONS: Record<ConflictItem['reason'], string> = {
   quota_exceeded: `Hai raggiunto il limite di ${FREE_DOCS_PER_MONTH} documenti al mese del piano Free: il documento non è stato sincronizzato, ma resta intero sul tuo dispositivo.`,
   invalid: 'Il server non ha accettato questa modifica.',
   stale: 'La versione sul server è più recente.',
+  resync_required: 'Questo dispositivo è rimasto offline troppo a lungo: serve riallineare i dati con l’account. Le tue modifiche locali non vanno perse.',
 };
 
 const when = (ts?: number): string => (ts ? new Date(ts).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }) : 'data sconosciuta');
