@@ -1,0 +1,67 @@
+/* Design tokens — VocePreventivo. Blu petrolio + arancio sicurezza. */
+:root {
+  color-scheme: light dark;
+  --c-bg: #f3f6f7;
+  --c-surface: #ffffff;
+  --c-surface-2: #e9eff1;
+  --c-text: #0f1d22;
+  --c-text-2: #43565d;
+  --c-border: #c5d2d6;
+  --c-primary: #0b5c6b;
+  --c-primary-hover: #094a56;
+  --c-on-primary: #ffffff;
+  --c-primary-soft: #d8ebef;
+  --c-accent: #e8590c;
+  --c-accent-hover: #c94a06;
+  --c-on-accent: #ffffff;
+  --c-success: #1b7a3d; --c-success-soft: #d9f0e0;
+  --c-warning: #8a5a00; --c-warning-soft: #fdecc4;
+  --c-danger: #b42318;  --c-danger-soft: #fde0dc;
+  --c-info: #0b5c6b;    --c-info-soft: #d8ebef;
+  --c-overlay: rgba(8, 20, 24, .55);
+  --c-focus: #e8590c;
+
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --fs-xs: .8125rem; --fs-sm: .9375rem; --fs-md: 1.0625rem; --fs-lg: 1.25rem; --fs-xl: 1.625rem; --fs-2xl: 2.125rem;
+
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px; --sp-7: 48px;
+  --r-sm: 8px; --r-md: 14px; --r-lg: 22px; --r-pill: 999px;
+  --shadow-1: 0 1px 2px rgba(15,29,34,.08), 0 1px 3px rgba(15,29,34,.06);
+  --shadow-2: 0 4px 14px rgba(15,29,34,.12);
+  --shadow-3: 0 -8px 32px rgba(15,29,34,.25);
+
+  --touch: 48px;
+  --tabbar-h: 64px;
+  --content-w: 720px;
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-bg: #0c1519;
+    --c-surface: #152227;
+    --c-surface-2: #1d2f35;
+    --c-text: #eef4f6;
+    --c-text-2: #a9bcc2;
+    --c-border: #34494f;
+    --c-primary: #4fb3c4;
+    --c-primary-hover: #6fc5d4;
+    --c-on-primary: #05181d;
+    --c-primary-soft: #17383f;
+    --c-accent: #ff8a3d;
+    --c-accent-hover: #ffa062;
+    --c-on-accent: #1a0b00;
+    --c-success: #5fd48a; --c-success-soft: #14341f;
+    --c-warning: #f5c35c; --c-warning-soft: #3b2d0a;
+    --c-danger: #ff8a7d;  --c-danger-soft: #3d1a16;
+    --c-info: #4fb3c4;    --c-info-soft: #17383f;
+    --c-overlay: rgba(0,0,0,.65);
+    --c-focus: #ff8a3d;
+    --shadow-1: 0 1px 2px rgba(0,0,0,.5);
+    --shadow-2: 0 4px 14px rgba(0,0,0,.5);
+    --shadow-3: 0 -8px 32px rgba(0,0,0,.6);
+  }
+}

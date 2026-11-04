@@ -1,0 +1,31 @@
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html, body { margin: 0; padding: 0; max-width: 100%; overflow-x: hidden; }
+body {
+  background: var(--c-bg); color: var(--c-text);
+  font-family: var(--font); font-size: var(--fs-md); line-height: 1.5;
+  -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+#root { min-height: 100vh; min-height: 100dvh; }
+h1, h2, h3, h4 { line-height: 1.2; margin: 0 0 var(--sp-2); letter-spacing: -.01em; }
+h1 { font-size: var(--fs-xl); } h2 { font-size: var(--fs-lg); } h3 { font-size: var(--fs-md); }
+p { margin: 0 0 var(--sp-3); }
+a { color: var(--c-primary); text-underline-offset: 3px; }
+img, svg, video { max-width: 100%; }
+table { max-width: 100%; }
+:focus-visible { outline: 3px solid var(--c-focus); outline-offset: 2px; border-radius: 4px; }
+button { font: inherit; color: inherit; }
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.muted { color: var(--c-text-2); }
+.num { font-variant-numeric: tabular-nums; }
+/* Utility di layout per le pagine */
+.stack { display: flex; flex-direction: column; gap: var(--sp-4); }
+.stack-sm { display: flex; flex-direction: column; gap: var(--sp-2); }
+.row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.grow { flex: 1 1 0; min-width: 0; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: var(--sp-3); }
+.sticky-actions { position: sticky; bottom: calc(var(--tabbar-h) + var(--sab) + var(--sp-3)); z-index: 5; }
+@media (min-width: 900px) { .sticky-actions { bottom: var(--sp-4); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
