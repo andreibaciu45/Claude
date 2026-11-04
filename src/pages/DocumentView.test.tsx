@@ -110,7 +110,7 @@ describe('DocumentView: pulsanti per stato', () => {
     click('Converti in fattura');
     await flush();
     expect(store.createInvoiceFromQuote).toHaveBeenCalledWith('d1');
-    expect(host.textContent).toContain('altrove');
+    expect(store.getDocument).toHaveBeenLastCalledWith('new1');
   });
   it('documento inesistente / errore di caricamento', async () => {
     await render(undefined);
