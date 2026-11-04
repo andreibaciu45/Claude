@@ -32,7 +32,7 @@ export function pullChanges(tenantId: string, cursor: number, limit: number): Ch
 }
 
 /** Pagina con tetto di byte: evita risposte enormi (e picchi di memoria) quando le entità sono grosse. Almeno una riga per pagina. */
-export function pullPage(tenantId: string, cursor: number, limit: number, maxBytes = 4_000_000): { rows: ChangeRow[]; hasMore: boolean } {
+export function pullPage(tenantId: string, cursor: number, limit: number, maxBytes = Number(process.env.SYNC_PULL_MAX_BYTES) || 4_000_000): { rows: ChangeRow[]; hasMore: boolean } {
   const sizes = all<{ seq: number; n: number }>(
     `SELECT c.seq, COALESCE(length(c.payload), 0) AS n FROM changes c
      WHERE c.tenant_id = ? AND c.seq > ? AND ${LATEST} ORDER BY c.seq LIMIT ?`, tenantId, cursor, limit + 1);

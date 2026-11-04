@@ -1,0 +1,156 @@
+{
+  "name": "07-comandi-vocali",
+  "status": "PASS",
+  "checks": [
+    {
+      "name": "FAB voce: target >= 44px",
+      "ok": true,
+      "detail": "{\"x\":318,\"y\":712,\"width\":56,\"height\":56}"
+    },
+    {
+      "name": "widget: campo \"Scrivi un comando\" presente",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "\"nuova fattura per Rossi ...\": crea una bozza di fattura (cliente Rossi, righe manodopera)",
+      "ok": true,
+      "detail": "[{\"t\":\"fattura\",\"s\":\"bozza\",\"c\":\"Rossi\",\"l\":[\"2 h Manodopera idraulico\"]}]"
+    },
+    {
+      "name": "\"nuova fattura\": nessun numero assegnato",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "\"nuova fattura\": ha aperto/proposto la bozza (undo o navigazione)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "\"Annulla\" dal toast rimuove la bozza creata a voce",
+      "ok": true,
+      "detail": "0"
+    },
+    {
+      "name": "\"emetti la fattura\" senza fatture da emettere: messaggio, nessuna emissione",
+      "ok": true,
+      "detail": "Comando vocale | Non c’è un documento aperto. Apri il documento oppure dimmi il numero o il cliente. | Invia | Chiudi"
+    },
+    {
+      "name": "\"emetti la fattura\": mostra scheda di conferma con pressione prolungata",
+      "ok": true,
+      "detail": "Emettere questa fattura? | Documento | Fattura (bozza) | Cliente | Rossi Costruzioni Srl | Importo | 82,00 € | Data | 04/11/2026 | Numero | assegnato al momento dell’emissione | Include marca da bollo di 2,00 €. | Dopo l’emissione la fattura non si può più modificare né cancellare: si può solo storn"
+    },
+    {
+      "name": "\"emetti la fattura\" senza conferma NON emette",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "\"sì\" nella scheda NON emette",
+      "ok": true,
+      "detail": "Emettere questa fattura? | Documento | Fattura (bozza) | Cliente | Rossi Costruzioni Srl | Importo | 82,00 € | Data | 04/11/2026 | Numero | assegnato al momento dell’emissione | Include marca da bollo di 2,00 €. | Dopo l’emissione la fattura non si può più modificare né cancellare: si può solo stornare con una nota di credito. | Tieni premuto per emettere | Tieni premuto per un secondo senza rilasciare. | Oppure di’ «conferma emissione» (ancora 13 s). Un semplice «sì» non basta. | Parla | Annulla | Invia | Controlla gli avvisi prima di confermare"
+    },
+    {
+      "name": "\"ok\" nella scheda NON emette",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "\"conferma\" generico NON emette",
+      "ok": true,
+      "detail": "Emettere questa fattura? | Documento | Fattura (bozza) | Cliente | Rossi Costruzioni Srl | Importo | 82,00 € | Data | 04/11/2026 | Numero | assegnato al momento dell’emissione | Include marca da bollo di 2,00 €. | Dopo l’emissione la fattura non si può più modificare né cancellare: si può solo stornare con una nota di credito. | Tieni premuto per emettere | Tieni premuto per un secondo senza rilasciare. | Oppure di’ «conferma emissione» (ancora 11 s). Un semplice «sì» non basta. | Parla | Annulla | Invia | Controlla gli avvisi prima di confermare"
+    },
+    {
+      "name": "tocco breve sul pulsante hold della scheda NON emette",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "pressione 0,5 s NON emette",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "chiudere la scheda NON emette",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "\"emetti la fattura\" + pressione prolungata: emessa 1/2026",
+      "ok": true,
+      "detail": "{\"status\":\"emessa\",\"number\":\"1/2026\",\"locked\":true}"
+    },
+    {
+      "name": "frase esplicita \"conferma emissione\" (scheda visibile) emette 2/2026",
+      "ok": true,
+      "detail": "{\"status\":\"emessa\",\"number\":\"2/2026\",\"locked\":true}"
+    },
+    {
+      "name": "\"annulla la fattura 1 con nota di credito\": scheda di conferma esplicita",
+      "ok": true,
+      "detail": "Stornare questa fattura con nota di credito? | Documento | Fattura 1/2026 | Cliente | Rossi Costruzioni Srl | Importo | 82,00 € | Data | 04/11/2026 | Storno | totale | Motivo | Annullamento fattura | La nota di credito viene emessa subito e collegata alla fattura originale. Non si può annullare: eve"
+    },
+    {
+      "name": "storno senza conferma NON emette la NC",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "\"sì\" NON conferma lo storno",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "frase \"conferma emissione\" NON conferma uno storno (frase diversa)",
+      "ok": true,
+      "detail": "Stornare questa fattura con nota di credito? | Documento | Fattura 1/2026 | Cliente | Rossi Costruzioni Srl | Importo | 82,00 € | Data | 04/11/2026 | Storno | totale | Motivo | Annullamento fattura | La nota di credito viene emessa subito e collegata alla fattura originale. Non si può annullare: eventuali correzioni richiedono un nuovo documento. | Tieni premuto per stornare | Tieni premuto per un secondo senza rilasciare. | Oppure di’ «conferma storno» (ancora 12 s). Un semplice «sì» non basta. | Parla | Annulla | Invia"
+    },
+    {
+      "name": "storno a voce con pressione prolungata: NC1/2026 creata",
+      "ok": true,
+      "detail": "[\"NC1/2026\"]"
+    },
+    {
+      "name": "fattura 1 ora \"stornata\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "la fattura 2 e rimasta intatta",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "\"elimina la fattura\" su fattura emessa: non la cancella",
+      "ok": true,
+      "detail": "Comando vocale | Fattura 2/2026 è stata emessa: una fattura emessa non si cancella. | Puoi stornarla con una nota di credito: «annulla la fattura con nota di credito». | Invia | Chiudi"
+    },
+    {
+      "name": "\"elimina la bozza\" sulla pagina di una emessa: non la cancella",
+      "ok": true,
+      "detail": "Comando vocale | Fattura 2/2026 è stata emessa: una fattura emessa non si cancella. | Puoi stornarla con una nota di credito: «annulla la fattura con nota di credito». | Invia | Chiudi"
+    },
+    {
+      "name": "storno di fattura inesistente: errore, nessuna scheda di emissione",
+      "ok": true,
+      "detail": "Comando vocale | Non trovo fattura numero 99. | Invia | Chiudi"
+    },
+    {
+      "name": "frase ambigua \"emetti metti la fattura\": nessuna emissione immediata",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "nessun errore in console / pageerror",
+      "ok": true,
+      "detail": "[]"
+    }
+  ],
+  "consoleErrors": [],
+  "notes": [
+    "Testo del widget aperto (headless): Comando vocale | Ti ascolto… tocca per inviare | Parla pure… | Invia | Cantiere rumoroso: registra e trascrivi con il server | Nuovo preventivo per Rossi, tre metri di tubo rame | Converti il preventivo 8 in fattura | Emetti la fattura | Segna la fattura 12 co",
+    "Dopo \"nuova fattura per Rossi...\": url=#/documenti/66e03f27-805e-40df-9842-9dbcdb26df2d ; main=\"Fattura | n. bozza, senza numero | Bozza | BOZZA: non ha ancora un numero e non è stata emessa. Il numero viene assegnato solo quando emetti la fattura. | Emetti fattura | Scarica PDF (bozza) | Bianchi Mario \""
+  ]
+}

@@ -2,6 +2,7 @@
 // Gli intent irreversibili (emetti_fattura, annulla_fattura, invia_sdi) NON sono nell'elenco (ARCH §4.3).
 import { z } from 'zod';
 import type { Env } from '../billing/common';
+import { safeBaseUrl } from '../net/safe-url';
 
 export const ALLOWED_INTENTS = [
   'nuovo_preventivo', 'nuova_fattura', 'aggiungi_righe', 'rimuovi_riga', 'modifica_quantita', 'modifica_prezzo',
@@ -74,6 +75,7 @@ export class HttpIntentLlm implements IntentLlm {
         response_format: { type: 'json_object' },
         messages: [{ role: 'system', content: req.system }, { role: 'user', content: req.user }],
       }),
+      redirect: 'error', signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) throw new Error(`LLM HTTP ${res.status}`);
     const j = (await res.json().catch(() => null)) as {
@@ -88,8 +90,9 @@ export class HttpIntentLlm implements IntentLlm {
 
 export function llmFromEnv(env: Env, fetchImpl?: typeof fetch): IntentLlm | null {
   if (env.LLM_PROVIDER === 'mock' && env.NODE_ENV !== 'production') return new MockIntentLlm();
-  if (env.LLM_PROVIDER === 'http' && env.LLM_BASE_URL && env.LLM_API_KEY && env.LLM_MODEL) {
-    return new HttpIntentLlm({ baseUrl: env.LLM_BASE_URL, apiKey: env.LLM_API_KEY, model: env.LLM_MODEL }, fetchImpl);
+  const baseUrl = env.LLM_PROVIDER === 'http' ? safeBaseUrl(env.LLM_BASE_URL, 'llm', env) : null;
+  if (env.LLM_PROVIDER === 'http' && baseUrl && env.LLM_API_KEY && env.LLM_MODEL) {
+    return new HttpIntentLlm({ baseUrl, apiKey: env.LLM_API_KEY, model: env.LLM_MODEL }, fetchImpl);
   }
   return null;
 }

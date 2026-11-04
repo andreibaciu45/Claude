@@ -8,6 +8,12 @@ import type { SyncOp } from '../../../shared/api';
 export const sent: { email: string; code: string }[] = [];
 export const captureMailer: Mailer = { async sendOtp(email, code) { sent.push({ email, code }); } };
 
+// Limiti generali alti di default nei test (quelli sui limiti li impostano esplicitamente); il peer di test non ha IP.
+process.env.RL_IP_PER_MIN ??= '1000000';
+process.env.RL_TENANT_PER_MIN ??= '1000000';
+process.env.RL_TENANT_WRITES_PER_MIN ??= '1000000';
+process.env.RL_SYNC_OPS_HOUR ??= '1000000';
+
 export const app = createApp();
 export function freshEnv() {
   resetDb();
@@ -16,11 +22,14 @@ export function freshEnv() {
   setMailer(captureMailer);
 }
 
-export async function call(method: string, path: string, opts: { token?: string; body?: unknown; headers?: Record<string, string> } = {}) {
+/** `peer` simula l'indirizzo TCP della connessione (per i test su TRUST_PROXY); `ip` imposta X-Forwarded-For. */
+export async function call(method: string, path: string, opts: { token?: string; body?: unknown; headers?: Record<string, string>; ip?: string; peer?: string } = {}) {
   const headers: Record<string, string> = { ...(opts.headers ?? {}) };
   if (opts.token) headers.authorization = `Bearer ${opts.token}`;
   if (opts.body !== undefined) headers['content-type'] = 'application/json';
-  const res = await app.request(path, { method, headers, body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined });
+  if (opts.ip) headers['x-forwarded-for'] = opts.ip;
+  const env = opts.peer ? { incoming: { socket: { remoteAddress: opts.peer, remotePort: 5555, remoteFamily: opts.peer.includes(':') ? 'IPv6' : 'IPv4' } } } : undefined;
+  const res = await app.request(path, { method, headers, body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined }, env);
   const text = await res.text();
   let json: any = undefined;
   try { json = text ? JSON.parse(text) : undefined; } catch { /* non json */ }

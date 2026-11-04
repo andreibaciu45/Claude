@@ -2,9 +2,10 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import {
-  apiError, authGate, createRateLimiter, systemClock, type AppEnv, type Clock, type Env, type RateLimiter,
+  apiError, authGate, systemClock, type AppEnv, type Clock, type Env, type RateLimiter,
 } from '../billing/common';
 import { addUsage as addCoreUsage, getUsage as getCoreUsage } from '../db/entitlements';
+import { dbRateLimitStore } from '../db/ratelimit';
 import { billingService } from '../billing/routes';
 import type { Plan } from '../billing/entitlements';
 import {
@@ -42,6 +43,25 @@ export function inMemoryVoiceUsage(): VoiceDeps['usage'] {
   return { getMs: (t, n) => m.get(k(t, n)) ?? 0, addMs: (t, ms, n) => void m.set(k(t, n), (m.get(k(t, n)) ?? 0) + ms) };
 }
 
+/** RateLimiter su DB (persistito, sopravvive ai riavvii): i limiti di COSTO (STT/LLM) non devono azzerarsi a ogni deploy. */
+export function dbLimiter(prefix: string, opts: { limit: number; windowMs: number }): RateLimiter {
+  return {
+    hit(key) {
+      const r = dbRateLimitStore.hit(`${prefix}:${key}`, opts.limit, opts.windowMs);
+      return { allowed: r.ok, remaining: r.remaining, resetAt: r.resetAt };
+    },
+  };
+}
+
+/**
+ * Durata minima plausibile dell'audio dalla sola dimensione (il client dichiara durationMs, ma non fa fede):
+ * si usa il bitrate più alto ragionevole per il formato. Serve ad addebitare la quota anche se il client dichiara 1 ms per un file lungo.
+ */
+export function estimateMinDurationMs(bytes: number, mime: string): number {
+  const bytesPerSec = mime.includes('wav') ? 192_000 : 40_000; // WAV 48 kHz stereo 16 bit; compressi ~320 kbit/s
+  return Math.floor((bytes / bytesPerSec) * 1000);
+}
+
 let sttEnv: SttProvider | null | undefined;
 let llmEnv: IntentLlm | null | undefined;
 export const defaultVoiceDeps: VoiceDeps = {
@@ -51,8 +71,8 @@ export const defaultVoiceDeps: VoiceDeps = {
   clock: systemClock,
   env: () => process.env,
   metric: (m) => console.info(JSON.stringify({ metric: m.name, tenantId: m.tenantId, costUsd: m.costUsd, units: m.units, unit: m.unit })),
-  transcribeLimiter: createRateLimiter({ limit: 10, windowMs: 60_000 }),
-  interpretLimiter: createRateLimiter({ limit: DEFAULTS.interpretPerDay, windowMs: 86_400_000 }),
+  transcribeLimiter: dbLimiter('voice:tr', { limit: 10, windowMs: 60_000 }),
+  interpretLimiter: dbLimiter('voice:int', { limit: DEFAULTS.interpretPerDay, windowMs: 86_400_000 }),
   usage: {
     getMs: (t) => getCoreUsage(t).sttSeconds * 1000,
     addMs: (t, ms) => addCoreUsage(t, { sttSeconds: Math.ceil(ms / 1000) }),
@@ -99,6 +119,7 @@ export function createVoiceRoutes(deps: VoiceDeps = defaultVoiceDeps) {
         durationMs = d;
       }
 
+      durationMs = Math.max(durationMs, estimateMinDurationMs(file.size, mime)); // addebito prudente (vedi estimateMinDurationMs)
       // Quota minuti mensile per piano
       const plan = await deps.getPlan(tenantId);
       const limitMs = (plan === 'pro' ? num(env.VOICE_MINUTES_PRO, DEFAULTS.minutesPro) : num(env.VOICE_MINUTES_FREE, DEFAULTS.minutesFree)) * 60_000;

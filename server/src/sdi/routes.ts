@@ -96,7 +96,8 @@ export function createSdiRoutes(deps: SdiDeps = defaultSdiDeps) {
     const now = deps.clock.now();
     await deps.jobs.enqueue({
       kind: 'sdi.submit', payload: { tenantId, docId: doc.docId },
-      dedupeKey: doc.status === 'scartata' ? `submit:${tenantId}:${doc.docId}:${now}` : `submit:${tenantId}:${doc.docId}`,
+      // rinvio di una scartata: una sola coda per minuto (niente flood di job con chiavi sempre nuove)
+      dedupeKey: doc.status === 'scartata' ? `submit:${tenantId}:${doc.docId}:${Math.floor(now / 60_000)}` : `submit:${tenantId}:${doc.docId}`,
     }, now);
     return c.json({ status: 'queued' });
   });

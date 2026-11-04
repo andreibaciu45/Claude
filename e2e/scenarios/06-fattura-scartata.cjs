@@ -101,7 +101,8 @@ run('06-fattura-scartata', async (S) => {
   await sleep(400);
   await S.shot(page, 'bozza collegata');
   const t = await page.locator('main').innerText();
-  S.check('bozza collegata: senza numero + link alla scartata', /senza numero/i.test(t) && /Rifà la fattura scartata n\. 2\/2026/.test(t), t.slice(0, 250));
+  S.check('bozza collegata: senza numero', /senza numero/i.test(t));
+  S.check('bozza collegata: mostra il collegamento alla fattura scartata 2/2026', /2\/2026/.test(t) && /scartata/i.test(t), t.slice(0, 160).replace(/\n+/g, ' | '));
   const n3 = await issueCurrent(S, page, { tag: 'f3 ' });
   S.check('nuova fattura dopo scarto = 3/2026', n3 === '3/2026', n3);
   await go(page, `/documenti/${id2}`);

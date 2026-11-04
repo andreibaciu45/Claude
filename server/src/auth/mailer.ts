@@ -83,7 +83,7 @@ export class SmtpMailer implements Mailer {
         await c.cmd('STARTTLS', [220]);
         c.upgrade(host);
         r = await c.cmd('EHLO vocepreventivo', [250]);
-      } else if (!secure && process.env.SMTP_REQUIRE_TLS === '1') {
+      } else if (!secure && (process.env.SMTP_REQUIRE_TLS ?? (process.env.NODE_ENV === 'production' ? '1' : '0')) === '1') {
         throw new Error('STARTTLS non disponibile');
       }
       if (this.url.username) {

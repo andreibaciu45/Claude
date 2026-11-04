@@ -2,6 +2,7 @@
 // nessun provider SDI è stato scelto e non esistono credenziali. Endpoint/campi configurabili da env.
 import { createHmac } from 'node:crypto';
 import { safeEqual, type Env } from '../billing/common';
+import { safeBaseUrl } from '../net/safe-url';
 import { SdiParseError, type SdiEvent, type SdiNotification, type SdiProvider, type SdiSubmitMeta } from './types';
 
 export interface HttpProviderConfig {
@@ -21,13 +22,14 @@ const DEFAULT_STATUS_MAP: HttpProviderConfig['statusMap'] = {
 
 export function httpConfigFromEnv(env: Env): HttpProviderConfig | null {
   if (env.SDI_PROVIDER !== 'http') return null;
-  if (!env.SDI_HTTP_BASE_URL || !env.SDI_HTTP_API_KEY) return null;
+  const baseUrl = safeBaseUrl(env.SDI_HTTP_BASE_URL, 'sdi', env);
+  if (!baseUrl || !env.SDI_HTTP_API_KEY) return null;
   let map = DEFAULT_STATUS_MAP;
   if (env.SDI_HTTP_STATUS_MAP) {
     try { map = { ...DEFAULT_STATUS_MAP, ...(JSON.parse(env.SDI_HTTP_STATUS_MAP) as HttpProviderConfig['statusMap']) }; } catch { return null; }
   }
   return {
-    baseUrl: env.SDI_HTTP_BASE_URL.replace(/\/+$/, ''),
+    baseUrl,
     apiKey: env.SDI_HTTP_API_KEY,
     submitPath: env.SDI_HTTP_SUBMIT_PATH ?? '/invoices',
     idField: env.SDI_HTTP_ID_FIELD ?? 'id',
@@ -52,6 +54,8 @@ export class HttpSdiProvider implements SdiProvider {
         ...(meta.fileName ? { 'X-File-Name': meta.fileName } : {}),
       },
       body: xml,
+      redirect: 'error', // la chiave API non deve mai seguire un redirect
+      signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) throw new Error(`provider SDI HTTP ${res.status}`);
     const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;

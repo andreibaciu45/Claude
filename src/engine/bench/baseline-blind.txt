@@ -1,0 +1,243 @@
+== CIECO: frasi 213/293 (72.7%), righe 302/373 (81.0%)
+   per mestiere: idraulico 33/46, elettricista 39/49, imbianchino 35/50, serramentista 34/48, muratore 35/48, manutentore 37/52
+   per categoria: base 176/195, prezzo 19/21, cliente 13/20, sconto 0/12, iva 0/13, unita 0/11, prev 0/5, doppia 0/6, refuso 3/3, mani 0/5, misure 2/2
+[idraulico] "sostituzione scaldabagno da 80 litri compresa manodopera tre ore"
+     numero righe 1 != 2; riga 1: id i-man != i-boiler80; riga 1: qty 3 != 1; riga 2: riga mancante
+     -> i-man×3h lo=[sostituzione scaldabagno da|80 l]
+[idraulico] "installazione box doccia piatto doccia 80 e miscelatore doccia"
+     numero righe 2 != 3; riga 1: id i-piatto != i-box; riga 2: id i-misc-doccia != i-piatto; riga 3: riga mancante
+     -> i-piatto×1pz | i-misc-doccia×1pz
+[idraulico] "una cassetta di scarico da incasso con placca"
+     numero righe 1 != 2; riga 2: riga mancante
+     -> i-cassetta×1pz
+[idraulico] "studio associato Valli due vasi di espansione"
+     cliente Studio Associato != Studio Associato Valli
+     -> i-vasoesp×2pz cli=Studio Associato lo=[Valli]
+[idraulico] "condominio Le Magnolie sei radiatori"
+     cliente Condominio Magnolie != Condominio Le Magnolie
+     -> i-radiatore×6pz cli=Condominio Magnolie
+[idraulico] "tre rubinetti cucina e due miscelatori bidet con sconto del dieci per cento"
+     riga 2: id undefined != i-misc-bidet; sconto % atteso 10
+     -> i-misc-cucina×3pz | ?×2pz
+[idraulico] "boiler 80 litri sconto venti euro"
+     sconto € atteso 20
+     -> i-boiler80×1pz
+[idraulico] "un box doccia più iva"
+     frammenti non capiti: iva
+     -> i-box×1pz lo=[iva]
+[idraulico] "un vaso sospeso iva al dieci per cento"
+     riga 1: id undefined != i-vaso; IVA attesa 10
+     -> ?×1pz
+[idraulico] "cinquanta centimetri di tubo di rame da 16"
+     numero righe 0 != 1; riga 1: riga mancante
+     ->  lo=[50 centimetri di tubo di rame da 16]
+[idraulico] "novanta minuti di manodopera"
+     riga 1: id undefined != i-man; riga 1: qty 90 != 1.5; riga 1: unit pz != h
+     -> ?×90pz
+[idraulico] "come da preventivo precedente più due ore di manodopera"
+     riferimento al preventivo precedente non rilevato
+     -> i-man×2h lo=[come da|precedente]
+[idraulico] "due miscelatori lavabo bagno padronale e tre miscelatori lavabo bagno ospiti"
+     riga 1: nota "padronale" assente in "Miscelatore lavabo"; riga 2: nota "ospiti" assente in "Miscelatore lavabo"
+     -> i-misc-lavabo×2pz | i-misc-lavabo×3pz
+[elettricista] "due magnetotermici da dieci e uno da trentadue"
+     riga 2: id undefined != e-mt32
+     -> e-mt10×2pz | ?×1pz
+[elettricista] "sensori di movimento tre"
+     riga 1: qty 1 != 3
+     -> e-sensore×1pz
+[elettricista] "sei faretti e due plafoniere sconto del 15 per cento"
+     riga 2: id undefined != e-plafo; sconto % atteso 15
+     -> e-faretto×6pz | ?×2pz
+[elettricista] "ventidue punti luce con sconto cinquanta euro"
+     sconto € atteso 50
+     -> e-ptluce×22pz
+[elettricista] "un quadro elettrico 12 moduli più iva"
+     frammenti non capiti: iva
+     -> e-quadro12×1pz lo=[iva]
+[elettricista] "otto punti luce iva al dieci"
+     IVA attesa 10
+     -> e-ptluce×8pz
+[elettricista] "settanta centimetri di canalina"
+     numero righe 0 != 1; riga 1: riga mancante
+     ->  lo=[70 centimetri di canalina]
+[elettricista] "per condominio i girasoli un quadro elettrico 24 moduli"
+     cliente Condominio Girasoli != Condominio I Girasoli
+     -> e-quadro24×1pz cli=Condominio Girasoli
+[elettricista] "come da preventivo precedente"
+     riferimento al preventivo precedente non rilevato
+     ->  lo=[come da|precedente]
+[elettricista] "idem come da preventivo precedente più un videocitofono"
+     riferimento al preventivo precedente non rilevato
+     -> e-videocit×1pz lo=[idem come da|precedente]
+[imbianchino] "tinteggiare soggiorno 50 mq e camera 30 mq"
+     riga 1: nota "soggiorno" assente in "Tinteggiatura pareti"; riga 2: id undefined != m-tint-pareti
+     -> m-tint-pareti×50mq | ?×30mq
+[imbianchino] "tinteggiatura pareti quaranta metri quadri due mani"
+     riga 1: mani undefined != 2; frammenti non capiti: 2 mani
+     -> m-tint-pareti×40mq lo=[2 mani]
+[imbianchino] "imbiancare soffitto 25 mq tre mani"
+     riga 1: mani undefined != 3; frammenti non capiti: 3 mani
+     -> m-tint-soffitti×25mq lo=[3 mani]
+[imbianchino] "venti lastre di cartongesso e tre scatole di viti"
+     riga 1: id m-lastra-idro != m-lastra
+     -> m-lastra-idro×20pz | m-viti×3pz
+[imbianchino] "cinquecento millilitri di fissativo"
+     riga 1: qty 500 != 0.5
+     -> m-fissativo×500l
+[imbianchino] "per il signor Gallo tinteggiatura appartamento 80 mq due mani"
+     riga 1: mani undefined != 2
+     -> m-tint-pareti×80mq cli=Gallo lo=[2 mani]
+[imbianchino] "per la signora Maria Pia Colombo imbiancatura camera 20 mq e cucina 15 mq"
+     riga 1: nota "camera" assente in "Tinteggiatura pareti"; riga 2: id undefined != m-tint-pareti
+     -> m-tint-pareti×20mq | ?×15mq cli=Maria Pia Colombo
+[imbianchino] "tinteggiatura salone 60 mq camera da letto 25 mq bagno 10 mq"
+     numero righe 2 != 3; riga 1: id undefined != m-tint-pareti; riga 1: nota "salone" assente in "Camera da letto"; riga 2: id undefined != m-tint-pareti; riga 2: nota "camera" assente in "Bagno"; riga 3: riga mancante
+     -> ?×60mq | ?×25mq lo=[tinteggiatura salone|10 mq]
+[imbianchino] "tinteggiatura 100 mq con sconto del 5 per cento"
+     riga 1: id undefined != m-tint-pareti; sconto % atteso 5
+     -> ?×100mq
+[imbianchino] "rasatura 40 mq sconto trenta euro"
+     sconto € atteso 30
+     -> m-rasatura×40mq
+[imbianchino] "tinteggiatura appartamento a corpo 1200 euro"
+     riga 1: id undefined != m-tint-pareti
+     -> ?×1corpo
+[imbianchino] "tinteggiatura 80 mq più iva"
+     frammenti non capiti: iva
+     -> m-tint-pareti×80mq lo=[iva]
+[imbianchino] "tinteggiatura 80 mq iva al dieci"
+     riga 1: id undefined != m-tint-pareti; IVA attesa 10
+     -> ?×80mq
+[imbianchino] "tinteggiatura 80 mq iva compresa"
+     riga 1: id undefined != m-tint-pareti
+     -> ?×80mq
+[imbianchino] "come da preventivo precedente più dieci mq di rasatura"
+     riferimento al preventivo precedente non rilevato
+     -> m-rasatura×10mq lo=[come da|precedente]
+[serramentista] "sostituzione di tre vetri"
+     riga 1: qty 1 != 3
+     -> s-sost-vetro×1pz
+[serramentista] "smontaggio vecchie finestre sei e posa finestre sei"
+     riga 1: qty 1 != 6; riga 2: qty 1 != 6
+     -> s-smont-infisso×1pz | s-posa-fin×1pz
+[serramentista] "posa in opera di quattro porte"
+     riga 1: qty 1 != 4
+     -> s-posa-porta×1pz
+[serramentista] "un cancello in ferro 6 mq"
+     numero righe 2 != 1; riga 1: qty 1 != 6
+     -> s-cancello×1mq | s-cancello×6mq
+[serramentista] "una scala in legno a corpo"
+     numero righe 2 != 1
+     -> s-scala×1corpo | s-scala×1corpo
+[serramentista] "sopralluogo e rilievo misure"
+     numero righe 2 != 1
+     -> s-sopralluogo×1corpo | s-sopralluogo×1corpo
+[serramentista] "centoventi centimetri di coprifilo"
+     numero righe 0 != 1; riga 1: riga mancante
+     ->  lo=[120 centimetri di coprifilo]
+[serramentista] "sessanta cm di battiscopa"
+     numero righe 0 != 1; riga 1: riga mancante
+     ->  lo=[60 cm di battiscopa]
+[serramentista] "per la famiglia Dell'Orto tre zanzariere"
+     cliente Famiglia Dell Orto != Famiglia Dell'Orto
+     -> s-zanzariera×3pz cli=Famiglia Dell Orto
+[serramentista] "per il sig. D'Angelo una porta blindata"
+     cliente D Angelo != D'Angelo
+     -> s-blindata×1pz cli=D Angelo
+[serramentista] "tre finestre pvc con sconto del 10%"
+     riga 1: id undefined != s-fin-pvc; sconto % atteso 10
+     -> ?×3pz
+[serramentista] "una porta blindata sconto cento euro"
+     sconto € atteso 100
+     -> s-blindata×1pz
+[serramentista] "quattro finestre pvc più iva al 10"
+     frammenti non capiti: iva al 10; IVA attesa 10
+     -> s-fin-pvc×4pz lo=[iva al 10]
+[serramentista] "dieci litri di vernice per legno due mani"
+     riga 1: mani undefined != 2; frammenti non capiti: 2 mani
+     -> s-vernice-legno×10l lo=[2 mani]
+[muratore] "un quintale di ferro"
+     riga 1: qty 1 != 100
+     -> u-ferro×1kg
+[muratore] "chiusura di due vani"
+     riga 1: qty 1 != 2
+     -> u-chius-vano×1pz
+[muratore] "dieci giornate di muratore e dieci giornate manovale"
+     riga 2: id u-manovale != u-giornata-man; riga 2: unit h != gg
+     -> u-giornata×10gg | u-manovale×10h
+[muratore] "per impresa edil verde srl intonaco 100 mq"
+     cliente Impresa Edil != Impresa Edil Verde SRL
+     -> u-intonaco×100mq cli=Impresa Edil
+[muratore] "condominio via Garibaldi pulizia cantiere"
+     cliente Condominio Via != Condominio Via Garibaldi
+     -> u-pulizia×1corpo cli=Condominio Via
+[muratore] "ottanta centimetri di cordolo"
+     numero righe 0 != 1; riga 1: riga mancante
+     ->  lo=[80 centimetri di cordolo]
+[muratore] "demolizione pavimento 50 mq e massetto 50 mq sconto del dieci per cento"
+     riga 2: id undefined != u-massetto; sconto % atteso 10
+     -> u-dem-pav×50mq | ?×50mq
+[muratore] "intonaco 100 mq sconto 200 euro"
+     sconto € atteso 200
+     -> u-intonaco×100mq
+[muratore] "massetto 30 mq iva al quattro per cento"
+     riga 1: id undefined != u-massetto; IVA attesa 4
+     -> ?×30mq
+[muratore] "intonaco 100 mq più iva"
+     frammenti non capiti: iva
+     -> u-intonaco×100mq lo=[iva]
+[muratore] "impermeabilizzazione 25 mq due mani"
+     riga 1: mani undefined != 2; frammenti non capiti: 2 mani
+     -> u-imperm×25mq lo=[2 mani]
+[muratore] "cinquecento mattoni a un euro e venti l'uno"
+     riga 1: prezzo 1 != 1.2
+     -> u-mattoni×500pz lo=[20 l]
+[muratore] "intonaco cucina 20 mq intonaco camera 25 mq intonaco bagno 8 mq"
+     riga 1: nota "cucina" assente in "Intonaco civile"; riga 2: nota "camera" assente in "Intonaco civile"; riga 3: id u-posa-rivest != u-intonaco
+     -> u-intonaco×20mq | u-intonaco×25mq | u-posa-rivest×8mq lo=[intonaco cucina]
+[manutentore] "manutenzione caldaia con analisi di combustione e bollino"
+     numero righe 2 != 3; riga 1: id c-analisi != c-manut-caldaia; riga 2: id c-rcee != c-analisi; riga 3: riga mancante
+     -> c-analisi×1pz | c-rcee×1pz
+[manutentore] "ricarica gas R410A 800 grammi"
+     riga 1: qty 1 != 0.8
+     -> c-gas-r410×1kg
+[manutentore] "pulizia filtri di quattro split"
+     riga 1: qty 1 != 4
+     -> c-filtri×1pz
+[manutentore] "sanificazione di tre split"
+     riga 1: qty 1 != 3
+     -> c-sanif×1pz
+[manutentore] "tagliando a due condizionatori"
+     numero righe 0 != 1; riga 1: riga mancante
+     ->  lo=[tagliando a 2 condizionatori]
+[manutentore] "trenta minuti di manodopera"
+     riga 1: qty 30 != 0.5
+     -> c-man×30h
+[manutentore] "quarantacinque minuti di manodopera"
+     riga 1: qty 45 != 0.75
+     -> c-man×45h
+[manutentore] "cartuccia anticalcare tre"
+     riga 1: qty 1 != 3
+     -> c-addolc-cart×1pz
+[manutentore] "manutenzione caldaia e analisi fumi con sconto del 10 per cento"
+     numero righe 1 != 2; riga 2: riga mancante; frammenti non capiti: analisi fumi con sconto del 10x100; sconto % atteso 10
+     -> c-manut-caldaia×1pz lo=[analisi fumi con sconto del 10x100]
+[manutentore] "manutenzione caldaia sconto venti euro"
+     sconto € atteso 20
+     -> c-manut-caldaia×1pz
+[manutentore] "installazione climatizzatore più iva"
+     frammenti non capiti: iva
+     -> c-inst-split×1pz lo=[iva]
+[manutentore] "installazione climatizzatore iva al dieci"
+     numero righe 0 != 1; riga 1: riga mancante; frammenti non capiti: installazione climatizzatore iva al 10; IVA attesa 10
+     ->  lo=[installazione climatizzatore iva al 10]
+[manutentore] "manutenzione caldaia iva agevolata al 10"
+     numero righe 0 != 1; riga 1: riga mancante; frammenti non capiti: manutenzione caldaia iva agevolata al 10; IVA attesa 10
+     ->  lo=[manutenzione caldaia iva agevolata al 10]
+[manutentore] "come da preventivo precedente più ricarica gas r32 due chili"
+     riferimento al preventivo precedente non rilevato
+     -> c-gas-r32×2kg lo=[come da|precedente]
+[manutentore] "manutenzione split cucina uno manutenzione split camera uno"
+     numero righe 1 != 2; riga 1: nota "cucina" assente in "Manutenzione climatizzatore"; riga 2: riga mancante
+     -> c-manut-split×1pz lo=[manutenzione split cucina]

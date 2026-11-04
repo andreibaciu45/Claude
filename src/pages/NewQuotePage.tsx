@@ -12,6 +12,11 @@ import { InvoiceOptions } from './invoice/InvoiceOptions';
 import { inferChannel, isLegacyInvoice, isLocked, newInvoiceFiscal, normalizeCustomerForInvoice } from './invoice/model';
 import { clearDraft, loadDraft, saveDraft } from './quote/draft';
 import { TYPE_LABEL, todayIso } from './quote/shared';
+import { LimitGate } from '../billing/LimitGate';
+import { UsageCounter } from '../billing/UsageCounter';
+import { checkAllowanceNow, useDocumentAllowance } from '../billing/useAllowance';
+import { usePlan } from '../billing/usePlan';
+import { recordDocumentCreated } from '../billing/usage';
 import './quote/quote.css';
 
 const EXAMPLE = 'preventivo per Mario Rossi, tre metri di tubo rame da sedici, due ore di manodopera';
@@ -51,6 +56,9 @@ export default function NewQuotePage() {
   const [saving, setSaving] = useState<DocType | 'edit' | null>(null);
   const [interpreting, setInterpreting] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const { allowance, reload: reloadAllowance } = useDocumentAllowance();
+  const { signedIn } = usePlan();
+  const [limitHit, setLimitHit] = useState(false);
 
   const speech = useSpeech('it-IT');
   const baseRef = useRef('');
@@ -198,6 +206,9 @@ export default function NewQuotePage() {
     if (saving || !validate()) return;
     setSaving(t);
     try {
+      // Controllo definitivo del limite (limite morbido lato client, vedi src/billing/usage.ts). La bozza resta salvata.
+      const fresh = await checkAllowanceNow();
+      if (!fresh.canCreate) { setLimitHit(true); reloadAllowance(); setSaving(null); return; }
       const now = Date.now();
       const isInv = t === 'fattura';
       const date = isInv ? operationDate || todayIso() : todayIso();
@@ -210,6 +221,7 @@ export default function NewQuotePage() {
         ...(isInv ? { invoice: newInvoiceFiscal({ date, customer: cust, stampDue: totals.stampDue, stampChargedToCustomer: stampCharged }) } : {}),
       };
       await saveDocument(doc);
+      recordDocumentCreated(doc.id, doc.createdAt);
       clearDraft();
       nav(`/documenti/${doc.id}`);
     } catch (e) {
@@ -278,6 +290,8 @@ export default function NewQuotePage() {
 
   const profileIncomplete = !!profile && (!profile.businessName.trim() || !profile.vatNumber.trim());
   const editing = !!original;
+  // Solo i documenti NUOVI sono soggetti al limite: modifica e consultazione non lo sono mai.
+  const gated = !editing && (limitHit || (!!allowance && !allowance.canCreate));
   const micState = speech.listening ? 'listening' : interpreting ? 'processing' : 'idle';
 
   return (
@@ -288,13 +302,17 @@ export default function NewQuotePage() {
         actions={stage === 'edit' && !editing ? <Button variant="ghost" size="sm" onClick={restart}>Ricomincia</Button> : undefined}
       />
 
+      {!editing && <UsageCounter allowance={allowance} />}
+
+      {gated && <LimitGate allowance={allowance} signedIn={signedIn} />}
+
       {profileIncomplete && (
         <div className="qe-banner" role="note">
           Mancano ragione sociale o P.IVA: i documenti usciranno incompleti. <Link to="/profilo">Completa il profilo</Link>
         </div>
       )}
 
-      {stage === 'input' && (
+      {!gated && stage === 'input' && (
         <>
           <Card className="qe-mic-card">
             {speech.unsupported ? (
@@ -359,7 +377,7 @@ export default function NewQuotePage() {
         </>
       )}
 
-      {stage === 'edit' && (
+      {!gated && stage === 'edit' && (
         <>
           {!editing && (
             <div className="segmented qe-seg" role="radiogroup" aria-label="Tipo di documento">

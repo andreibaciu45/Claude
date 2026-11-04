@@ -8,6 +8,7 @@ import { syncRoutes } from './sync/routes';
 import { billingRoutes } from './billing/routes';
 import { sdiRoutes } from './sdi/routes';
 import { voiceRoutes } from './voice/routes';
+import { accountRoutes } from './account/routes';
 
 export const createApp = () => {
   const app = new Hono<AuthEnv>();
@@ -16,6 +17,7 @@ export const createApp = () => {
   app.get('/healthz', (c) => c.text('ok'));
   app.route('/v1/auth', authRoutes);
   app.route('/v1/me', meRoutes);
+  app.route('/v1/me', accountRoutes); // export dei dati (GET /export) e cancellazione account (DELETE /)
   app.route('/v1/sync', syncRoutes);
   app.route('/v1/documents', documentRoutes);
   app.route('/v1/billing', billingRoutes);

@@ -48,7 +48,8 @@ describe('adattatori SQLite', () => {
     const row = one<{ status: string; data: string }>(`SELECT status, data FROM documents WHERE id='d1'`)!;
     expect(row.status).toBe('scartata');
     expect(JSON.parse(row.data).invoice.sdiEvents.length).toBe(2);
-    expect(one<{ n: number }>(`SELECT COUNT(*) n FROM changes WHERE entity_id='d1'`)!.n).toBe(2);
+    // il log di sync è compattato: resta solo l'ultima modifica per entità (il pull non ne restituisce comunque altre)
+    expect(one<{ n: number }>(`SELECT COUNT(*) n FROM changes WHERE entity_id='d1'`)!.n).toBe(1);
     expect(JSON.parse(row.data).invoice.xml).toBe('<x/>');
   });
   it('submission store', async () => {

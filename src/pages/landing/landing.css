@@ -84,5 +84,5 @@
 /* UX-POLISH: bersagli touch >= 44px per brand, link legali e footer */
 .lp-brand{display:inline-flex;align-items:center;min-height:44px}
 .lp-foot a{display:inline-flex;align-items:center;min-height:44px;padding:0 4px}
-.lp p a{padding:10px 2px}
+.lp p a{padding:12px 4px}
 .lp-top .lp-btn--sm{white-space:nowrap}

@@ -33,8 +33,12 @@ export function applySecurity(app: Hono<AuthEnv>): void {
       maxAge: 600,
     }));
   }
-  const max = Number(process.env.MAX_BODY_BYTES) || 2_000_000;
-  app.use('*', bodyLimit({ maxSize: max, onError: (c) => apiError(c, 413, 'payload_too_large', 'Richiesta troppo grande') }));
+  // Limite sul flusso reale (non solo su Content-Length). L'upload audio ha il suo tetto (VOICE_MAX_AUDIO_BYTES + overhead multipart).
+  app.use('*', (c, next) => {
+    const max = Number(process.env.MAX_BODY_BYTES) || 2_000_000;
+    const size = c.req.path === '/v1/voice/transcribe' ? Math.max(max, (Number(process.env.VOICE_MAX_AUDIO_BYTES) || 2 * 1024 * 1024) + 8192) : max;
+    return bodyLimit({ maxSize: size, onError: (cc) => apiError(cc, 413, 'payload_too_large', 'Richiesta troppo grande') })(c, next);
+  });
   app.notFound((c) => apiError(c, 404, 'not_found', 'Risorsa non trovata'));
   app.onError((err, c) => {
     if (process.env.NODE_ENV !== 'test') console.error(JSON.stringify({ request_id: c.get('requestId'), error: err.name }));

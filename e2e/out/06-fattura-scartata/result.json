@@ -1,0 +1,126 @@
+{
+  "name": "06-fattura-scartata",
+  "status": "FAIL",
+  "checks": [
+    {
+      "name": "emessa 1/2026",
+      "ok": true,
+      "detail": "1/2026"
+    },
+    {
+      "name": "stato mostrato: Scartata",
+      "ok": true,
+      "detail": "Scartata dallo SDI"
+    },
+    {
+      "name": "avviso scarto visibile (testo dedicato)",
+      "ok": true,
+      "detail": "Lo SDI l’ha rifiutata: si considera non emessa. Va corretta e rinviata con lo stesso numero e la stessa data, entro 5 giorni dalla notifica di scarto."
+    },
+    {
+      "name": "cronologia riporta codici di scarto 00311, 00400",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS: la fattura mantiene il numero 1/2026",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS: nessun pulsante Modifica/Elimina (resta immutabile)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS: nessun \"Registra incasso\" su fattura scartata",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS: l'XML e ancora scaricabile",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS: azione \"Segna come rinviata\" offerta",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS: l'app spiega il rinvio entro 5 giorni (CONTRACT-V2: stesso numero/data)",
+      "ok": true,
+      "detail": "testo mostrato: (nessuno)"
+    },
+    {
+      "name": "NS: avviso \"non ancora disponibile\" non contraddice l'azione Segna come rinviata",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS: nessun pulsante \"Annulla con nota di credito\" (non emessa)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS entro 5 giorni: pulsante \"Correggi e rinvia\" (stesso numero/data)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "XML corretto: stesso Numero e stessa Data",
+      "ok": true,
+      "detail": "1/2026/2026-11-04 -> 1/2026/2026-11-04"
+    },
+    {
+      "name": "XML corretto: nuovo ProgressivoInvio e nuovo nome file",
+      "ok": true,
+      "detail": "00001 -> 00002 (IT01234567897_00002.xml)"
+    },
+    {
+      "name": "XML corretto: contiene il nuovo indirizzo",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "correzione + rinvio + RC: Consegnata, numero invariato 1/2026",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "seconda fattura 2/2026",
+      "ok": true,
+      "detail": "2/2026"
+    },
+    {
+      "name": "bozza collegata: senza numero + link alla scartata",
+      "ok": false,
+      "detail": "Fattura\n\nn. bozza, senza numero\n\nBozza\n\nBOZZA: non ha ancora un numero e non è stata emessa. Il numero viene assegnato solo quando emetti la fattura.\n\nEmetti fattura\nScarica PDF (bozza)\nBianchi Mario Impianti\nVia Roma 1 - 00100 Roma (RM)\nP.IVA 012345"
+    },
+    {
+      "name": "nuova fattura dopo scarto = 3/2026",
+      "ok": true,
+      "detail": "3/2026"
+    },
+    {
+      "name": "la scartata mostra il link \"Rifatta come nuova fattura n. 3/2026\"",
+      "ok": true,
+      "detail": "Fattura\n\nn. 2/2026\n\nScartata dallo SDI\nScartata dallo SDI\n\nLo SDI l’ha rifiutata: si considera non emessa. Va corretta e rinviata con lo stesso numero e la stessa data, entro 5 giorni dalla notifica di scarto.\n\nCorreggi i dati e rigenera il file: numero (2/2026) e data restano gli stessi. Puoi rinvi"
+    },
+    {
+      "name": "la scartata rifatta non offre piu \"Correggi e rinvia\" doppio / nuovo rifacimento",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "nessun errore in console / pageerror",
+      "ok": true,
+      "detail": "[]"
+    }
+  ],
+  "consoleErrors": [],
+  "notes": [
+    "Stato dopo \"Rigenera il file XML\": Scartata dallo SDI",
+    "Storico file scartati (.iv-history) presente: 1"
+  ]
+}

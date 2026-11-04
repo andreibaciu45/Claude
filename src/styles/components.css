@@ -124,3 +124,5 @@ body:has(.sheet-overlay) .toast-region { bottom: auto; top: calc(var(--sat) + va
 .sk-line { height: 1em; width: 100%; } .sk-line[data-w="short"] { width: 40%; } .sk-line[data-w="mid"] { width: 70%; }
 .sk-block { height: 84px; border-radius: var(--r-md); }
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+/* IBAN formattato (31 caratteri) in un campo stretto: compatto ma >= 16px (niente zoom iOS) */
+.input[data-field="iban"] { letter-spacing: -.035em; padding-inline: 10px; }

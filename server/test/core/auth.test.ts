@@ -3,6 +3,7 @@ import { app, call, captureMailer, freshEnv, login, sent } from './helpers';
 import { one } from '../../src/db';
 import { setClock } from '../../src/db/clock';
 import { sha256Hex } from '../../src/auth/crypto';
+import { OTP_MAX_ATTEMPTS, verifyOtp } from '../../src/auth/service';
 
 beforeEach(freshEnv);
 const verify = (email: string, code: string, deviceId = 'd1') => call('POST', '/v1/auth/verify', { body: { email, code, deviceId } });
@@ -47,12 +48,12 @@ describe('auth OTP', () => {
     expect((await verify('a@x.it', code)).status).toBe(401);
   });
 
-  it('max 5 tentativi: dopo il quinto errore anche il codice giusto è rifiutato', async () => {
+  it('un codice ha un tetto di tentativi (somma di tutti i dispositivi): oltre, anche il codice giusto è bruciato', async () => {
     await call('POST', '/v1/auth/request', { body: { email: 'a@x.it' } });
     const code = sent[0].code;
     const wrong = code === '000000' ? '111111' : '000000';
-    for (let i = 0; i < 5; i++) expect((await verify('a@x.it', wrong)).status).toBe(401);
-    expect((await verify('a@x.it', code)).status).toBe(401);
+    for (let i = 0; i < OTP_MAX_ATTEMPTS; i++) expect(verifyOtp('a@x.it', wrong).ok).toBe(false);
+    expect(verifyOtp('a@x.it', code).ok).toBe(false);
   });
 
   it('scadenza OTP a 10 minuti', async () => {
@@ -63,11 +64,11 @@ describe('auth OTP', () => {
     expect((await verify('a@x.it', sent[0].code)).status).toBe(401);
   });
 
-  it('un nuovo codice invalida il precedente', async () => {
-    await call('POST', '/v1/auth/request', { body: { email: 'a@x.it' } });
-    await call('POST', '/v1/auth/request', { body: { email: 'a@x.it' } });
-    expect((await verify('a@x.it', sent[0].code)).status === 200 && sent[0].code !== sent[1].code).toBe(false);
-    expect((await verify('a@x.it', sent[1].code)).status).toBe(200);
+  it('una nuova richiesta NON invalida subito il codice precedente (anti-DoS), ma ne restano al massimo 3 validi', async () => {
+    for (let i = 0; i < 4; i++) await call('POST', '/v1/auth/request', { body: { email: 'a@x.it' }, ip: `9.9.9.${i}`, peer: '10.0.0.1' });
+    expect(sent).toHaveLength(4);
+    expect(verifyOtp('a@x.it', sent[0].code).ok).toBe(false); // il quarto codice ha espulso il primo
+    expect((await verify('a@x.it', sent[1].code)).status).toBe(200); // il secondo è ancora valido
   });
 
   it('rate-limit per email sulle richieste (429 + Retry-After) e reset dopo la finestra', async () => {
