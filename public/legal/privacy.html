@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- BOZZA: documento generato come base di lavoro. Va fatto revisionare da un legale/consulente privacy prima della pubblicazione. Compilare tutti i segnaposto tra parentesi quadre. -->
+<!-- BOZZA: documento generato come base di lavoro. NON è consulenza legale. Va fatto revisionare da un legale/consulente privacy prima della pubblicazione. Compilare tutti i segnaposto tra parentesi quadre. Vedi docs/privacy/DA-FAR-VERIFICARE.md -->
 <html lang="it">
 <head>
 <meta charset="utf-8">
@@ -11,63 +11,111 @@
 @media(prefers-color-scheme:dark){:root{--bg:#10141a;--fg:#eef1f5;--mut:#b4bcc8;--pri:#7db4f0;--bd:#2c3440;--warn:#4a3b0a}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 main{max-width:760px;margin:0 auto;padding:16px 16px 56px}
-h1{font-size:1.9rem;line-height:1.2}h2{font-size:1.25rem;margin-top:2em;line-height:1.3}
+h1{font-size:1.9rem;line-height:1.2}h2{font-size:1.25rem;margin-top:2em;line-height:1.3}h3{font-size:1.05rem;margin-top:1.4em}
 a{color:var(--pri)}p,li{overflow-wrap:anywhere}
 .draft{background:var(--warn);border:2px solid #b8860b;border-radius:10px;padding:12px 14px;font-weight:700}
 .ph{background:#ffe08a;color:#14181f;padding:0 4px;border-radius:4px;font-weight:700}
+.verify{background:#ffe08a;color:#14181f;padding:0 4px;border-radius:4px;font-weight:700;font-size:.9em}
+.box{border:2px solid #b8860b;border-radius:10px;padding:10px 14px;background:var(--warn)}
 table{border-collapse:collapse;width:100%;font-size:.95rem}th,td{border:1px solid var(--bd);padding:8px;text-align:left;vertical-align:top}
 .tw{overflow-x:auto}
-nav a{margin-right:14px}
+nav a{margin-right:14px;display:inline-block}
 </style>
 </head>
 <body>
 <main>
-<p class="draft">BOZZA – da far revisionare da un legale prima della pubblicazione</p>
-<nav><a href="../#/info">Torna alla app</a><a href="termini.html">Termini di servizio</a></nav>
+<p class="draft">BOZZA – da far revisionare</p>
+<nav aria-label="Documenti legali"><a href="../#/info">Torna alla app</a><a href="privacy.html">Privacy</a><a href="termini.html">Termini</a><a href="dpa.html">DPA</a><a href="subprocessors.html">Sub-responsabili</a><a href="cookie.html">Cookie</a></nav>
 <h1>Informativa sul trattamento dei dati personali</h1>
-<p>Ai sensi degli artt. 13 e 14 del Regolamento (UE) 2016/679 (GDPR). Ultimo aggiornamento: [DATA].</p>
+<p>Ultimo aggiornamento: <span class="ph">[DATA]</span>.</p>
+
+<p class="box"><strong>Attenzione, punti da completare:</strong> i fornitori indicati sono <em>indicativi</em> e vanno confermati; ogni punto marcato <span class="verify">[DA VERIFICARE]</span> richiede verifica di un legale/consulente privacy prima della pubblicazione.</p>
 
 <h2>1. Titolare del trattamento</h2>
-<p><span class="ph">[RAGIONE SOCIALE]</span>, P.IVA <span class="ph">[P.IVA]</span>, sede in <span class="ph">[INDIRIZZO]</span>.<br>
-Email: <span class="ph">[EMAIL]</span> – PEC: <span class="ph">[PEC]</span>.</p>
+<p><span class="ph">[RAGIONE SOCIALE]</span>, P.IVA <span class="ph">[P.IVA]</span>, sede in <span class="ph">[SEDE]</span>. Email: <span class="ph">[EMAIL]</span> – PEC: <span class="ph">[PEC]</span>.</p>
+<p>Informativa resa ai sensi dell'art. 13 del Regolamento (UE) 2016/679 (GDPR). Valida per il sito e per l'app VocePreventivo (&laquo;l'App&raquo;).</p>
 
-<h2>2. In breve</h2>
-<p>VocePreventivo (&laquo;l'App&raquo;) funziona nel tuo dispositivo. Nella versione attuale <strong>i dati che inserisci (profilo dell'azienda, listino, clienti, documenti) sono salvati solo nella memoria del tuo browser (IndexedDB) e non vengono inviati a noi</strong>. Non abbiamo un server che li riceva, quindi non possiamo accedervi, recuperarli o cancellarli per tuo conto.</p>
-
-<h2>3. Cosa NON raccogliamo</h2>
+<h2>2. In breve: due modalità d'uso</h2>
 <ul>
-<li>Non raccogliamo i contenuti dei tuoi preventivi, fatture, listini, né i dati dei tuoi clienti.</li>
-<li>Non raccogliamo l'audio della dettatura né le trascrizioni.</li>
-<li>Non richiediamo la registrazione di un account nella versione attuale.</li>
-<li>Non usiamo cookie di profilazione, pubblicità o strumenti di tracciamento. [Se in futuro verrà adottata una statistica anonima, sarà aggiornata questa sezione: indicare lo strumento e verificare se serve il consenso.]</li>
+<li><strong>Modalità A – senza account.</strong> I dati che inserisci (profilo, listino, clienti, documenti) restano <strong>solo sul tuo dispositivo</strong> (memoria del browser). Non li riceviamo e non possiamo accedervi, recuperarli o cancellarli per tuo conto.</li>
+<li><strong>Modalità B – con account (facoltativa).</strong> Se crei un account, i tuoi dati vengono <strong>sincronizzati sui nostri server nell'Unione Europea</strong>: profilo dell'azienda, catalogo/listino, documenti (preventivi, fatture, note di credito, file XML e PDF) e anagrafica dei tuoi clienti.</li>
+</ul>
+<p>Puoi usare l'App anche solo in modalità A. Il piano Free e le funzioni di base non richiedono l'account <span class="verify">[DA VERIFICARE]</span>.</p>
+
+<h2>3. Ruoli: titolare e responsabile</h2>
+<ul>
+<li>Per i <strong>dati del tuo account</strong> (email, dati dell'azienda e di fatturazione, uso del servizio) siamo <strong>titolari</strong> del trattamento: questa informativa.</li>
+<li>Per i <strong>dati dei tuoi clienti finali</strong> contenuti nei documenti e nell'anagrafica sincronizzati (nome, indirizzo, codice fiscale/P.IVA, email, telefono, contenuto dei documenti) <strong>il titolare sei tu</strong> (l'artigiano/impresa) e noi agiamo come <strong>responsabili del trattamento</strong> ai sensi dell'art. 28 GDPR, secondo l'<a href="dpa.html">accordo di nomina (DPA)</a>. Spetta a te informare i tuoi clienti.</li>
+</ul>
+<p>Non trattiamo intenzionalmente categorie particolari di dati (art. 9) né dati relativi a condanne penali. Ti chiediamo di non inserirne nei campi liberi.</p>
+
+<h2>4. Dati trattati, finalità e basi giuridiche</h2>
+<div class="tw"><table>
+<thead><tr><th>Dati</th><th>Finalità</th><th>Base giuridica</th></tr></thead>
+<tbody>
+<tr><td>Email, credenziali di accesso (password in forma di hash; <span class="ph">[altri metodi di login, se presenti]</span>), dati dell'azienda (ragione sociale, P.IVA, indirizzo, regime fiscale)</td><td>Creare e gestire l'account, erogare il servizio e la sincronizzazione</td><td>Esecuzione del contratto (art. 6.1.b)</td></tr>
+<tr><td>Documenti, catalogo, anagrafica clienti sincronizzati</td><td>Archiviare e sincronizzare tra dispositivi, generare PDF e file XML della fattura elettronica</td><td>Esecuzione del contratto (art. 6.1.b); per i dati dei tuoi clienti agiamo per tuo conto come responsabili</td></tr>
+<tr><td>Dati di abbonamento e fatturazione (importi, date, stato, email); i dati della carta sono gestiti da Stripe</td><td>Gestire il piano Pro, emettere le nostre fatture, adempiere a obblighi fiscali e contabili</td><td>Contratto (6.1.b); obbligo di legge (6.1.c); conservazione contabile <span class="verify">[DA VERIFICARE]</span></td></tr>
+<tr><td>Registro di accettazione di Termini e DPA (versione, data/ora); contatore dei documenti emessi nel mese</td><td>Provare l'accettazione, applicare i limiti del piano</td><td>Contratto (6.1.b); legittimo interesse a documentare gli accordi (6.1.f)</td></tr>
+<tr><td>Dati tecnici di sicurezza (indirizzo IP, data/ora, esito delle richieste, identificativi), senza contenuto dei documenti</td><td>Sicurezza, prevenzione abusi, limitazione delle richieste, diagnosi di errori</td><td>Legittimo interesse (art. 6.1.f) alla sicurezza del servizio</td></tr>
+<tr><td>Audio della dettatura (solo se usi la trascrizione sui nostri server, v. punto 5)</td><td>Trasformare la voce in testo</td><td>Esecuzione del contratto (6.1.b), su tua azione esplicita</td></tr>
+<tr><td>Messaggi che ci invii</td><td>Rispondere alle richieste, assistenza</td><td>6.1.b o 6.1.f</td></tr>
+</tbody></table></div>
+<p>Il conferimento dei dati di account è necessario per usare la modalità B; senza di essi non possiamo erogarla.</p>
+
+<h2>5. Riconoscimento vocale (audio)</h2>
+<ul>
+<li><strong>Dettatura del browser.</strong> Di norma la dettatura usa la funzione di riconoscimento vocale del tuo browser/sistema. L'audio <strong>può essere inviato ai server del produttore</strong> (ad esempio Google per Chrome/Android, Apple per Safari/iPhone), che trattano i dati secondo le proprie informative. Noi non riceviamo l'audio.</li>
+<li><strong>Trascrizione sui nostri server.</strong> Su alcuni dispositivi (ad esempio l'App installata su iPhone) o se lo scegli, l'App registra l'audio e lo invia ai <strong>nostri server</strong>, che lo trasmettono a un fornitore di trascrizione <span class="ph">[fornitore STT da definire]</span> solo per ottenere il testo. <strong>L'audio non viene conservato</strong>: è eliminato dopo la trascrizione; chiediamo al fornitore contrattualmente di non conservarlo né usarlo per addestrare modelli <span class="verify">[DA VERIFICARE]</span>. Nei log non registriamo né audio né trascrizioni.</li>
+<li>Puoi sempre evitare il trattamento dell'audio scrivendo la frase nel campo di testo.</li>
+<li>Se il fornitore ha sede o infrastruttura fuori dallo SEE, v. punto 9.</li>
 </ul>
 
-<h2>4. Dati trattati localmente sul tuo dispositivo</h2>
-<p>Quanto inserisci nell'App (anche dati personali dei tuoi clienti, come nome e indirizzo) resta sul tuo dispositivo. Per questi dati <strong>sei tu il titolare del trattamento</strong> nei confronti dei tuoi clienti: noi forniamo solo lo strumento. Il backup in formato JSON è un file che generi tu e che conservi dove decidi; proteggilo come qualsiasi documento riservato. Se cancelli i dati del browser o disinstalli l'App senza backup, i dati vanno persi.</p>
+<h2>6. Destinatari e sub-responsabili</h2>
+<p>I dati sono accessibili solo a personale autorizzato e ai fornitori indicati in <a href="subprocessors.html">elenco sub-responsabili</a> (elenco indicativo, da confermare): </p>
+<ul>
+<li>hosting e database nell'UE <span class="ph">[hosting UE]</span>;</li>
+<li>archiviazione dei backup cifrati nell'UE <span class="ph">[fornitore backup]</span>;</li>
+<li>invio email transazionali (verifica account, notifiche) <span class="ph">[email transazionale]</span>;</li>
+<li>trascrizione vocale <span class="ph">[STT]</span> (solo se usata);</li>
+<li>pagamenti: Stripe (titolare autonomo per i dati di pagamento) <span class="verify">[DA VERIFICARE]</span>;</li>
+<li>consulenti professionali (commercialista, legale) vincolati da riservatezza.</li>
+</ul>
+<p>Non vendiamo i dati e non li usiamo per pubblicità o profilazione. Se in futuro verrà integrato un provider per la trasmissione allo SDI, aggiorneremo questa informativa e l'elenco prima di attivarlo.</p>
 
-<h2>5. Riconoscimento vocale</h2>
-<p>La dettatura usa la funzione di riconoscimento vocale del tuo browser (Web Speech API). L'audio viene gestito dal browser e, a seconda del dispositivo, <strong>può essere inviato ed elaborato dai server del produttore del browser o del sistema</strong> (ad esempio Google per Chrome/Android, Apple per Safari/iPhone), secondo le loro informative. Noi non riceviamo né conserviamo l'audio. Puoi evitare questo trattamento non usando il microfono e scrivendo la frase nel campo di testo.</p>
+<h2>7. Trasmissione delle fatture allo SDI</h2>
+<p>L'App <strong>genera</strong> il file XML della fattura elettronica ma <strong>non lo trasmette</strong> al Sistema di Interscambio: lo scarichi tu e lo carichi sul portale dell'Agenzia delle Entrate o lo invii via PEC. Noi non comunichiamo i tuoi documenti all'Agenzia delle Entrate.</p>
 
-<h2>6. Pagamenti</h2>
-<p>L'eventuale abbonamento Pro è pagato tramite un fornitore di servizi di pagamento terzo, <span class="ph">[Stripe Payments Europe Ltd. – confermare il fornitore]</span>, che agisce come titolare autonomo per i dati di pagamento (carta, nome, email di fatturazione). Noi non vediamo né conserviamo i dati della carta; riceviamo solo l'esito del pagamento e i dati necessari a emettere la fattura e gestire l'abbonamento (email, importo, data, stato). Base giuridica: esecuzione del contratto (art. 6.1.b) e obblighi fiscali e contabili (art. 6.1.c), con conservazione per 10 anni.</p>
+<h2>8. Conservazione</h2>
+<ul>
+<li><strong>Modalità A:</strong> i dati restano sul dispositivo finché non li cancelli tu (o il browser). Non possiamo recuperarli.</li>
+<li><strong>Account e dati sincronizzati:</strong> per la durata del rapporto. Alla chiusura dell'account ti rendiamo disponibile un export completo e cancelliamo catalogo, anagrafica clienti, bozze e preventivi entro <span class="ph">[N]</span> giorni <span class="verify">[DA VERIFICARE]</span>.</li>
+<li><strong>Fatture emesse:</strong> sono documenti fiscali con obbligo di conservazione (in generale 10 anni <span class="verify">[DA VERIFICARE]</span>). Alla chiusura potremo mantenerle in un archivio ad accesso ristretto fino alla scadenza, oppure restituirle e cancellarle, secondo il DPA <span class="verify">[DA VERIFICARE]</span>. L'App non è un sistema di conservazione a norma.</li>
+<li><strong>Audio:</strong> non conservato.</li>
+<li><strong>Dati di fatturazione dell'abbonamento:</strong> per il periodo previsto dalla normativa contabile e fiscale <span class="verify">[DA VERIFICARE]</span>.</li>
+<li><strong>Backup cifrati:</strong> ruotati entro <span class="ph">[N]</span> giorni dalla cancellazione.</li>
+<li><strong>Log tecnici:</strong> <span class="ph">[N]</span> giorni.</li>
+</ul>
 
-<h2>7. Comunicazioni con noi</h2>
-<p>Se ci scrivi, tratteremo email e contenuto del messaggio per risponderti (art. 6.1.b o 6.1.f), conservandoli per il tempo necessario e comunque non oltre [PERIODO] dalla chiusura della richiesta.</p>
+<h2>9. Trasferimenti extra-UE</h2>
+<p>Hosting e database sono in UE. Il database e i backup restano nello SEE. Per altri fornitori (ad es. Stripe, email transazionale, trascrizione vocale, produttori dei browser per la dettatura) potrebbero esserci trasferimenti verso Paesi terzi, in particolare Stati Uniti, sulla base di una decisione di adeguatezza (EU-US Data Privacy Framework, se il fornitore vi aderisce), di clausole contrattuali standard o di altre garanzie previste dal Capo V GDPR. <span class="verify">[DA VERIFICARE]</span> Lo stato attuale del Data Privacy Framework e le garanzie di ciascun fornitore vanno verificati prima della pubblicazione. Su richiesta forniamo copia delle garanzie adottate.</p>
 
-<h2>8. Dati tecnici</h2>
-<p>Il sito che ospita l'App è servito da <span class="ph">[HOSTING, es. Cloudflare Pages / Netlify / GitHub Pages]</span>, che può registrare per brevi periodi dati tecnici di connessione (indirizzo IP, data e ora, pagina richiesta) per sicurezza e funzionamento. Noi non utilizziamo questi log per profilarti. Il service worker dell'App salva sul dispositivo i file necessari al funzionamento offline.</p>
+<h2>10. Cookie e strumenti di tracciamento</h2>
+<p>Non usiamo cookie di profilazione, pubblicità o analytics di terze parti. Usiamo solo archiviazione tecnica nel tuo dispositivo (IndexedDB, localStorage, service worker per il funzionamento offline, eventuale token di sessione). Dettagli in <a href="cookie.html">Cookie e archiviazione locale</a>. <span class="verify">[DA VERIFICARE]</span></p>
 
-<h2>9. Destinatari e trasferimenti extra UE</h2>
-<p>I dati sono comunicati solo ai fornitori indicati sopra (pagamenti, hosting) in qualità di responsabili o titolari autonomi. Alcuni di essi possono trattare dati negli Stati Uniti sulla base di decisione di adeguatezza (EU-US Data Privacy Framework) o clausole contrattuali standard. [Verificare con i fornitori scelti.]</p>
+<h2>11. Sicurezza</h2>
+<p>Adottiamo misure tecniche e organizzative adeguate: cifratura in transito (TLS) e dei backup, isolamento dei dati tra account, controllo degli accessi, registri di sicurezza senza contenuti, test periodici. Descrizione più completa nel <a href="dpa.html">DPA</a>. Nessun sistema è totalmente sicuro; in caso di violazione ti informiamo senza ingiustificato ritardo.</p>
 
-<h2>10. I tuoi diritti</h2>
-<p>Puoi chiedere accesso, rettifica, cancellazione, limitazione, portabilità e opporti al trattamento (artt. 15-22 GDPR) scrivendo a <span class="ph">[EMAIL]</span>. Hai diritto di proporre reclamo al Garante per la protezione dei dati personali (<a href="https://www.garanteprivacy.it">garanteprivacy.it</a>). Poiché i contenuti dell'App sono solo sul tuo dispositivo, per accedere, correggere o cancellare quei dati usa direttamente le funzioni dell'App.</p>
+<h2>12. I tuoi diritti</h2>
+<p>Puoi esercitare i diritti di accesso, rettifica, cancellazione, limitazione, portabilità e opposizione (artt. 15-22 GDPR) scrivendo a <span class="ph">[EMAIL]</span>. Puoi esportare i tuoi dati dall'App (account → esporta) e cancellare l'account. Hai diritto di proporre reclamo al Garante per la protezione dei dati personali (<a href="https://www.garanteprivacy.it">garanteprivacy.it</a>). Se sei un <strong>cliente finale</strong> di un artigiano che usa l'App, rivolgiti in primo luogo all'artigiano (titolare); noi lo assistiamo nel rispondere.</p>
+<p>Non adottiamo decisioni basate unicamente su trattamenti automatizzati che producano effetti giuridici su di te. L'abbinamento vocale al listino è un suggerimento che confermi tu.</p>
 
-<h2>11. Minori</h2>
+<h2>13. Minori</h2>
 <p>L'App è destinata a professionisti e imprese e non è rivolta ai minori.</p>
 
-<h2>12. Modifiche</h2>
-<p>Se in futuro introdurremo account, sincronizzazione cloud o statistiche, aggiorneremo questa informativa prima di attivarli e te lo comunicheremo.</p>
+<h2>14. Modifiche</h2>
+<p>Pubblicheremo qui le modifiche e, se sostanziali, te le comunicheremo. Versione: <span class="ph">[DATA]</span>.</p>
+
 </main>
 </body>
 </html>

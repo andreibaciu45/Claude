@@ -1,0 +1,16 @@
+**/node_modules
+.git
+.github
+dist
+e2e
+docs
+infra/.env
+infra/.env.*
+infra/backups
+**/.env
+**/.env.*
+!**/.env.example
+**/*.sqlite
+**/*.sqlite-*
+**/*credentials*
+*.local

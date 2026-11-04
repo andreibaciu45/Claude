@@ -1,0 +1,18 @@
+# Litestream: replica continua del DB SQLite verso un bucket S3-compatibile
+# (Backblaze B2, Hetzner Object Storage, Cloudflare R2, ...).
+# Credenziali e bucket arrivano SOLO da variabili d'ambiente (infra/.env).
+# Litestream espande ${VAR} dentro questo file.
+dbs:
+  - path: ${DB_PATH}
+    replicas:
+      - type: s3
+        bucket: ${LITESTREAM_BUCKET}
+        path: ${LITESTREAM_PATH}
+        endpoint: ${LITESTREAM_ENDPOINT}
+        region: ${LITESTREAM_REGION}
+        force-path-style: true
+        # replica quasi in tempo reale; snapshot completi ogni 6 ore
+        sync-interval: 10s
+        snapshot-interval: 6h
+        # conserva 14 giorni di storia (point-in-time recovery)
+        retention: 336h

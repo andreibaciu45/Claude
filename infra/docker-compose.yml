@@ -1,0 +1,93 @@
+# Avvio: cd infra && docker compose up -d   (di norma tramite scripts/deploy.sh)
+# Le variabili vengono lette da infra/.env (vedi .env.example).
+name: vocepreventivo
+
+services:
+  server:
+    image: vocepreventivo-server:${APP_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+      target: server
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8787"
+    volumes:
+      - app-data:/data
+    expose:
+      - "8787"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 256
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  caddy:
+    image: vocepreventivo-web:${APP_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+      target: web
+    environment:
+      DOMAIN: ${DOMAIN:?imposta DOMAIN in infra/.env}
+      ACME_EMAIL: ${ACME_EMAIL:?imposta ACME_EMAIL in infra/.env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  litestream:
+    image: litestream/litestream:0.3.13
+    command: ["replicate", "-config", "/etc/litestream.yml"]
+    environment:
+      DB_PATH: ${DB_PATH:?imposta DB_PATH in infra/.env}
+      LITESTREAM_ENDPOINT: ${LITESTREAM_ENDPOINT:?}
+      LITESTREAM_REGION: ${LITESTREAM_REGION:?}
+      LITESTREAM_BUCKET: ${LITESTREAM_BUCKET:?}
+      LITESTREAM_PATH: ${LITESTREAM_PATH:?}
+      LITESTREAM_ACCESS_KEY_ID: ${LITESTREAM_ACCESS_KEY_ID:?}
+      LITESTREAM_SECRET_ACCESS_KEY: ${LITESTREAM_SECRET_ACCESS_KEY:?}
+    volumes:
+      - app-data:/data
+      - ./litestream.yml:/etc/litestream.yml:ro
+    depends_on:
+      - server
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: 0.25
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+volumes:
+  app-data:
+  caddy-data:
+  caddy-config:

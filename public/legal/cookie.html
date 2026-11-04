@@ -1,0 +1,47 @@
+<!doctype html>
+<!-- BOZZA: documento generato come base di lavoro. NON è consulenza legale. Va fatto revisionare da un legale/consulente privacy prima della pubblicazione. Compilare tutti i segnaposto tra parentesi quadre. Vedi docs/privacy/DA-FAR-VERIFICARE.md -->
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Cookie e archiviazione locale – VocePreventivo</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#14181f;--mut:#444c59;--pri:#0b5cab;--bd:#d5d9e0;--warn:#fff3cd}
+@media(prefers-color-scheme:dark){:root{--bg:#10141a;--fg:#eef1f5;--mut:#b4bcc8;--pri:#7db4f0;--bd:#2c3440;--warn:#4a3b0a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:760px;margin:0 auto;padding:16px 16px 56px}
+h1{font-size:1.9rem;line-height:1.2}h2{font-size:1.25rem;margin-top:2em;line-height:1.3}h3{font-size:1.05rem;margin-top:1.4em}
+a{color:var(--pri)}p,li{overflow-wrap:anywhere}
+.draft{background:var(--warn);border:2px solid #b8860b;border-radius:10px;padding:12px 14px;font-weight:700}
+.ph{background:#ffe08a;color:#14181f;padding:0 4px;border-radius:4px;font-weight:700}
+.verify{background:#ffe08a;color:#14181f;padding:0 4px;border-radius:4px;font-weight:700;font-size:.9em}
+.box{border:2px solid #b8860b;border-radius:10px;padding:10px 14px;background:var(--warn)}
+table{border-collapse:collapse;width:100%;font-size:.95rem}th,td{border:1px solid var(--bd);padding:8px;text-align:left;vertical-align:top}
+.tw{overflow-x:auto}
+nav a{margin-right:14px;display:inline-block}
+</style>
+</head>
+<body>
+<main>
+<p class="draft">BOZZA – da far revisionare</p>
+<nav aria-label="Documenti legali"><a href="../#/info">Torna alla app</a><a href="privacy.html">Privacy</a><a href="termini.html">Termini</a><a href="dpa.html">DPA</a><a href="subprocessors.html">Sub-responsabili</a><a href="cookie.html">Cookie</a></nav>
+<h1>Cookie e archiviazione locale</h1>
+<p>Ultimo aggiornamento: <span class="ph">[DATA]</span>.</p>
+
+<p><strong>In breve:</strong> non usiamo cookie di profilazione, pubblicità o analytics di terze parti. Usiamo solo archiviazione tecnica necessaria al funzionamento dell'App. <span class="verify">[DA VERIFICARE]</span> (valutare con un consulente se sia richiesto un banner; in genere l'uso di soli strumenti tecnici non richiede il consenso preventivo).</p>
+<div class="tw"><table>
+<thead><tr><th>Strumento</th><th>Scopo</th><th>Durata</th></tr></thead>
+<tbody>
+<tr><td>IndexedDB</td><td>Salvare nel dispositivo profilo, listino, clienti, documenti (modalità senza account e copia locale per l'uso offline)</td><td>Finché non li cancelli</td></tr>
+<tr><td>localStorage / sessionStorage</td><td>Preferenze (es. tema, ultimo schermo), stato tecnico dell'App <span class="ph">[verificare]</span></td><td>Finché non li cancelli</td></tr>
+<tr><td>Service worker e cache</td><td>Far funzionare l'App offline</td><td>Fino ad aggiornamento/rimozione</td></tr>
+<tr><td>Token di sessione <span class="ph">[cookie o storage, da verificare]</span></td><td>Mantenere l'accesso all'account (solo modalità con account)</td><td><span class="ph">[durata]</span></td></tr>
+<tr><td>Cookie di terzi per i pagamenti (Stripe)</td><td>Sicurezza e prevenzione frodi nella pagina di pagamento; sono gestiti da Stripe sulle proprie pagine</td><td>Secondo Stripe <span class="verify">[DA VERIFICARE]</span></td></tr>
+</tbody></table></div>
+<p>Non usiamo Google Analytics né strumenti simili. Se in futuro li adotteremo, aggiorneremo questa pagina e chiederemo il consenso quando necessario.</p>
+<p>Per cancellare i dati locali usa le impostazioni del browser (attenzione: nella modalità senza account cancelli anche i tuoi documenti; fai prima un backup). Maggiori informazioni nell'<a href="privacy.html">informativa privacy</a>. Contatti: <span class="ph">[EMAIL]</span>.</p>
+
+</main>
+</body>
+</html>

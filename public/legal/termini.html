@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- BOZZA: documento generato come base di lavoro. Va fatto revisionare da un legale prima della pubblicazione. Compilare tutti i segnaposto tra parentesi quadre. Verificare in particolare recesso/consumatori vs professionisti, prezzi e foro. -->
+<!-- BOZZA: documento generato come base di lavoro. NON è consulenza legale. Va fatto revisionare da un legale/consulente privacy prima della pubblicazione. Compilare tutti i segnaposto tra parentesi quadre. Vedi docs/privacy/DA-FAR-VERIFICARE.md -->
 <html lang="it">
 <head>
 <meta charset="utf-8">
@@ -11,65 +11,85 @@
 @media(prefers-color-scheme:dark){:root{--bg:#10141a;--fg:#eef1f5;--mut:#b4bcc8;--pri:#7db4f0;--bd:#2c3440;--warn:#4a3b0a}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 main{max-width:760px;margin:0 auto;padding:16px 16px 56px}
-h1{font-size:1.9rem;line-height:1.2}h2{font-size:1.25rem;margin-top:2em;line-height:1.3}
+h1{font-size:1.9rem;line-height:1.2}h2{font-size:1.25rem;margin-top:2em;line-height:1.3}h3{font-size:1.05rem;margin-top:1.4em}
 a{color:var(--pri)}p,li{overflow-wrap:anywhere}
 .draft{background:var(--warn);border:2px solid #b8860b;border-radius:10px;padding:12px 14px;font-weight:700}
 .ph{background:#ffe08a;color:#14181f;padding:0 4px;border-radius:4px;font-weight:700}
+.verify{background:#ffe08a;color:#14181f;padding:0 4px;border-radius:4px;font-weight:700;font-size:.9em}
+.box{border:2px solid #b8860b;border-radius:10px;padding:10px 14px;background:var(--warn)}
 table{border-collapse:collapse;width:100%;font-size:.95rem}th,td{border:1px solid var(--bd);padding:8px;text-align:left;vertical-align:top}
 .tw{overflow-x:auto}
-nav a{margin-right:14px}
+nav a{margin-right:14px;display:inline-block}
 </style>
 </head>
 <body>
 <main>
-<p class="draft">BOZZA – da far revisionare da un legale prima della pubblicazione</p>
-<nav><a href="../#/info">Torna alla app</a><a href="privacy.html">Informativa privacy</a></nav>
+<p class="draft">BOZZA – da far revisionare</p>
+<nav aria-label="Documenti legali"><a href="../#/info">Torna alla app</a><a href="privacy.html">Privacy</a><a href="termini.html">Termini</a><a href="dpa.html">DPA</a><a href="subprocessors.html">Sub-responsabili</a><a href="cookie.html">Cookie</a></nav>
 <h1>Termini di servizio</h1>
-<p>Ultimo aggiornamento: [DATA]. Fornitore: <span class="ph">[RAGIONE SOCIALE]</span>, P.IVA <span class="ph">[P.IVA]</span>, email <span class="ph">[EMAIL]</span>, PEC <span class="ph">[PEC]</span>.</p>
+<p>Ultimo aggiornamento: <span class="ph">[DATA]</span>.</p>
+
+<p>Fornitore: <span class="ph">[RAGIONE SOCIALE]</span>, P.IVA <span class="ph">[P.IVA]</span>, sede <span class="ph">[SEDE]</span>, email <span class="ph">[EMAIL]</span>, PEC <span class="ph">[PEC]</span>.</p>
+<p class="box">I punti marcati <span class="verify">[DA VERIFICARE]</span> sono ipotesi da far confermare a un legale e/o commercialista.</p>
 
 <h2>1. Oggetto</h2>
-<p>VocePreventivo (&laquo;l'App&raquo;) è un'applicazione web che aiuta professionisti e imprese a preparare preventivi e documenti PDF a partire da una dettatura o da un testo e dal proprio listino. Usando l'App accetti questi termini.</p>
+<p>VocePreventivo (&laquo;l'App&raquo;) è un'applicazione web che aiuta professionisti e imprese a preparare preventivi, fatture e note di credito, a generare il file XML della fattura elettronica e i PDF, anche tramite comandi vocali. Funziona in due modalità: <strong>A</strong> senza account (dati solo sul tuo dispositivo) e <strong>B</strong> con account facoltativo (sincronizzazione sui nostri server UE). Usando l'App accetti questi termini; per la modalità B accetti anche l'<a href="dpa.html">accordo di nomina a responsabile (DPA)</a> e prendi atto dell'<a href="privacy.html">informativa privacy</a>.</p>
 
 <h2>2. Licenza d'uso</h2>
 <p>Ti concediamo una licenza personale, non esclusiva, non trasferibile e revocabile per usare l'App per la tua attività. Non puoi rivenderla, copiarla, decompilarla o usarla per fornire un servizio concorrente. Il software e i marchi restano nostri; i contenuti che inserisci restano tuoi.</p>
 
-<h2>3. Piani e abbonamento</h2>
+<h2>3. Piani, quote e abbonamento</h2>
 <ul>
-<li><strong>Gratis</strong>: fino a [3] documenti al mese.</li>
-<li><strong>Pro</strong>: <span class="ph">[15 €/mese]</span> oppure <span class="ph">[120 €/anno]</span> <span class="ph">[IVA inclusa/esclusa]</span>, documenti senza limite mensile.</li>
-<li>L'abbonamento si rinnova automaticamente alla scadenza del periodo finché non lo disdici. Si disdice in qualsiasi momento dal portale del fornitore di pagamenti <span class="ph">[Stripe]</span> o scrivendo a <span class="ph">[EMAIL]</span>; la disdetta ha effetto dalla fine del periodo già pagato.</li>
+<li><strong>Free</strong>: fino a 3 documenti al mese. <span class="verify">[DA VERIFICARE]</span> Definire cosa conta come &laquo;documento&raquo; (ad es. bozze escluse, emissioni incluse) e il momento di azzeramento.</li>
+<li><strong>Pro</strong>: <span class="ph">[15 €/mese]</span> oppure <span class="ph">[120 €/anno]</span>, <span class="ph">[IVA inclusa/esclusa]</span>, documenti senza limite mensile. Un eventuale uso eccessivo o abusivo (&laquo;fair use&raquo;) può essere limitato <span class="verify">[DA VERIFICARE]</span>.</li>
+<li>L'abbonamento si rinnova automaticamente alla scadenza finché non lo disdici. Si disdice in ogni momento dal portale del fornitore di pagamenti (Stripe) <span class="verify">[DA VERIFICARE]</span> o scrivendo a <span class="ph">[EMAIL]</span>; la disdetta ha effetto dalla fine del periodo già pagato.</li>
+<li>Se esaurisci la quota Free non perdi l'accesso ai tuoi dati esistenti: non potrai creare ulteriori documenti nel mese <span class="verify">[DA VERIFICARE]</span>. I documenti già emessi restano consultabili ed esportabili.</li>
 <li>Possiamo modificare i prezzi con preavviso di almeno 30 giorni; la modifica vale dal rinnovo successivo.</li>
 </ul>
 
 <h2>4. Recesso e rimborsi</h2>
-<p>Se acquisti come consumatore hai diritto di recesso entro 14 giorni; richiedendo l'attivazione immediata del servizio digitale riconosci che, a servizio avviato, il diritto di recesso può essere perso nei limiti di legge (art. 59 Codice del Consumo). Se acquisti come professionista (P.IVA) il diritto di recesso di legge non si applica. <span class="ph">[Indicare qui l'eventuale politica commerciale di rimborso, ad esempio 14 giorni soddisfatti o rimborsati.]</span></p>
+<p>Se acquisti come consumatore hai diritto di recesso entro 14 giorni; richiedendo l'attivazione immediata del servizio digitale riconosci che, a servizio avviato, il diritto di recesso può essere perso nei limiti di legge. <span class="verify">[DA VERIFICARE]</span> (riferimento al Codice del Consumo da far confermare). Se acquisti come professionista (P.IVA) il diritto di recesso di legge non si applica. <span class="ph">[Eventuale politica commerciale di rimborso, ad esempio 14 giorni soddisfatti o rimborsati]</span></p>
 
-<h2>5. Nessuna garanzia di conformità fiscale</h2>
-<p>L'App è uno strumento di ausilio. <strong>Non fornisce consulenza fiscale, contabile o legale</strong> e non garantisce che i documenti prodotti siano corretti o conformi alla normativa (aliquote, bollo, regime forfettario, ritenute, ecc.). Il calcolo dei totali va sempre verificato prima dell'invio.</p>
+<h2>5. Strumento di supporto: nessuna garanzia di conformità fiscale</h2>
+<p>L'App è uno strumento di supporto. <strong>Non fornisce consulenza fiscale, contabile o legale</strong> e non garantisce che i documenti prodotti siano corretti o conformi alla normativa (regime forfettario, bollo, termini di emissione, ritenute, ecc.) né a future modifiche normative o alle specifiche tecniche. <strong>La responsabilità fiscale resta dell'utente: verifica con il tuo commercialista.</strong> L'App è pensata per chi opera in regime forfettario; se non lo sei (più), non usarla per emettere fatture.</p>
 
-<h2>6. Il PDF &laquo;fattura&raquo; non è fattura elettronica</h2>
-<p>Il documento che l'App chiama &laquo;fattura&raquo; è una <strong>copia di cortesia / proforma in PDF</strong>. Non è una fattura elettronica: non è un file XML FatturaPA, non viene trasmesso al Sistema di Interscambio (SDI) e non sostituisce gli obblighi di fatturazione elettronica. Per emettere e inviare la fattura valida ai fini fiscali devi usare il tuo software o i servizi dell'Agenzia delle Entrate.</p>
+<h2>6. Fattura elettronica: l'App genera, non trasmette</h2>
+<ul>
+<li>L'App <strong>genera</strong> il file XML della fattura elettronica e controlla alcune regole formali, ma <strong>non lo trasmette al Sistema di Interscambio (SDI)</strong> né per te né a tuo nome. Dopo averlo scaricato, devi caricarlo sul portale &laquo;Fatture e Corrispettivi&raquo; dell'Agenzia delle Entrate o inviarlo con altro canale valido (ad es. PEC). Una fattura non trasmessa allo SDI non è emessa a fini fiscali <span class="verify">[DA VERIFICARE]</span>.</li>
+<li>Sei tu responsabile di: correttezza dei dati, numerazione, termini di emissione, invio, gestione di scarti e notifiche dello SDI, versamento di bollo e imposte.</li>
+<li>Il PDF è una copia di cortesia senza valore fiscale.</li>
+<li>Una fattura emessa nell'App non può essere modificata né eliminata: si storna con nota di credito.</li>
+<li>Eventuali sanzioni, interessi o danni derivanti da dati errati, ritardi o mancato invio sono a tuo carico, nei limiti consentiti dalla legge.</li>
+</ul>
 
-<h2>7. Responsabilità dell'utente</h2>
-<p>Sei l'unico responsabile dei documenti che emetti, dei prezzi e delle condizioni che indichi, dei dati dei tuoi clienti e del rispetto della normativa applicabile alla tua attività (fiscale, privacy, consumatori). Verifica sempre il contenuto, in particolare le righe segnalate come da controllare, perché il riconoscimento vocale e l'abbinamento al listino possono sbagliare.</p>
+<h2>7. Conservazione a norma</h2>
+<p>L'App <strong>non è un sistema di conservazione a norma</strong> e non offre conservazione sostitutiva <span class="verify">[DA VERIFICARE]</span>. L'archivio dell'App (locale o sincronizzato) non sostituisce gli obblighi di conservazione. Per la conservazione legale puoi aderire al servizio gratuito dell'Agenzia delle Entrate o rivolgerti a un conservatore: condizioni e durata vanno verificate <span class="verify">[DA VERIFICARE]</span>.</p>
 
-<h2>8. Dati e backup</h2>
-<p>I dati sono salvati solo sul tuo dispositivo (vedi l'<a href="privacy.html">informativa privacy</a>). Non abbiamo copie e non possiamo ripristinarli. Sei responsabile di fare i backup; la perdita del dispositivo o la cancellazione dei dati del browser può causare la perdita dei dati.</p>
+<h2>8. Responsabilità dell'utente</h2>
+<p>Sei responsabile dei documenti che emetti, di prezzi e condizioni, dei dati dei tuoi clienti e del rispetto della normativa applicabile alla tua attività (fiscale, privacy, consumatori). Per i dati dei tuoi clienti sei titolare del trattamento e ci nomini responsabile con il DPA. Verifica sempre il contenuto, soprattutto le righe da controllare: il riconoscimento vocale e l'abbinamento al listino possono sbagliare. Le azioni irreversibili (emissione, storno) richiedono una conferma esplicita.</p>
 
-<h2>9. Disponibilità e modifiche del servizio</h2>
-<p>L'App è fornita &laquo;così com'è&raquo;, senza garanzia di funzionamento continuo o privo di errori. La dettatura dipende dal browser e dal dispositivo. Possiamo aggiornare, modificare o sospendere funzioni, con preavviso ragionevole quando incidono sull'abbonamento a pagamento.</p>
+<h2>9. Dati e backup</h2>
+<ul>
+<li><strong>Modalità A (senza account):</strong> i dati sono solo sul tuo dispositivo. Non abbiamo copie e non possiamo ripristinarli. <strong>I backup sono a tuo carico</strong>: la perdita del dispositivo o la cancellazione dei dati del browser comporta la perdita dei dati.</li>
+<li><strong>Modalità B (con account):</strong> i dati sono sincronizzati sui nostri server UE e ne facciamo backup a fini di continuità del servizio, ma ti consigliamo comunque esportazioni periodiche. Non garantiamo il ripristino puntuale di singoli elementi <span class="verify">[DA VERIFICARE]</span>.</li>
+<li>Con due dispositivi non sincronizzati o offline contemporaneamente la numerazione può collidere: il sistema segnala il conflitto, che devi risolvere.</li>
+</ul>
 
-<h2>10. Limitazione di responsabilità</h2>
-<p>Nei limiti consentiti dalla legge, non rispondiamo di danni indiretti, mancati guadagni, perdita di dati o di contratti derivanti dall'uso o dall'impossibilità di usare l'App. Per gli utenti professionisti la nostra responsabilità complessiva non supera quanto pagato negli ultimi 12 mesi. Restano ferme le responsabilità che la legge non permette di escludere (dolo, colpa grave, diritti inderogabili dei consumatori).</p>
+<h2>10. Disponibilità e modifiche del servizio</h2>
+<p>L'App è fornita &laquo;così com'è&raquo;, senza garanzia di funzionamento continuo o privo di errori. Le funzioni di rete (sincronizzazione, pagamenti, trascrizione server) dipendono dalla connettività e da fornitori terzi; la dettatura del browser dipende dal dispositivo. Eventuali manutenzioni programmate saranno, ove possibile, comunicate. Obiettivo di disponibilità: <span class="ph">[NON GARANTITO / SLA da definire]</span>. Possiamo aggiornare, modificare o sospendere funzioni, con preavviso ragionevole quando incidono sull'abbonamento a pagamento.</p>
 
-<h2>11. Cessazione</h2>
-<p>Puoi smettere di usare l'App quando vuoi. Possiamo sospendere l'accesso in caso di violazione grave di questi termini o mancato pagamento.</p>
+<h2>11. Limitazione di responsabilità</h2>
+<p>Nei limiti consentiti dalla legge, non rispondiamo di danni indiretti, mancati guadagni, perdita di dati o di contratti, né di sanzioni fiscali, derivanti dall'uso o dall'impossibilità di usare l'App. Per gli utenti professionisti la nostra responsabilità complessiva non supera quanto pagato negli ultimi 12 mesi <span class="verify">[DA VERIFICARE]</span>. Restano ferme le responsabilità che la legge non permette di escludere (dolo, colpa grave, diritti inderogabili dei consumatori).</p>
 
-<h2>12. Legge applicabile e foro</h2>
-<p>I presenti termini sono regolati dalla legge italiana. Per le controversie con utenti professionisti è competente in via esclusiva il Foro di <span class="ph">[CITTÀ]</span>. Per i consumatori resta il foro del luogo di residenza o domicilio. Piattaforma europea di risoluzione online delle controversie: <a href="https://ec.europa.eu/consumers/odr">ec.europa.eu/consumers/odr</a>.</p>
+<h2>12. Cessazione</h2>
+<p>Puoi smettere di usare l'App e chiudere l'account quando vuoi, esportando prima i tuoi dati. Possiamo sospendere l'accesso in caso di violazione grave o mancato pagamento, con preavviso ove possibile. Alla cessazione si applicano le regole su restituzione e cancellazione del <a href="dpa.html">DPA</a>.</p>
 
-<h2>13. Contatti</h2>
+<h2>13. Legge applicabile e foro</h2>
+<p>Legge italiana. Per le controversie con utenti professionisti è competente in via esclusiva il Foro di <span class="ph">[CITTÀ]</span>. Per i consumatori resta il foro inderogabile di legge. Piattaforma europea ODR: <a href="https://ec.europa.eu/consumers/odr">ec.europa.eu/consumers/odr</a> <span class="verify">[DA VERIFICARE]</span>.</p>
+
+<h2>14. Contatti</h2>
 <p><span class="ph">[RAGIONE SOCIALE]</span> – <span class="ph">[EMAIL]</span> – <span class="ph">[PEC]</span>.</p>
+
 </main>
 </body>
 </html>

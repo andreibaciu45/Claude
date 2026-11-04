@@ -1,0 +1,114 @@
+name: Deploy produzione
+
+# SOLO MANUALE: non parte mai da solo (nessun trigger push/PR/schedule).
+# Richiede l'approvazione dell'ambiente "production" (Settings > Environments).
+#
+# Segreti da creare in Settings > Secrets and variables > Actions
+# (meglio come "Environment secrets" dell'ambiente production):
+#   VPS_HOST         nome DNS o IP del server
+#   VPS_USER         utente SSH non-root di deploy
+#   VPS_SSH_KEY      chiave PRIVATA SSH dedicata al deploy
+#   VPS_KNOWN_HOSTS  riga di known_hosts del server (output di `ssh-keyscan -t ed25519 HOST`, verificato)
+#   DEPLOY_PATH      cartella sul server, es. /home/deploy/vocepreventivo
+#   VPS_PORT         (facoltativo) porta SSH, default 22
+# Nessun valore e' scritto in questo file.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag o commit da distribuire"
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build e deploy via SSH
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 40
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Controlla che i segreti esistano
+        run: |
+          for v in VPS_HOST VPS_USER DEPLOY_PATH; do
+            if [ -z "${!v}" ]; then echo "::error::Segreto $v mancante"; exit 1; fi
+          done
+          if [ -z "${{ secrets.VPS_SSH_KEY != '' && 'ok' || '' }}" ]; then echo "::error::Segreto VPS_SSH_KEY mancante"; exit 1; fi
+          if [ -z "${{ secrets.VPS_KNOWN_HOSTS != '' && 'ok' || '' }}" ]; then echo "::error::Segreto VPS_KNOWN_HOSTS mancante"; exit 1; fi
+
+      - name: Calcola etichetta versione
+        id: tag
+        run: echo "tag=$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build immagine server
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          target: server
+          load: true
+          tags: vocepreventivo-server:${{ steps.tag.outputs.tag }}
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,scope=server,mode=max
+
+      - name: Build immagine web (Vite + Caddy)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          target: web
+          load: true
+          tags: vocepreventivo-web:${{ steps.tag.outputs.tag }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+      - name: Prepara SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          (umask 077; printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key)
+
+      - name: Invia file di infrastruttura e immagini
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          SSH=(ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o BatchMode=yes -p "${VPS_PORT:-22}" "${VPS_USER}@${VPS_HOST}")
+          remote_path="$(printf '%q' "$DEPLOY_PATH")"
+          "${SSH[@]}" "mkdir -p $remote_path"
+          # infra/ senza file locali del server (.env, backup, stato dei deploy)
+          tar -C . --exclude='infra/.env' --exclude='infra/backups' --exclude='infra/.deploy' -czf - infra \
+            | "${SSH[@]}" "tar -xzf - -C $remote_path"
+          # immagini compresse, caricate nel Docker del server
+          docker save "vocepreventivo-server:${TAG}" "vocepreventivo-web:${TAG}" | gzip \
+            | "${SSH[@]}" "gunzip | docker load"
+
+      - name: Esegui deploy sul server (con rollback automatico)
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          SSH=(ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o BatchMode=yes -p "${VPS_PORT:-22}" "${VPS_USER}@${VPS_HOST}")
+          remote_path="$(printf '%q' "$DEPLOY_PATH")"
+          "${SSH[@]}" "cd $remote_path/infra && chmod +x scripts/*.sh && ./scripts/deploy.sh '${TAG}'"
+
+      - name: Pulizia chiave
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
