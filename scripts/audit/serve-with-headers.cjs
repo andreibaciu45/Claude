@@ -37,7 +37,7 @@ function parseCaddyfile(text) {
   out.cache.api = grab(/handle @api \{[\s\S]*?header Cache-Control "([^"]+)"/);
   out.cache.assets = grab(/handle \/assets\/\* \{[\s\S]*?header Cache-Control "([^"]+)"/);
   out.cache.sw = grab(/handle \/sw\.js \{[\s\S]*?header Cache-Control "([^"]+)"/);
-  out.cache.html = grab(/header @html Cache-Control "([^"]+)"/);
+  out.cache.html = grab(/handle \{\s*root \* \S+[\s\S]*?\n\t\theader Cache-Control "([^"]+)"/); // default del blocco finale
   out.cache.static = grab(/header @static Cache-Control "([^"]+)"/);
   const sp = grab(/@static path ([^\n]+)/);
   out.staticPattern = sp ? sp.trim().split(/\s+/) : [];
@@ -94,9 +94,8 @@ function createServer({ dist, cfg, api }) {
     } else {
       if (fs.existsSync(f) && fs.statSync(f).isDirectory()) f = path.join(f, 'index.html');
       if (!fs.existsSync(f)) f = path.join(dist, 'index.html'); // try_files ... /index.html
-      const rel = '/' + path.relative(dist, f).split(path.sep).join('/');
-      if (rel === '/index.html' || p === '/') cache = cfg.cache.html;
-      else if (staticRes.some((r) => r.test(p))) cache = cfg.cache.static;
+      cache = cfg.cache.html;
+      if (staticRes.some((r) => r.test(p))) cache = cfg.cache.static;
     }
     if (cache) res.setHeader('Cache-Control', cache);
     res.setHeader('Content-Type', MIME[path.extname(f)] || 'application/octet-stream');

@@ -56,8 +56,9 @@
 	# --- Resto della PWA: HashRouter, quindi il fallback e' sempre index.html ---
 	handle {
 		root * /srv
-		@html path / /index.html
-		header @html Cache-Control "no-cache"
+		# default: no-cache (rivalidazione con ETag) per index.html, offline.html, pagine legali/guide e ogni altro HTML;
+		# solo icone e manifest hanno una cache breve (1 giorno).
+		header Cache-Control "no-cache"
 		@static path /manifest.webmanifest /icon*.png /icon*.svg /apple-touch-icon.png
 		header @static Cache-Control "public, max-age=86400"
 		try_files {path} {path}/index.html /index.html
