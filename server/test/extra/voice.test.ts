@@ -134,11 +134,11 @@ describe('POST /interpret', () => {
     }
   });
   it('il contesto non viene inoltrato al modello oltre le chiavi ammesse', async () => {
-    const spy = vi.spyOn(llm!, 'complete');
+    const seen: string[] = [];
+    llm!.complete = async (req: { system: string; user: string }) => { seen.push(req.user); return { raw: null, usage: { inputTokens: 0, outputTokens: 0 } }; };
     await call({ transcript: 'x', context: { docType: 'fattura', customerName: 'SEGRETO', piva: '123' } });
-    const arg = spy.mock.calls[0]![0];
-    expect(arg.user).not.toContain('SEGRETO');
-    expect(arg.user).toContain('fattura');
+    expect(seen[0]).not.toContain('SEGRETO');
+    expect(seen[0]).toContain('fattura');
   });
   it('errore LLM => 502 generico', async () => {
     llm = { id: 'x', complete: async () => { throw new Error('dettaglio'); } } as unknown as MockIntentLlm;

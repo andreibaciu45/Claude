@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  __resetSyncDbForTests, enqueueDelete, enqueueUpsert, getMeta, getSynced, listOutbox, listPending, markAttempt, removeOps, setMeta, setSynced, updateOp,
+  __closeSyncDbForTests, __resetSyncDbForTests, enqueueDelete, enqueueUpsert, getMeta, getSynced, listOutbox, listPending, markAttempt, removeOps, setMeta, setSynced, updateOp,
 } from './outbox';
 import { mkDoc, mkItem } from './testing/fakes';
 
@@ -22,10 +22,9 @@ describe('outbox', () => {
     await enqueueUpsert({ entity: 'catalog', entityId: 'a', payload: mkItem('a') });
     await setMeta('cursor', '42');
     // simula la chiusura dell'app: modulo nuovo = nuovo handle sullo stesso DB IndexedDB
-    vi.resetModules();
-    const fresh = await import('./outbox');
-    expect((await fresh.listPending()).map((r) => r.entityId)).toEqual(['a']);
-    expect(await fresh.getMeta('cursor')).toBe('42');
+    await __closeSyncDbForTests();
+    expect((await listPending()).map((r) => r.entityId)).toEqual(['a']);
+    expect(await getMeta('cursor')).toBe('42');
   });
 
   it('fonde (coalescing) le operazioni in attesa sulla stessa entità tenendo la base più vecchia', async () => {

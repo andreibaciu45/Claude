@@ -137,6 +137,12 @@ export async function __resetSyncDbForTests(): Promise<void> {
   if (typeof indexedDB !== 'undefined') await deleteDB(DB_NAME);
 }
 
+/** Solo per i test: chiude la connessione SENZA cancellare i dati (simula la chiusura dell'app). */
+export async function __closeSyncDbForTests(): Promise<void> {
+  if (dbHandle) { try { (await dbHandle).close(); } catch { /* ignora */ } }
+  store = null; dbHandle = null;
+}
+
 // ------------------------------------------------------------------ API pubblica
 
 export interface EnqueueInput {

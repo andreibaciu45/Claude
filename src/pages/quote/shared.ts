@@ -45,7 +45,7 @@ export const canShareFiles = (): boolean => {
 export const shareText = (doc: QuoteDocument, profile: Profile, total: number): string => {
   const what = doc.type === 'preventivo' ? 'il preventivo' : kindLabel(doc) === 'Nota di credito' ? 'la nota di credito (copia di cortesia)' : 'la fattura (copia di cortesia)';
   const n = isFiscalInvoice(doc) ? displayNumber(doc) : doc.number;
-  return `Buongiorno ${doc.customer.name}, le invio ${what} n. ${n} del ${doc.date.split('-').reverse().join('/')} per un totale di ${fmtEuro(total)}.\n${profile.businessName}${profile.phone ? ' - ' + profile.phone : ''}`;
+  return `Buongiorno ${doc.customer.name}, le invio ${what} n. ${n} del ${((isFiscalInvoice(doc) && doc.invoice?.operationDate) || doc.date).split('-').reverse().join('/')} per un totale di ${fmtEuro(total)}.\n${profile.businessName}${profile.phone ? ' - ' + profile.phone : ''}`;
 };
 
 export type ShareResult = 'shared' | 'downloaded' | 'cancelled';

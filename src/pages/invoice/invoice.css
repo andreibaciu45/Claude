@@ -39,3 +39,4 @@
 .dl-summary { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
 .dl-summary .stat { min-width: 0; }
 .dl-selects { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
+.dl-actions .dl-open { flex: 1; min-height: var(--touch); display: inline-flex; align-items: center; justify-content: center; border-left: 1px solid var(--c-border); color: var(--c-primary); font-weight: 700; font-size: var(--fs-sm); text-decoration: none; }

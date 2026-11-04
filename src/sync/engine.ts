@@ -243,7 +243,10 @@ export function createSyncEngine(deps: EngineDeps) {
         const dirty = new Set(diffSnapshot(snap, synced).map((c) => entityKey(c.entity, c.entityId)));
         for (const r of await listOutbox()) dirty.add(entityKey(r.entity, r.entityId));
         const done: RemoteOp[] = [];
-        for (const op of res.ops) {
+        // più operazioni sulla stessa entità nella pagina: conta solo l'ultima (le precedenti sono superate)
+        const lastByKey = new Map<string, RemoteOp>();
+        for (const op of res.ops) lastByKey.set(entityKey(op.entity, op.entityId), op);
+        for (const op of lastByKey.values()) {
           const key = entityKey(op.entity, op.entityId);
           if (dirty.has(key)) continue; // vincerà l'ultimo push (LWW) o l'utente risolve il conflitto
           if (op.op === 'upsert' && local.get(key) === hashValue(op.entity === 'profile' ? profilePayload(op.payload as Profile) : op.payload)) {

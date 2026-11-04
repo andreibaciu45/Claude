@@ -24,3 +24,28 @@ export const fakeDoc = (over: Partial<QuoteDocument> = {}, lines = 3): QuoteDocu
   customer: { id: 'c1', name: 'Mario Rossi', address: 'Via Roma 1, 20121 Milano (MI)', email: 'mario@example.it', phone: '347 1112223', vatOrFiscalCode: 'RSSMRA70A01F205Z' },
   lines: fakeLines(lines), notes: 'Il prezzo non comprende opere murarie. Inizio lavori da concordare.', status: 'bozza', createdAt: 0, updatedAt: 0, ...over,
 });
+
+/** Fattura fiscale EMESSA (TD01) di esempio. */
+export const fakeInvoice = (over: Partial<QuoteDocument> = {}): QuoteDocument => ({
+  ...fakeDoc({ type: 'fattura', number: 'FT-0001', status: 'emessa', date: '2026-11-03', notes: undefined }),
+  customer: { id: 'c1', name: 'Mario Rossi', vatNumber: '01234567897', address: 'Via Roma 1', zip: '20121', city: 'Milano', province: 'MI', codiceDestinatario: 'ABC1234' },
+  invoice: {
+    tipoDocumento: 'TD01', year: 2026, sectional: 'FT', seq: 12, number: '12/2026', operationDate: '2026-11-03', issuedAt: 1, lockedAt: 1,
+    xml: '<x/>', fileName: 'IT01234567890_00001.xml', stampDuty: true, stampDutyChargedToCustomer: false, stampAmount: 2, customerChannel: 'codice',
+    sdiEvents: [], paymentStatus: 'non_pagata', payments: [],
+  },
+  ...over,
+});
+
+/** Nota di credito (TD04) emessa collegata a fakeInvoice. */
+export const fakeCreditNote = (over: Partial<QuoteDocument> = {}): QuoteDocument => {
+  const base = fakeInvoice();
+  return {
+    ...base, id: 'nc1', number: 'NC1/2026', date: '2026-11-04',
+    invoice: {
+      ...base.invoice!, tipoDocumento: 'TD04', sectional: 'NC', seq: 1, number: 'NC1/2026', operationDate: '2026-11-04',
+      originalDocumentId: 'd1', originalNumber: '12/2026', originalDate: '2026-11-03', creditNoteReason: 'Importo errato',
+    },
+    ...over,
+  };
+};

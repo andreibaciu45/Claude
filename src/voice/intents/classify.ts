@@ -40,6 +40,7 @@ const EURO = new Set(w('euro euri eur'));
 
 /** Parole chiave la cui deformazione è tipica del riconoscimento vocale (corrette per somiglianza). */
 const KEYWORDS: ReadonlySet<string> = new Set([
+  'metti', 
   ...V_ISSUE, ...V_CREDIT, ...V_DELETE, ...V_CONV, ...V_DUP, ...V_ADD, ...V_DOWN, ...V_OPEN,
   ...PAID, ...SENT, ...ACCEPT, ...REJECT, ...CONFIRM, ...PREV, ...FATT, ...w('documento documenti conferma credito corrente attuale ultima ultimo emissione annullamento nuovo nuova crea prepara genera'),
 ]);
@@ -218,7 +219,7 @@ function prepare(input: string): P | null {
     idxIn: (s) => ws.findIndex((y) => s.has(y)),
     fuzzyAt: (i) => !!toks[i]?.fuzzy,
     text: cleanText(input),
-    question: ws.some((y) => QUESTION.has(y)) || /\?\s*$/.test(input),
+    question: QUESTION.has(ws[0]) || (ws[0] === 'si' && ws[1] === 'puo') || /\?\s*$/.test(input),
     negated: ws.includes('non') || ws.includes('mai'),
   };
 }
@@ -268,7 +269,7 @@ const ruleNew: Rule = (p) => {
   else if (['per', 'a', 'intestata', 'intestato', 'di'].includes(after ?? '')) c = withVerb ? 0.95 : 0.9;
   else if (withVerb && p.t.length === docIdx + 1) c = 0.88; // "nuovo preventivo"
   else if (withVerb) c = 0.8;
-  else if (p.t.length > docIdx + 2) c = 0.62; // "preventivo tre metri di tubo"
+  else if (p.t.slice(docIdx + 1).some((x) => x.n !== undefined)) c = 0.62; // "preventivo tre metri di tubo"
   else c = 0;
   if (p.negated) c -= 0.3;
   if (p.question) c -= 0.2;
@@ -306,6 +307,12 @@ const ruleIssue: Rule = (p) => {
   const i = p.idxIn(V_ISSUE);
   if (i >= 0 && !hasCredit) {
     const docRef = parseRef(p.t, undefined);
+    if (docRef.docType === 'preventivo') {
+      // un preventivo non si emette: forse voleva convertirlo
+      out.push({ command: { type: 'issue_invoice', ref: docRef }, confidence: 0.55, risky: true });
+      out.push({ command: { type: 'convert_quote', ref: docRef }, confidence: 0.5 });
+      return out;
+    }
     out.push({ command: { type: 'issue_invoice', ref: docRef }, confidence: clamp(irreversible(p, p.hasIn(FATT) || p.has('bozza', 'documento') ? 0.94 : 0.9, i)), risky: true });
   } else if (i < 0 && !hasCredit && p.has('metti') && p.has('fattura', 'bozza') && !p.hasIn(PAID) && !p.hasIn(SENT) && !p.t.some((x) => x.n !== undefined) && !p.has('riga', 'voce', 'dentro', 'nel', 'nella')) {
     // "emetti" sentito come "metti": ambiguo per costruzione
@@ -334,7 +341,8 @@ const ruleCredit: Rule = (p) => {
   const trig = i >= 0 ? i : p.t.findIndex((x) => x.w === 'nota');
   // "emetti/fai/crea una nota di credito" è comunque un'azione sullo storno
   let c = irreversible(p, hasNC ? 0.94 : p.hasIn(FATT) ? 0.9 : 0.8, trig);
-  if (i >= 0 && ['annulla', 'annullare', 'annullala', 'annullalo'].includes(p.ws[i]) && !hasNC) c -= 0.02;
+  if (i >= 0 && p.ws[i] === 'storno') c -= 0.25; // prima persona: non è un ordine
+  if (!hasNC && ref.kind === 'current' && !p.hasIn(CURRENT)) c -= 0.12; // "annulla la fattura" senza riferimento: troppo generico
   const command: Command = { type: 'credit_note', ref, ...(reason ? { reason } : {}) };
   return [{ command, confidence: clamp(c), risky: true }];
 };
@@ -371,7 +379,7 @@ const rulePaid: Rule = (p) => {
     const parts = p.t.slice(0, ha).filter((x) => !ART.has(x.w) && !NAME_SKIP.has(x.w) && x.n === undefined && !NAME_STOP.has(x.w)).map((x) => x.raw);
     if (parts.length) ref2 = { kind: 'customer', name: cap(parts.join(' ')), docType: 'fattura', latest: true };
   }
-  const explicit = p.has('segna', 'segnala', 'imposta', 'metti', 'marca', 'registra', 'ho', 'ha', 'hanno', 'risulta', 'e', 'come', 'registrami');
+  const explicit = p.has('segna', 'segnala', 'imposta', 'metti', 'marca', 'registra', 'ho', 'ha', 'hanno', 'risulta', 'e', 'è', 'stata', 'stato', 'come', 'registrami');
   let c = explicit ? 0.9 : 0.62;
   if (p.hasIn(PREV) && !p.hasIn(FATT)) c -= 0.4;
   if (p.question) c -= 0.3;
@@ -382,7 +390,7 @@ const rulePaid: Rule = (p) => {
 const ruleSent: Rule = (p) => {
   if (!p.hasIn(SENT) || p.negated || p.hasIn(PAID)) return [];
   if (p.has('inviata', 'inviato', 'inviate', 'inviati', 'spedita', 'spedito', 'mandata', 'mandato', 'trasmessa', 'trasmesso') === false) return [];
-  const explicit = p.has('segna', 'segnala', 'imposta', 'metti', 'marca', 'registra', 'ho', 'ha', 'e', 'come', 'risulta');
+  const explicit = p.has('segna', 'segnala', 'imposta', 'metti', 'marca', 'registra', 'ho', 'ha', 'e', 'è', 'stata', 'stato', 'come', 'risulta');
   if (!explicit) return [];
   if (p.hasIn(ACCEPT) || p.hasIn(REJECT)) return [];
   let c = 0.9;
@@ -394,7 +402,7 @@ const ruleQuoteStatus: Rule = (p) => {
   const acc = p.hasIn(ACCEPT);
   const rej = p.hasIn(REJECT);
   if ((!acc && !rej) || p.negated) return [];
-  const explicit = p.has('segna', 'segnala', 'imposta', 'metti', 'marca', 'ha', 'e', 'come', 'risulta');
+  const explicit = p.has('segna', 'segnala', 'imposta', 'metti', 'marca', 'ha', 'e', 'è', 'stato', 'come', 'risulta');
   let c = explicit ? 0.9 : 0.6;
   if (p.hasIn(FATT) && !p.hasIn(PREV)) c -= 0.35;
   if (p.question) c -= 0.3;
@@ -427,7 +435,7 @@ const ruleOpenList: Rule = (p) => {
   const plural = PLURAL_LIST(p) || (p.hasIn(PLURAL) && !hasNum && !isLast);
   // "mostra/apri le fatture (di Rossi)" -> elenco
   if (plural && (verb || cust || p.has('tutte', 'tutti'))) {
-    const c = verb ? 0.9 : 0.66;
+    const c = verb ? 0.9 : 0.82;
     const cmd: Command = { type: 'list', ...(docType ? { docType } : {}), ...(cust ? { customerName: cap(cust) } : {}) };
     return [{ command: cmd, confidence: c }];
   }
@@ -457,7 +465,7 @@ const ruleAddLine: Rule = (p) => {
   const tail = (m[2] ?? '').trim();
   const ref: DocRef = tail ? parseRef(canonicalize(tokenize(tail), KEYWORDS)) : { kind: 'current' };
   const startsWithVerb = i >= 0 ? i <= 1 : true;
-  const c = (i >= 0 ? 0.9 : 0.72) - (startsWithVerb ? 0 : 0.15) - (p.fuzzyAt(i) ? 0.1 : 0);
+  const c = (i >= 0 ? 0.9 : 0.82) - (startsWithVerb ? 0 : 0.15) - (p.fuzzyAt(i) ? 0.1 : 0);
   return [{ command: { type: 'add_line', dictation, ref }, confidence: clamp(c) }];
 };
 

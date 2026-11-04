@@ -39,7 +39,7 @@ let n = 0;
 export const opId = () => `op-${++n}-${Math.random().toString(16).slice(2)}`;
 
 export function quote(id: string, over: Partial<QuoteDocument> = {}): QuoteDocument {
-  return { id, type: 'preventivo', number: 'PRev-0001', date: '2026-11-04', customer: { name: 'Mario Rossi' },
+  return { id, type: 'preventivo', number: 'PRev-0001', date: '2026-11-04', customer: { id: 'c-1', name: 'Mario Rossi' },
     lines: [{ id: 'l1', description: 'Posa', qty: 1, unit: 'h', unitPrice: 50, vat: 22 }], status: 'bozza', createdAt: 1000, updatedAt: 1000, ...over };
 }
 export function invoice(id: string, seq: number, over: Partial<QuoteDocument> = {}, lock = true): QuoteDocument {

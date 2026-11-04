@@ -15,8 +15,8 @@ vi.mock('../engine', () => ({
   },
 }));
 
-import { generateDocumentPdf, fmtNum, fmtEuro } from './index';
-import { fakeDoc, fakeProfile } from './fixtures';
+import { generateDocumentPdf, renderDocumentPdf, creditNoteLines, docTitle, fmtNum, fmtEuro } from './index';
+import { fakeDoc, fakeProfile, fakeInvoice, fakeCreditNote } from './fixtures';
 
 const head = async (b: Blob) => new TextDecoder().decode(await b.slice(0, 5).arrayBuffer());
 
@@ -42,5 +42,42 @@ describe('generateDocumentPdf', () => {
     expect(fmtNum(1234.5)).toBe('1.234,50');
     expect(fmtNum(0.5)).toBe('0,50');
     expect(fmtEuro(1234567.891)).toBe('€ 1.234.567,89');
+  });
+
+  it('fattura emessa: numero e data fiscali, dicitura forfettario, bollo e footer di cortesia', () => {
+    const pdf = renderDocumentPdf(fakeInvoice(), fakeProfile({ regimeForfettario: true }), { compress: false });
+    const txt = pdf.output();
+    expect(docTitle(fakeInvoice())).toBe('FATTURA n. 12/2026');
+    expect(txt).toContain('FATTURA n. 12/2026');
+    expect(txt).toContain('Data: 03/11/2026');
+    expect(txt).toContain('regime forfettario');
+    expect(txt).toContain('Imposta di bollo assolta in modo virtuale');
+    expect(txt).toContain('Copia di cortesia della fattura elettronica');
+    expect(txt).not.toContain('BOZZA');
+  });
+  it('bozza di fattura: senza numero, con filigrana BOZZA', () => {
+    const txt = renderDocumentPdf(fakeInvoice({ status: 'bozza', invoice: { ...fakeInvoice().invoice!, number: undefined, lockedAt: undefined } }), fakeProfile({ regimeForfettario: true }), { compress: false }).output();
+    expect(txt).toContain('FATTURA \\(bozza\\)');
+    expect(txt).toContain('BOZZA');
+    expect(txt).not.toContain('n. 12/2026');
+  });
+  it('nota di credito TD04: riferimento alla fattura rettificata e motivo', async () => {
+    const nc = fakeCreditNote();
+    expect(creditNoteLines(nc)).toEqual([
+      'NOTA DI CREDITO n. NC1/2026 del 04/11/2026 rettifica la fattura n. 12/2026 del 03/11/2026',
+      'Motivo: Importo errato',
+    ]);
+    const txt = renderDocumentPdf(nc, fakeProfile({ regimeForfettario: true }), { compress: false }).output();
+    expect(txt).toContain('NOTA DI CREDITO n. NC1/2026');
+    expect(txt).toContain('rettifica la fattura n. 12/2026');
+    expect(txt).toContain('Motivo: Importo errato');
+    expect(txt).toContain('INTESTATA A');
+    expect(txt).toContain('Copia di cortesia della fattura elettronica');
+    const blob = await generateDocumentPdf(nc, fakeProfile({ regimeForfettario: true }));
+    expect(blob.size).toBeGreaterThan(2000);
+  });
+  it('fattura legacy (v1): resta "copia di cortesia" non fiscale', () => {
+    const d = fakeDoc({ type: 'fattura', number: 'FT-0001' });
+    expect(docTitle(d)).toBe('FATTURA (copia di cortesia) n. FT-0001');
   });
 });

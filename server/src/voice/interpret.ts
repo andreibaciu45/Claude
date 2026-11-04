@@ -55,7 +55,7 @@ export class MockIntentLlm implements IntentLlm {
   readonly id = 'mock';
   calls = 0;
   constructor(private response: unknown = { intent: 'sconosciuto', args: {}, confidence: 0.1 }, private usage: LlmUsage = { inputTokens: 400, outputTokens: 80 }) {}
-  async complete() { this.calls++; return { raw: this.response, usage: this.usage }; }
+  async complete(_req?: { system: string; user: string }) { this.calls++; return { raw: this.response, usage: this.usage }; }
 }
 
 /** Adattatore generico verso API compatibili con /chat/completions. Disattivato senza chiave. */
