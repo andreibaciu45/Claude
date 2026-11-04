@@ -22,6 +22,12 @@ const store = vi.hoisted(() => ({
   appendAudit: vi.fn(), reopenRejectedInvoice: vi.fn(), createResubmissionDraft: vi.fn(),
 }));
 vi.mock('../../storage', () => store);
+const allow = vi.hoisted(() => ({ canCreate: true }));
+vi.mock('../../billing/useAllowance', () => ({
+  checkAllowanceNow: async () => ({ plan: 'free', used: allow.canCreate ? 0 : 3, limit: 3, remaining: allow.canCreate ? 3 : 0, canCreate: allow.canCreate }),
+}));
+vi.mock('../../sync/engine', () => ({ syncEngine: { getStatus: () => ({ signedIn: false }) } }));
+
 
 import DocumentView from '../DocumentView';
 

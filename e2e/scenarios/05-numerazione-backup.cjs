@@ -1,11 +1,12 @@
 'use strict';
 // (5) Numerazione senza buchi, ricarica, backup/ripristino: i contatori non tornano indietro.
 const fs = require('fs');
-const { run, go, fillProfile, createInvoiceDraft, issueCurrent, docIdOf, sleep, readDb, saveDownload, BASE } = require('../lib.cjs');
+const { run, go, useClock, gateVisible, bumpMonth, fillProfile, createInvoiceDraft, issueCurrent, docIdOf, sleep, readDb, saveDownload, BASE } = require('../lib.cjs');
 
 run('05-numerazione-backup', async (S) => {
   const ctx = await S.context({ mobile: true });
   let page = await S.page(ctx);
+  await useClock(page, 1); // orologio finto: aggira il limite Free di 3 documenti/mese (vedi lib.cjs)
   await fillProfile(S, page);
 
   const nums = [];
@@ -14,6 +15,15 @@ run('05-numerazione-backup', async (S) => {
     nums.push(await issueCurrent(S, page, { tag: `f${i} ` }));
   }
   S.check('tre emissioni di seguito = 1/2026, 2/2026, 3/2026', nums.join(',') === '1/2026,2/2026,3/2026', nums.join(','));
+
+  // piano Free: il 4o documento del mese e bloccato dalla scheda limite; le emissioni/storni NON lo sono
+  await go(page, '/');
+  S.check('Free: al 4o documento del mese compare la scheda "Limite del piano raggiunto"', await gateVisible(page));
+  await S.shot(page, 'limite piano Free');
+  const gtxt = await page.locator('main').innerText();
+  S.check('Free: la scheda limite offre "Continua a consultare i documenti"', /Continua a consultare/.test(gtxt));
+  await bumpMonth(page); await page.reload(); await sleep(300);
+  S.check('mese successivo: il limite si azzera', !(await gateVisible(page)));
 
   // bozza cancellata non consuma numeri
   await createInvoiceDraft(S, page, { lines: [{ description: 'Da cancellare', qty: 1, price: 9 }] });

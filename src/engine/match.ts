@@ -87,6 +87,8 @@ function sim(a: string, b: string): number {
   if (na || nb) return na && nb && parseFloat(a) === parseFloat(b) ? 1 : 0;
   const la = a.length;
   const lb = b.length;
+  // la "s" privativa cambia il significato: smontaggio/montaggio, scarico/carico, sfilare/filare
+  if (la !== lb && Math.min(la, lb) >= 5 && ((la > lb && a.charCodeAt(0) === 115 && a.slice(1) === b) || (lb > la && b.charCodeAt(0) === 115 && b.slice(1) === a))) return 0;
   const mn = Math.min(la, lb);
   const mx = Math.max(la, lb);
   if (mn >= 4 && (a.startsWith(b) || b.startsWith(a))) return mn / mx >= 0.7 ? 0.85 : mn >= 5 ? 0.7 : 0;

@@ -11,7 +11,13 @@ import {
   BOLLO_TEXT, COURTESY_TEXT, DRAFT_TEXT, FORFETTARIO_TEXT, creditNoteLines, docTitle, documentTotals, draftTotals, fmtDate, fmtNum, fmtQty, generateDocumentPdf, lineAmount,
 } from '../pdf';
 import { Badge, Button, EmptyState, Money, PageHeader, Select, Sheet, useToast } from '../ui';
+import { LimitGate } from '../billing/LimitGate';
+import type { Allowance } from '../billing/allowance';
+import { checkAllowanceNow } from '../billing/useAllowance';
+import { recordDocumentCreated } from '../billing/usage';
+import { syncEngine } from '../sync/engine';
 import { STATUS_LABEL, STATUS_TONE, canShareFiles, downloadBlob, fileNameFor, sharePdf, shareText, todayIso, waNumber } from './quote/shared';
+import { ActivityLog } from './invoice/ActivityLog';
 import { CreditNoteSheet } from './invoice/CreditNoteSheet';
 import { InvoiceBadges, InvoicePanel, Timeline } from './invoice/InvoicePanel';
 import { IssueSheet } from './invoice/IssueSheet';
@@ -23,7 +29,7 @@ import {
 import './quote/quote.css';
 import './invoice/invoice.css';
 
-type SheetName = 'issue' | 'credit' | 'guide' | 'send' | 'outcome' | 'payment' | 'delete' | 'convert' | 'correct' | 'resubmit' | null;
+type SheetName = 'activity' | 'issue' | 'credit' | 'guide' | 'send' | 'outcome' | 'payment' | 'delete' | 'convert' | 'correct' | 'resubmit' | null;
 const LEGACY_STATUSES: DocStatus[] = ['bozza', 'inviato', 'pagato'];
 
 /** Estrae le segnalazioni da un InvoiceValidationError (duck typing: funziona anche tra moduli/mock). */
@@ -46,6 +52,11 @@ export default function DocumentView() {
   const [serverIssues, setServerIssues] = useState<ValidationIssue[]>([]);
   const [audit, setAudit] = useState<AuditEntry[] | null>(null);
   const [auditError, setAuditError] = useState(false);
+  /** Limite del piano Free raggiunto: mostra la schermata gentile invece di creare un nuovo documento. */
+  const [gate, setGate] = useState<{ allowance: Allowance; signedIn: boolean } | null>(null);
+  const [activity, setActivity] = useState<AuditEntry[] | null>(null);
+  const [activityError, setActivityError] = useState(false);
+  const [allDocs, setAllDocs] = useState<QuoteDocument[]>([]);
   const [related, setRelated] = useState<{
     original: QuoteDocument | null; creditNotes: QuoteDocument[]; quote: QuoteDocument | null; invoice: QuoteDocument | null;
     resubmission: QuoteDocument | null; resubmissionOf: QuoteDocument | null; lastIssued: string;
@@ -57,6 +68,7 @@ export default function DocumentView() {
     }
     try {
       const all = await listDocuments();
+      setAllDocs(all);
       setRelated({
         original: d.invoice?.originalDocumentId ? all.find((x) => x.id === d.invoice!.originalDocumentId) ?? null : null,
         creditNotes: all.filter((x) => x.invoice?.originalDocumentId === d.id),
@@ -79,7 +91,17 @@ export default function DocumentView() {
       setError(e instanceof Error ? e.message : 'Impossibile leggere il documento.');
     }
   }, [id, loadExtras]);
-  useEffect(() => { setDoc(null); setSheet(null); setServerIssues([]); setAudit(null); void load(); }, [load]);
+  useEffect(() => { setDoc(null); setSheet(null); setServerIssues([]); setAudit(null); setGate(null); setActivity(null); void load(); }, [load]);
+
+  // registro attività del documento: si legge quando si apre la scheda (e ad ogni riapertura, per vedere le voci appena scritte)
+  const activityOpen = sheet === 'activity';
+  useEffect(() => {
+    if (!activityOpen || !id) return;
+    let alive = true;
+    setActivity(null); setActivityError(false);
+    listAudit(id).then((a) => { if (alive) setActivity(a); }).catch(() => { if (alive) setActivityError(true); });
+    return () => { alive = false; };
+  }, [activityOpen, id]);
 
   // ritorno dal profilo (scheda "Emetti" -> "Correggi nel profilo" -> salva): riapre la scheda di emissione, una sola volta
   const reopenIssue = (location.state as { reopen?: string } | null)?.reopen === 'issue';
@@ -177,7 +199,22 @@ export default function DocumentView() {
     downloadBlob(new Blob([v.xml], { type: 'application/xml' }), v.fileName || 'xml-precedente.xml');
   };
 
+  /**
+   * Piano Free: un NUOVO documento (duplicato, fattura da preventivo) conta nel limite mensile. Si controlla PRIMA di crearlo e,
+   * se il limite è raggiunto, si mostra la schermata gentile. Le note di credito, lo storno e la consultazione non passano mai da qui.
+   * Se la verifica non riesce non si blocca l'utente (come in "Nuovo documento").
+   */
+  const withinLimit = async (): Promise<boolean> => {
+    let a: Allowance;
+    try { a = await checkAllowanceNow(); } catch { return true; }
+    if (a.canCreate) return true;
+    setSheet(null);
+    setGate({ allowance: a, signedIn: syncEngine.getStatus().signedIn });
+    return false;
+  };
+
   const duplicate = () => run('dup', async () => {
+    if (!(await withinLimit())) return;
     const now = Date.now();
     const lines = doc.lines.map((l) => ({ ...l, id: uid() }));
     let copy: QuoteDocument;
@@ -194,13 +231,16 @@ export default function DocumentView() {
       copy = { ...doc, id: uid(), number: await nextDocumentNumber(doc.type), date: todayIso(), status: 'bozza', lines, createdAt: now, updatedAt: now, convertedToInvoiceId: undefined };
     }
     await saveDocument(copy);
+    recordDocumentCreated(copy.id, copy.createdAt);
     toast(fiscal ? 'Creata una nuova bozza' : 'Documento duplicato');
     nav(`/documenti/${copy.id}`);
   }, 'Duplicazione non riuscita.');
 
   const convert = () => run('conv', async () => {
     setSheet(null);
+    if (!(await withinLimit())) return;
     const created = await createInvoiceFromQuote(doc.id);
+    recordDocumentCreated(created.id, created.createdAt);
     toast('Creata la bozza di fattura');
     nav(`/documenti/${created.id}`);
   }, 'Conversione non riuscita.');
@@ -413,6 +453,18 @@ export default function DocumentView() {
         )}
         {act.delete && <Button variant="danger" className="span-2" onClick={() => setSheet('delete')} disabled={!!busy}>{draftInv ? 'Elimina bozza' : 'Elimina'}</Button>}
       </div>
+
+      <div className="dv-actions">
+        <Button variant="ghost" className="span-2" onClick={() => setSheet('activity')}>Registro attività di questo documento</Button>
+      </div>
+
+      <Sheet open={sheet === 'activity'} onClose={() => setSheet(null)} title="Registro attività">
+        <ActivityLog entries={activity} error={activityError} docs={allDocs.length ? allDocs : [doc]} fileName={`registro-attivita-${num.replace(/[^\w-]+/g, '_')}`} onToast={(m) => toast(m)} />
+      </Sheet>
+
+      <Sheet open={!!gate} onClose={() => setGate(null)} title="Limite del piano raggiunto">
+        {gate && <LimitGate allowance={gate.allowance} signedIn={gate.signedIn} />}
+      </Sheet>
 
       <Sheet open={sheet === 'delete'} onClose={() => setSheet(null)} title={draftInv ? 'Eliminare la bozza?' : 'Eliminare il documento?'}>
         <div className="dv-confirm">

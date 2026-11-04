@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { DocStatus, Profile, QuoteDocument } from '../types';
-import { getProfile, listDocuments, saveDocument } from '../storage';
+import type { AuditEntry, DocStatus, Profile, QuoteDocument } from '../types';
+import { getProfile, listAudit, listDocuments, saveDocument } from '../storage';
 import { documentTotals, fmtDate, generateDocumentPdf } from '../pdf';
-import { Badge, Button, Card, EmptyState, Input, Money, PageHeader, Select, Stat, useToast } from '../ui';
+import { Badge, Button, Card, EmptyState, Input, Money, PageHeader, Select, Sheet, Stat, useToast } from '../ui';
 import { STATUS_LABEL, STATUS_TONE, downloadBlob, fileNameFor } from './quote/shared';
 import { INVOICE_STATUSES, PAYMENT_LABEL, QUOTE_STATUSES, displayNumber, isCreditNote, isFiscalInvoice, kindLabel } from './invoice/model';
-import { FORFETTARIO_THRESHOLD, docYear, invoiceRegisterCsv, isCounted, stampsByQuarter, thresholdStatus } from './invoice/register';
+import { FORFETTARIO_THRESHOLD, docYear, invoiceRegisterCsv, invoiceXmlEntries, isCounted, stampsByQuarter, thresholdStatus } from './invoice/register';
+import { ActivityLog } from './invoice/ActivityLog';
+import { createZip } from './invoice/zip';
 import './quote/quote.css';
 import './invoice/invoice.css';
 
@@ -30,6 +32,9 @@ export default function DocumentsPage() {
   const [status, setStatus] = useState<DocStatus | 'tutti'>('tutti');
   const [year, setYear] = useState<number | 'tutti'>('tutti');
   const [busy, setBusy] = useState<string | null>(null);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [activity, setActivity] = useState<AuditEntry[] | null>(null);
+  const [activityError, setActivityError] = useState(false);
   const thisYear = new Date().getFullYear();
 
   const load = useCallback(async () => {
@@ -78,6 +83,24 @@ export default function DocumentsPage() {
     if (csv.split('\r\n').filter(Boolean).length <= 1) { toast('Nessuna fattura emessa da esportare per questo anno.', 'error'); return; }
     downloadBlob(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }), `registro-fatture-${y ?? 'tutti'}.csv`);
     toast('Registro esportato (CSV).');
+  };
+
+  /** Tutti gli XML emessi dell'anno scelto (o di tutti gli anni) in un unico ZIP, generato sul dispositivo. */
+  const exportXmlZip = () => {
+    if (!docs) return;
+    const y = year === 'tutti' ? undefined : year;
+    const files = invoiceXmlEntries(docs, y);
+    if (!files.length) { toast('Nessun file XML da esportare per questo anno.', 'error'); return; }
+    try {
+      const zip = createZip(files.map((f) => ({ name: f.name, data: f.data })));
+      downloadBlob(new Blob([zip as BlobPart], { type: 'application/zip' }), `xml-fatture-${y ?? 'tutti'}.zip`);
+      toast(`ZIP con ${files.length} ${files.length === 1 ? 'file XML' : 'file XML'} pronto.`);
+    } catch { toast('Non sono riuscito a creare lo ZIP.', 'error'); }
+  };
+
+  const openActivity = () => {
+    setActivityOpen(true); setActivity(null); setActivityError(false);
+    listAudit().then(setActivity).catch(() => setActivityError(true));
   };
 
   const pdf = async (d: QuoteDocument) => {
@@ -148,7 +171,13 @@ export default function DocumentsPage() {
             )}
             <div className="row" style={{ gap: 'var(--sp-2)' }}>
               <Button variant="secondary" onClick={exportCsv}>Esporta registro fatture (CSV)</Button>
+              <Button variant="secondary" onClick={exportXmlZip}>Esporta tutti gli XML (ZIP)</Button>
+              <Button variant="ghost" onClick={openActivity}>Registro attività</Button>
             </div>
+            <p className="muted" style={{ fontSize: 'var(--fs-xs)', margin: 0 }}>
+              Per il commercialista: il CSV elenca fatture e note emesse (anno di competenza, sezionale, totale e fattura stornata); lo ZIP contiene i file XML emessi
+              {year === 'tutti' ? ' di tutti gli anni' : ` del ${year}`}, senza bozze né fatture scartate dallo SDI.
+            </p>
             <p className="muted" style={{ fontSize: 'var(--fs-xs)', margin: 0 }}>Somme dei documenti presenti in app, non un calcolo fiscale: per tasse, soglie e bolli da versare chiedi al tuo commercialista.</p>
           </section>
 
@@ -215,6 +244,10 @@ export default function DocumentsPage() {
           )}
         </>
       )}
+
+      <Sheet open={activityOpen} onClose={() => setActivityOpen(false)} title="Registro attività">
+        <ActivityLog entries={activity} error={activityError} docs={docs} showSubject fileName="registro-attivita" onToast={(m) => toast(m)} />
+      </Sheet>
     </div>
   );
 }

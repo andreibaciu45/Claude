@@ -5,9 +5,11 @@ import { uid } from '../types';
 import { getDocument, getProfile, listCatalog, nextDocumentNumber, saveDocument } from '../storage';
 import { parseDictation } from '../engine';
 import { draftTotals } from '../pdf/totals';
-import { Button, Card, EmptyState, Field, PageHeader, Textarea, useToast, Money } from '../ui';
+import { Button, Card, EmptyState, Field, PageHeader, Segmented, Skeleton, Textarea, useToast, Money } from '../ui';
 import { useSpeech } from '../hooks/useSpeech';
 import { QuoteEditor } from './quote/QuoteEditor';
+import { ExistingDrafts } from './quote/ExistingDrafts';
+import { useHideVoiceFab } from '../voice/ui/fabVisibility';
 import { InvoiceOptions } from './invoice/InvoiceOptions';
 import { inferChannel, isLegacyInvoice, isLocked, newInvoiceFiscal, normalizeCustomerForInvoice } from './invoice/model';
 import { clearDraft, loadDraft, saveDraft } from './quote/draft';
@@ -267,8 +269,15 @@ export default function NewQuotePage() {
     return () => window.clearTimeout(t);
   }, [loading, focusField, stage]);
 
+  /* ---------- microfono: uno solo per schermata ----------
+   * Finché sulla home non c'è una scheda aperta (fase di dettatura, microfono grande visibile) il pulsante
+   * flottante dei comandi vocali è nascosto; torna dentro la scheda, in caso di limite raggiunto e se il
+   * dettato non è supportato (senza microfono grande). Vedi src/voice/ui/fabVisibility.ts. */
+  const limitedNow = !original && (limitHit || (!!allowance && !allowance.canCreate));
+  useHideVoiceFab(!editId && !loadError && !lockedDoc && stage === 'input' && !limitedNow && !speech.unsupported);
+
   /* ---------- render ---------- */
-  if (loading) return <div className="qe-loading" role="status" aria-label="Caricamento"><span className="spinner" /></div>;
+  if (loading) return <div className="stack"><Skeleton blocks={2} lines={3} label="Caricamento…" /></div>;
   if (lockedDoc) {
     return (
       <EmptyState
@@ -298,13 +307,14 @@ export default function NewQuotePage() {
     <div className="stack">
       <PageHeader
         title={editing ? (original?.invoice && !original.invoice.legacy ? 'Modifica bozza di fattura' : `Modifica ${TYPE_LABEL[type].toLowerCase()} ${original?.number ?? ''}`) : stage === 'input' ? 'Nuovo preventivo' : type === 'fattura' ? 'Controlla la bozza di fattura' : 'Controlla e genera'}
-        subtitle={stage === 'input' && !editing ? 'Detta a voce o scrivi: preparo io la scheda.' : undefined}
+        subtitle={stage === 'input' && !editing ? (gated ? 'Per questo mese i nuovi documenti gratuiti sono finiti: le bozze restano modificabili.' : 'Detta a voce o scrivi cliente, voci e quantità: preparo io la scheda.') : undefined}
         actions={stage === 'edit' && !editing ? <Button variant="ghost" size="sm" onClick={restart}>Ricomincia</Button> : undefined}
       />
 
       {!editing && <UsageCounter allowance={allowance} />}
 
       {gated && <LimitGate allowance={allowance} signedIn={signedIn} />}
+      {gated && stage === 'input' && <ExistingDrafts />}
 
       {profileIncomplete && (
         <div className="qe-banner" role="note">
@@ -317,7 +327,7 @@ export default function NewQuotePage() {
           <Card className="qe-mic-card">
             {speech.unsupported ? (
               <p className="muted" style={{ textAlign: 'center', margin: 0 }}>
-                Il dettato vocale non è disponibile su questo browser (prova Chrome o Safari). Scrivi il testo qui sotto.
+                Il dettato vocale non è disponibile su questo browser (prova Chrome o Safari). Nessun problema: scrivi qui sotto cliente, lavori e quantità e premi «Interpreta».
               </p>
             ) : (
               <div className="mic-wrap">
@@ -347,7 +357,7 @@ export default function NewQuotePage() {
             {speech.error && <div className="qe-error" role="alert">{speech.error}</div>}
           </Card>
 
-          <Field label="Testo del preventivo" hint="Puoi correggere il testo prima di interpretarlo.">
+          <Field label="Testo del preventivo" hint="Puoi correggere il testo prima di interpretarlo. Oppure usa «Compila a mano» se preferisci partire da una scheda vuota.">
             <Textarea
               rows={5}
               value={text}
@@ -372,7 +382,7 @@ export default function NewQuotePage() {
           </div>
 
           {catalog.length === 0 && (
-            <p className="muted qe-note">Il tuo catalogo è vuoto: le voci dettate non avranno un prezzo. <Link to="/catalogo">Aggiungi le voci al catalogo</Link>.</p>
+            <p className="muted qe-note">Il tuo catalogo è ancora vuoto: le voci dettate verranno segnate «da verificare» e senza prezzo. <Link to="/catalogo">Aggiungi le voci al catalogo</Link>.</p>
           )}
         </>
       )}
@@ -380,11 +390,12 @@ export default function NewQuotePage() {
       {!gated && stage === 'edit' && (
         <>
           {!editing && (
-            <div className="segmented qe-seg" role="radiogroup" aria-label="Tipo di documento">
-              {(['preventivo', 'fattura'] as DocType[]).map((t) => (
-                <button key={t} type="button" role="radio" aria-checked={type === t} onClick={() => setType(t)}>{TYPE_LABEL[t]}</button>
-              ))}
-            </div>
+            <Segmented<DocType>
+              ariaLabel="Tipo di documento"
+              value={type}
+              onChange={setType}
+              options={(['preventivo', 'fattura'] as DocType[]).map((v) => ({ value: v, label: TYPE_LABEL[v] }))}
+            />
           )}
           {type === 'fattura' && !editing && <p className="muted qe-note">Salvi una bozza: il numero viene assegnato solo quando emetti la fattura (con conferma). La bozza si può ancora modificare ed eliminare.</p>}
           {editing && original && isLegacyInvoice(original) && <p className="muted qe-note">Fattura di cortesia (versione precedente): non è un documento fiscale.</p>}

@@ -4,6 +4,7 @@ import { Button, Card, Field, Input, PageHeader, Select, Textarea, useToast } fr
 import { getProfile, saveProfile } from '../storage';
 import type { Profile } from '../types';
 import LogoField from './profile/LogoField';
+import NumberingCard from './profile/NumberingCard';
 import { formatIban, isEmail, isValidFiscalCode, isValidIban, isValidVat } from './profile/validators';
 import { s } from './catalog/styles';
 
@@ -160,6 +161,9 @@ export default function ProfilePage() {
           </div>
         </Card>
 
+        {/* opera direttamente sullo storage (non fa parte del "Salva"): aggiorna solo i contatori nello stato del form */}
+        <NumberingCard onCountersChanged={(c) => setP((cur) => (cur ? { ...cur, invoiceYearCounters: c } : cur))} />
+
         <Card>
           <div style={{ ...s.col, padding: 12 }}>
             <h2 style={{ margin: 0, fontSize: 18 }}>Documenti</h2>
@@ -168,15 +172,26 @@ export default function ProfilePage() {
               <Field label="Prossimo n. preventivo" error={errors.nextQuoteNumber}>
                 <Input value={String(p.nextQuoteNumber)} onChange={(e) => set('nextQuoteNumber', num(e.target.value))} {...fd('nextQuoteNumber')} inputMode="numeric" />
               </Field>
-              <Field label="Prefisso fatture"><Input {...text('invoicePrefix')} autoComplete="off" /></Field>
-              <Field label="Prossimo n. fattura" error={errors.nextInvoiceNumber}>
-                <Input value={String(p.nextInvoiceNumber)} onChange={(e) => set('nextInvoiceNumber', num(e.target.value))} {...fd('nextInvoiceNumber')} inputMode="numeric" />
-              </Field>
             </div>
+            <details open={!!errors.nextInvoiceNumber || undefined} style={{ ...s.box }}>
+              <summary style={{ cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' }}>Vecchi documenti di cortesia (non fiscali)</summary>
+              <div style={s.col}>
+                <p style={{ ...s.muted, margin: 0 }}>
+                  Questi due campi servono solo alla numerazione delle vecchie “fatture di cortesia” della versione precedente dell’app, che non sono documenti
+                  fiscali. <strong>Non cambiano il numero delle fatture elettroniche</strong>: per quello usa “Numerazione fatture elettroniche” qui sopra.
+                </p>
+                <div style={s.grid2}>
+                  <Field label="Prefisso documenti di cortesia"><Input {...text('invoicePrefix')} autoComplete="off" /></Field>
+                  <Field label="Prossimo n. documento di cortesia" error={errors.nextInvoiceNumber}>
+                    <Input value={String(p.nextInvoiceNumber)} onChange={(e) => set('nextInvoiceNumber', num(e.target.value))} {...fd('nextInvoiceNumber')} inputMode="numeric" />
+                  </Field>
+                </div>
+              </div>
+            </details>
             <Field label="Validità preventivo (giorni)" error={errors.quoteValidityDays}>
               <Input value={String(p.quoteValidityDays)} onChange={(e) => set('quoteValidityDays', num(e.target.value))} {...fd('quoteValidityDays')} inputMode="numeric" />
             </Field>
-            <Field label="Condizioni di pagamento"><Textarea rows={2} {...text('paymentTerms')} /></Field>
+            <Field label="Condizioni di pagamento" hint="Dalla frase si ricava la scadenza in fattura: es. «Bonifico a 30 giorni data fattura», «Bonifico 60 giorni fine mese», «Bonifico a vista»."><Textarea rows={2} {...text('paymentTerms')} /></Field>
             <Field label="Note a piè di pagina" hint="Es. «Prezzi validi salvo imprevisti»"><Textarea rows={3} {...text('footerNotes')} /></Field>
           </div>
         </Card>

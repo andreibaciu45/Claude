@@ -106,7 +106,7 @@ export function QuoteEditor(p: Props) {
           <h2 id="qe-lines-h">Righe ({lines.length})</h2>
           {toReview > 0 && <Badge tone="warning">{toReview} da verificare</Badge>}
         </div>
-        {lines.length === 0 && <p className="muted">Nessuna riga. Aggiungi una voce dal catalogo o scrivila a mano.</p>}
+        {lines.length === 0 && <p className="muted">Nessuna riga per ora. Aggiungi una voce dal catalogo o scrivila a mano: il totale si calcola da solo.</p>}
         {lines.map((l, i) => (
           <article key={l.id} id={`f-lines[${i}]`} tabIndex={-1} className="qe-line" data-review={l.needsReview ? 'true' : undefined} aria-label={`Riga ${i + 1}: ${l.description || 'senza descrizione'}`}>
             <div className="qe-line-top">

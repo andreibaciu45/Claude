@@ -19,33 +19,41 @@ export const stripAccents = (s: string): string => s.normalize('NFD').replace(/\
 /** Pulisce il testo grezzo del riconoscimento vocale prima di tokenizzare. */
 export function preprocess(input: string): string {
   let s = input.normalize('NFC');
-  s = s.replace(/[’‘`´]/g, "'");
+  // Ogni sostituzione è protetta da un controllo economico: i testi del catalogo (migliaia) sono quasi
+  // sempre "puliti" e non devono pagare una dozzina di espressioni regolari.
+  if (/[’‘`´]/.test(s)) s = s.replace(/[’‘`´]/g, "'");
   // "sig." "dott." -> senza punto, per non spezzare il nome del cliente
-  s = s.replace(/\b(sig|sigra|dott|dr|ing|geom|avv|prof|arch|ecc)\./gi, '$1');
+  if (s.includes('.')) s = s.replace(/\b(sig|sigra|dott|dr|ing|geom|avv|prof|arch|ecc)\./gi, '$1');
   // mezz'ora / mezzora
-  s = s.replace(/\bmezz['\s]?ora\b/gi, 'mezza ora');
+  if (/mezz/i.test(s)) s = s.replace(/\bmezz['\s]?ora\b/gi, 'mezza ora');
   // m², mm2, m3...
-  s = s.replace(/(?<![\p{L}])mm[²2](?![\d\p{L}])/giu, ' mmq ');
-  s = s.replace(/(?<![\p{L}])m[²2](?![\d\p{L}])/giu, ' mq ');
-  s = s.replace(/(?<![\p{L}])m[³3](?![\d\p{L}])/giu, ' mc ');
-  s = s.replace(/€/g, ' euro ').replace(/&/g, ' e ');
-  // percentuali: "10%", "10 per cento", "dieci percento" -> "percento" (evita che "cento" diventi 100)
-  s = s.replace(/%/g, ' percento ');
-  s = s.replace(/\bper\s+cento\b/gi, ' percento ');
-  s = s.replace(/\+/g, ' piu ');
-  // segno meno davanti a una cifra: " -5 metri" -> " meno 5 metri" (le quantità negative vanno segnalate)
-  s = s.replace(/(^|[\s(;,])[-−–](?=\d)/g, '$1 meno ');
-  // apostrofo tra lettere: segnaposto (la parola prima riceve il flag `apo`), così "Dell'Orto" si ricompone
-  s = s.replace(/(\p{L})'(?=\p{L})/gu, `$1${APO}`);
-  s = s.replace(/'/g, ' ');
+  if (/[m]/.test(s) && /[²³23]/.test(s)) {
+    s = s.replace(/(?<![\p{L}])mm[²2](?![\d\p{L}])/giu, ' mmq ');
+    s = s.replace(/(?<![\p{L}])m[²2](?![\d\p{L}])/giu, ' mq ');
+    s = s.replace(/(?<![\p{L}])m[³3](?![\d\p{L}])/giu, ' mc ');
+  }
+  if (/[€&%+\-−–']/.test(s)) {
+    s = s.replace(/€/g, ' euro ').replace(/&/g, ' e ');
+    // percentuali: "10%", "10 per cento", "dieci percento" -> "percento" (evita che "cento" diventi 100)
+    s = s.replace(/%/g, ' percento ');
+    s = s.replace(/\+/g, ' piu ');
+    // segno meno davanti a una cifra: " -5 metri" -> " meno 5 metri" (le quantità negative vanno segnalate)
+    s = s.replace(/(^|[\s(;,])[-−–](?=\d)/g, '$1 meno ');
+    // apostrofo tra lettere: segnaposto (la parola prima riceve il flag `apo`), così "Dell'Orto" si ricompone
+    s = s.replace(/(\p{L})'(?=\p{L})/gu, `$1${APO}`);
+    s = s.replace(/'/g, ' ');
+  }
+  if (/cento/i.test(s)) s = s.replace(/\bper\s+cento\b/gi, ' percento ');
   // separatore migliaia all'italiana: 1.500 -> 1500 (ma non 0.500 e non 2.5)
-  s = s.replace(/(?<![\d.,])(\d{1,3})((?:\.\d{3})+)(?!\d)/g, (m, a: string, rest: string) =>
-    a === '0' ? m : a + rest.replace(/\./g, ''),
-  );
+  if (s.includes('.')) {
+    s = s.replace(/(?<![\d.,])(\d{1,3})((?:\.\d{3})+)(?!\d)/g, (m, a: string, rest: string) =>
+      a === '0' ? m : a + rest.replace(/\./g, ''),
+    );
+  }
   // virgola decimale: 2,5 -> 2.5
-  s = s.replace(/(\d),(\d)/g, '$1.$2');
+  if (s.includes(',')) s = s.replace(/(\d),(\d)/g, '$1.$2');
   // 3 x 2,5 -> 3x2.5 (notazione cavi)
-  s = s.replace(/(\d)\s*[x×]\s*(?=\d)/gi, '$1x');
+  if (/[x×]/i.test(s)) s = s.replace(/(\d)\s*[x×]\s*(?=\d)/gi, '$1x');
   return s;
 }
 

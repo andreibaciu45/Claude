@@ -14,8 +14,14 @@ const store = vi.hoisted(() => ({
   appendAudit: vi.fn(), reopenRejectedInvoice: vi.fn(), createResubmissionDraft: vi.fn(),
 }));
 vi.mock('../storage', () => store);
+const allow = vi.hoisted(() => ({ canCreate: true }));
+vi.mock('../billing/useAllowance', () => ({
+  checkAllowanceNow: async () => ({ plan: 'free', used: allow.canCreate ? 0 : 3, limit: 3, remaining: allow.canCreate ? 3 : 0, canCreate: allow.canCreate }),
+}));
+vi.mock('../sync/engine', () => ({ syncEngine: { getStatus: () => ({ signedIn: false }) } }));
+
 const validate = vi.hoisted(() => vi.fn<() => ValidationIssue[]>(() => []));
-vi.mock('../../shared/fatturapa', () => ({ validateInvoiceForIssue: validate }));
+vi.mock('../../shared/fatturapa', async (orig) => ({ ...(await orig<typeof import('../../shared/fatturapa')>()), validateInvoiceForIssue: validate }));
 
 import DocumentView from './DocumentView';
 
@@ -54,6 +60,7 @@ const draft = () => fakeInvoice({ status: 'bozza', invoice: { ...fakeInvoice().i
 beforeEach(() => {
   // jsdom non ha scrollIntoView (la scheda lo usa quando un campo prende il fuoco)
   Element.prototype.scrollIntoView = vi.fn();
+  allow.canCreate = true;
   Object.values(store).forEach((f) => f.mockReset());
   validate.mockReset(); validate.mockReturnValue([]);
   host = document.createElement('div');
@@ -197,5 +204,64 @@ describe('DocumentView: nota di credito', () => {
     });
     hold(1300);
     expect(store.createCreditNote).toHaveBeenCalledWith('d1', { reason: 'Importo errato', lines: undefined });
+  });
+});
+
+describe('DocumentView: limite del piano Free sui NUOVI documenti', () => {
+  it('preventivo -> fattura con limite raggiunto: nessuna bozza creata, appare il LimitGate con "continua a consultare"', async () => {
+    allow.canCreate = false;
+    await render(fakeDoc({ id: 'd1', status: 'accettato' }));
+    click('Converti in fattura');
+    await flush();
+    expect(store.createInvoiceFromQuote).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="region"][aria-label="Limite del piano raggiunto"]')).not.toBeNull();
+    expect(host.textContent).toContain('Continua a consultare i documenti');
+  });
+  it('conversione con limite non raggiunto: la bozza si crea', async () => {
+    store.createInvoiceFromQuote.mockResolvedValue({ ...draft(), id: 'new1' });
+    await render(fakeDoc({ id: 'd1', status: 'accettato' }));
+    click('Converti in fattura');
+    await flush();
+    expect(store.createInvoiceFromQuote).toHaveBeenCalledWith('d1');
+    expect(host.querySelector('[aria-label="Limite del piano raggiunto"]')).toBeNull();
+  });
+  it('anche "Duplica" è un nuovo documento: bloccato al limite', async () => {
+    allow.canCreate = false;
+    await render(fakeDoc({ id: 'd1', status: 'inviato' }));
+    click('Duplica');
+    await flush();
+    expect(store.saveDocument).not.toHaveBeenCalled();
+    expect(host.querySelector('[aria-label="Limite del piano raggiunto"]')).not.toBeNull();
+  });
+  it('con il limite raggiunto restano possibili: nota di credito, PDF, registro attività (consultazione)', async () => {
+    allow.canCreate = false;
+    await render(fakeInvoice({ id: 'd1' }));
+    expect(has('Annulla con nota di credito')).toBe(true);
+    expect(has('Scarica XML')).toBe(true);
+    expect(has('Scarica PDF')).toBe(true);
+    click('Annulla con nota di credito');
+    expect(host.textContent).toContain('Motivo');
+    expect(host.querySelector('[aria-label="Limite del piano raggiunto"]')).toBeNull();
+  });
+});
+
+describe('DocumentView: registro attività del documento', () => {
+  it('si apre una scheda con le voci del documento, leggibile e con esportazione CSV', async () => {
+    store.listAudit.mockResolvedValue([
+      { id: 'a1', at: Date.UTC(2026, 10, 3, 9, 0), docId: 'd1', action: 'issue', actor: 'user', detail: 'Emessa 12/2026' },
+      { id: 'a2', at: Date.UTC(2026, 10, 4, 9, 0), docId: 'd1', action: 'download_xml', actor: 'user', detail: 'Scaricato XML' },
+    ]);
+    await render(fakeInvoice({ id: 'd1' }));
+    store.listAudit.mockResolvedValue([
+      { id: 'a1', at: Date.UTC(2026, 10, 3, 9, 0), docId: 'd1', action: 'issue', actor: 'user', detail: 'Emessa 12/2026' },
+      { id: 'a2', at: Date.UTC(2026, 10, 4, 9, 0), docId: 'd1', action: 'download_xml', actor: 'user', detail: 'Scaricato XML' },
+    ]);
+    click('Registro attività');
+    await flush();
+    const dlg = host.querySelector('[role="dialog"]')!;
+    expect(dlg.textContent).toContain('sola lettura');
+    expect(dlg.querySelectorAll('ol.act-list li')).toHaveLength(2);
+    expect(dlg.textContent).toContain('XML scaricato');
+    expect(dlg.textContent).toContain('Esporta registro attività (CSV)');
   });
 });

@@ -174,6 +174,25 @@ async function toast(page, text, timeout = 8000) {
   await page.locator('.toast', { hasText: text }).first().waitFor({ timeout });
 }
 
+/**
+ * Il piano Free limita a 3 documenti NUOVI al mese (src/billing, limite morbido locale). Per creare piu documenti in uno scenario
+ * si usa un orologio finto: ogni volta che compare la scheda "Limite del piano raggiunto" si passa al mese successivo
+ * (restando nel 2026, cosi la numerazione annuale non riparte). Chiamare S.clock(page, 1) PRIMA della prima navigazione.
+ */
+async function useClock(page, month = 1) {
+  page.__clkMonth = month;
+  await page.clock.install({ time: new Date(Date.UTC(2026, month - 1, 10, 12, 0, 0)) });
+}
+async function bumpMonth(page) {
+  if (!page.__clkMonth) throw new Error('Limite Free raggiunto (3 documenti/mese) e orologio finto non attivo: usare useClock() nello scenario');
+  if (page.__clkMonth >= 11) throw new Error('orologio finto: mesi del 2026 esauriti');
+  page.__clkMonth += 1;
+  await page.clock.setSystemTime(new Date(Date.UTC(2026, page.__clkMonth - 1, 10, 12, 0, 0)));
+}
+async function gateVisible(page) {
+  return page.getByRole('region', { name: 'Limite del piano raggiunto' }).waitFor({ state: 'visible', timeout: 1500 }).then(() => true, () => false);
+}
+
 /** Pressione prolungata (HoldButton): mouse giu', attesa, su. */
 async function hold(page, locator, ms = 1700) {
   // i toast (3,5 s) coprono la parte bassa della scheda e intercettano il puntatore (v. QA-REPORT): aspetto che spariscano
@@ -222,6 +241,11 @@ async function addSampleCatalog(S, page, trade = 'Idraulico') {
  */
 async function createInvoiceDraft(S, page, { customer = FAKE.customer, lines = [{ description: 'Lavori di manutenzione impianto', qty: 1, price: 150 }], shotLabel } = {}) {
   await go(page, '/');
+  await Promise.race([
+    page.getByRole('button', { name: 'Compila a mano' }).waitFor({ timeout: 6000 }).catch(() => {}),
+    page.getByRole('region', { name: 'Limite del piano raggiunto' }).waitFor({ timeout: 6000 }).catch(() => {}),
+  ]);
+  if (await page.getByRole('region', { name: 'Limite del piano raggiunto' }).isVisible()) { await bumpMonth(page); await page.reload(); await sleep(300); }
   await page.getByRole('button', { name: 'Compila a mano' }).click();
   await page.getByRole('radio', { name: 'Fattura', exact: true }).click();
   await page.locator('#qe-customer').fill(customer.name);
@@ -288,6 +312,6 @@ async function saveDownload(S, dl, name) {
 }
 
 module.exports = {
-  BASE, API, OUT, TMP, FAKE, VIEWPORTS, sleep, run, Scenario, go, url, docIdOf, toast, hold,
+  BASE, API, OUT, TMP, FAKE, useClock, bumpMonth, gateVisible, VIEWPORTS, sleep, run, Scenario, go, url, docIdOf, toast, hold,
   fillProfile, addSampleCatalog, createInvoiceDraft, issueCurrent, readDb, saveDownload,
 };

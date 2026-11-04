@@ -4,6 +4,7 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { runMigrations } from './migrations';
+import './ops-schema'; // registra le migrazioni operative (200+) prima della prima apertura
 
 export type { SQLInputValue };
 export { registerMigration } from './migrations';

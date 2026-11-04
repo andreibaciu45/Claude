@@ -136,7 +136,7 @@ describe('login con accettazione dei termini', () => {
 });
 
 const signIn = () => { token = 'T'; account = { email: 'mario@example.it', tenantId: 't1' }; };
-const renderCard = async (extra: Partial<ReturnType<typeof me>> = {}) => {
+const renderCard = async (extra: Record<string, unknown> = {}) => {
   signIn();
   handler = (r) => (r.path === '/me' && r.method === 'GET' ? json(200, me(extra)) : defaultHandler(r));
   await engine.refreshMe();
@@ -194,7 +194,8 @@ describe('cancellazione account a due passi', () => {
     const d = calls.find((c) => c.method === 'DELETE')!;
     expect(d).toMatchObject({ path: '/me', body: { confirmEmail: 'Mario@Example.it' } });
     expect(d.body).not.toHaveProperty('acknowledgeSubscription');
-    expect(token).toBeNull();
+    await vi.waitFor(() => expect(token).toBeNull());
+    await vi.waitFor(() => expect(host.textContent).toContain('2 fatture emesse restano'));
     expect(engine.getStatus().signedIn).toBe(false);
     expect(store.docs.has('d1')).toBe(true);
     expect(host.textContent).toContain('restano su questo dispositivo');
@@ -220,7 +221,7 @@ describe('cancellazione account a due passi', () => {
     await click(force);
     await submit($('form'));
     expect(calls.filter((c) => c.method === 'DELETE').pop()?.body).toMatchObject({ acknowledgeSubscription: true });
-    expect(token).toBeNull();
+    await vi.waitFor(() => expect(token).toBeNull());
   });
 
   it('confirmation_mismatch dal server: messaggio italiano, resta connesso', async () => {
@@ -277,7 +278,7 @@ describe('AccountView: orologio e termini aggiornati', () => {
     await type($<HTMLInputElement>('input[inputmode=numeric]')!, '123456');
     await submit($('form'));
     await vi.waitFor(() => expect(termsAcceptanceStore.get()?.termsVersion).toBe(TERMS_VERSION));
-    await flush(); await flush();
+    await flush(); await flush(); await flush();
     expect(calls.find((c) => c.path === '/auth/verify')?.body).toMatchObject({ acceptedTerms: { termsVersion: TERMS_VERSION } });
     expect(host.textContent).not.toContain('Accetta i Termini aggiornati');
   });

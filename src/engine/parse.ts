@@ -478,11 +478,12 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
     let other: MatchResult | null = null;
     let content: string[] = [];
     for (const v of [noLoc, noNoise, noBoth]) {
-      if (v.length === words.length || !v.some((w) => !/^\d/.test(w))) continue;
+      const cw = v.filter((w) => !/^\d/.test(w) && !LOCATION_WORDS.has(w) && !NOTE_NOISE.has(w)).map(stem);
+      if (v.length === words.length || !cw.length) continue; // senza almeno una parola di contenuto non si cerca
       const r = matcher.best(v.join(' '), opts);
       if (r && (!other || r.score > other.score)) {
         other = r;
-        content = v.filter((w) => !/^\d/.test(w) && !LOCATION_WORDS.has(w) && !NOTE_NOISE.has(w)).map(stem);
+        content = cw;
       }
     }
     if (!other) return a;
@@ -599,7 +600,8 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
           const allScore = scoreText(W, null, false);
           let bestK = -1;
           let bestVal = -1;
-          for (let c = 0; c < W.length; c++) {
+          // se il testo di mezzo è già una voce completa non lo si spezza
+          for (let c = 0; c < W.length && allScore < 0.9; c++) {
             const lead = W.slice(c);
             const trail = W.slice(0, c);
             const firstLead = meaningful(lead)[0];
@@ -623,7 +625,7 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
         // testo dietro, il testo di mezzo appartiene alla riga successiva (salvo "di ...")
         const firstW = W[0] as Tok;
         const startsDi = isW(firstW) && (firstW.w === 'di' || firstW.w === 'd');
-        if (k === W.length && !startsDi && drafts[left].lead.length && !drafts[left].trail.length && drafts[right].anchor.u !== null) {
+        if (k === W.length && !startsDi && drafts[left].lead.length && !drafts[left].trail.length && (drafts[right].anchor.u !== null || drafts[right].anchor.side === 'before')) {
           k = 0;
         }
         drafts[left].trail.push(...W.slice(0, k));

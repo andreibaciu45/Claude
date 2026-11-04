@@ -253,11 +253,15 @@ WHEN OLD.locked_at IS NOT NULL AND NOT (
 BEGIN SELECT RAISE(ABORT, 'documento_bloccato: modifica vietata'); END;
 `);
 
-export function runMigrations(db: DatabaseSync): void {
+/** Elenco (ordinato) delle migrazioni registrate: serve ai test di upgrade e a /health/deep. */
+export const listMigrations = (): Migration[] => [...migrations].sort((a, b) => a.version - b.version);
+
+/** `upTo`: applica solo le migrazioni con version <= upTo (test di upgrade da DB vecchi). */
+export function runMigrations(db: DatabaseSync, upTo = Infinity): void {
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at INTEGER NOT NULL)');
   const done = new Set((db.prepare('SELECT version FROM schema_migrations').all() as { version: number }[]).map((r) => r.version));
-  for (const m of [...migrations].sort((a, b) => a.version - b.version)) {
-    if (done.has(m.version)) continue;
+  for (const m of listMigrations()) {
+    if (done.has(m.version) || m.version > upTo) continue;
     db.exec('BEGIN IMMEDIATE');
     try {
       db.exec(m.sql);

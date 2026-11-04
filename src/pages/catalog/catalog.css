@@ -14,7 +14,8 @@
 .cat-card-body > p { margin: 0; }
 
 /* filtri */
-.cat-kind .segmented button { padding: 0 var(--sp-1); font-size: var(--fs-sm); min-width: 0; overflow-wrap: anywhere; }
+.cat-kind .segmented { gap: 2px; padding: 3px; }
+.cat-kind .segmented button { padding: 0 2px; font-size: var(--fs-xs); min-width: 0; white-space: nowrap; }
 .cat-scroll { display: flex; gap: var(--sp-2); overflow-x: auto; padding-bottom: var(--sp-1); scrollbar-width: thin; }
 .cat-scroll .chip { white-space: nowrap; flex: none; }
 

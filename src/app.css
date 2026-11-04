@@ -1,0 +1,5 @@
+/* Accessibilità del guscio: link «Vai al contenuto», focus programmatico, annuncio di cambio pagina. */
+.skip-link { position: fixed; z-index: 100; top: calc(var(--sat) + var(--sp-2)); left: calc(var(--sp-2) + var(--sal)); transform: translateY(-200%); min-height: var(--touch); padding: 0 var(--sp-4); border: 2px solid var(--c-primary); border-radius: var(--r-md); background: var(--c-surface); color: var(--c-primary); font-weight: 700; cursor: pointer; box-shadow: var(--shadow-2); }
+.skip-link:focus, .skip-link:focus-visible { transform: none; }
+/* Elementi focalizzati da codice (main, h1): nessun anello se il focus non viene dalla tastiera. */
+[tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
