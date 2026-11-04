@@ -19,7 +19,7 @@ import { downloadText } from './catalog/download';
 import { displayNumber, kindLabel } from './invoice/model';
 import { STATUS_LABEL, STATUS_TONE } from './quote/shared';
 import { documentTotals, fmtDate } from '../pdf';
-import { customersToCsv, parseCustomersCsv } from './customers/csv';
+import { MAX_CSV_BYTES, customersToCsv, decodeCsvBytes, parseCustomersCsv } from './customers/csv';
 import { customerStats } from './customers/stats';
 import { validateCustomer } from './customers/validate';
 import CustomerSheet from './customers/CustomerSheet';
@@ -90,14 +90,16 @@ export default function CustomersPage() {
 
   const onImportFile = async (f?: File) => {
     if (!f) return;
-    const r = parseCustomersCsv(await f.text());
-    if (r.error) { toast(r.error, 'error'); return; }
+    const resetInput = () => { if (fileRef.current) fileRef.current.value = ''; }; // altrimenti lo stesso file non si può riselezionare
+    if (f.size > MAX_CSV_BYTES) { toast('Il file è troppo grande per essere una rubrica clienti (massimo 5 MB).', 'error'); resetInput(); return; }
+    const r = parseCustomersCsv(decodeCsvBytes(await f.arrayBuffer()));
+    if (r.error) { toast(r.error, 'error'); resetInput(); return; }
     try {
       const res = await upsertCustomers(r.customers);
       toast(`Importati ${res.created} nuovi clienti, ${res.merged} già presenti (dati completati)${r.ignored ? `, ${r.ignored} righe senza nome ignorate` : ''}`, 'success');
       await reload();
     } catch { toast('Importazione non riuscita', 'error'); }
-    if (fileRef.current) fileRef.current.value = '';
+    resetInput();
   };
 
   const fromDocs = async () => {

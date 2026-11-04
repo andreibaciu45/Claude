@@ -54,3 +54,17 @@ export function parseCustomersCsv(text: string): CsvImport {
   }
   return { customers, ignored };
 }
+
+/** Oltre questa dimensione un file non è una rubrica clienti: si rifiuta prima di leggerlo (evita di bloccare la scheda). */
+export const MAX_CSV_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Testo di un file CSV da byte grezzi (REV2-C3). Excel italiano salva "CSV (delimitato dal separatore di elenco)" in Windows-1252, non
+ * in UTF-8: `File.text()` lo leggeva sempre come UTF-8 e ogni lettera accentata diventava U+FFFD («Caff�», «Societ�») nella
+ * rubrica. Si prova UTF-8 rigoroso e, se i byte non lo sono, Windows-1252.
+ */
+export function decodeCsvBytes(buf: ArrayBuffer | Uint8Array): string {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+  catch { return new TextDecoder('windows-1252').decode(bytes); }
+}

@@ -233,6 +233,16 @@ export interface ParsedBackup {
   exportedAt?: string;
 }
 
+/**
+ * REV2-B3: un backup modificato a mano o scritto da una versione difettosa può avere contatori non numerici (`"abc"`, `null`):
+ * `Math.max('abc', n)` dava NaN e la numerazione dei preventivi ripartiva da 1. Solo interi finiti >= 1; i contatori per anno
+ * (`invoiceYearCounters`) sono già filtrati da `mergeCounters`.
+ */
+function sanitizeProfileCounters(p: Profile): Profile {
+  const whole = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? Math.max(1, Math.floor(v)) : 1);
+  return { ...p, nextQuoteNumber: whole(p.nextQuoteNumber), nextInvoiceNumber: whole(p.nextInvoiceNumber), nextProgressivoInvio: whole(p.nextProgressivoInvio) };
+}
+
 /** Massimo `seq` per chiave `${sezionale}-${anno}` nei documenti fiscali. */
 export function maxSeqByKey(docs: QuoteDocument[]): Record<string, number> {
   const r: Record<string, number> = {};
@@ -287,7 +297,7 @@ export function parseBackup(json: string): ParsedBackup {
   const aids = new Set<string>();
   for (const a of audit) { if (aids.has(a.id)) fail(`id audit duplicato (${a.id})`); aids.add(a.id); }
   return {
-    profile: withDefaults(data.profile as Partial<Profile>),
+    profile: sanitizeProfileCounters(withDefaults(data.profile as Partial<Profile>)),
     catalog,
     customers,
     customersDerived,

@@ -144,3 +144,66 @@ describe('rubrica: proprietà (seme fisso)', () => {
     expect(sameCustomer({ name: 'Mario Rossi', vatNumber: '02345678904', city: 'Milano' }, { name: 'Mario Rossi', vatNumber: '02345678904', city: 'Roma' })).toBe(true);
   });
 });
+
+// ------------------------------------------------------------------ importazione CSV: indice dei duplicati
+import { fillMissing, findDuplicate } from './customerModel';
+import { upsertCustomers } from './index';
+
+describe('REV2-C2 upsertCustomers: stesso risultato del confronto completo, ma senza costo quadratico', () => {
+  it('differenziale con seme fisso: rubrica identica a quella del riferimento (findDuplicate + fillMissing su array)', async () => {
+    for (let seed = 1; seed <= 25; seed++) {
+      const r = rng(seed * 7919);
+      const { docs } = randomDocs(r, 5 + Math.floor(r() * 25));
+      const rows: Customer[] = docs.map((d, i) => ({ ...d.customer, id: `r${seed}-${i}`, phone: r() < 0.3 ? `333${Math.floor(r() * 1e6)}` : undefined } as Customer));
+      // riferimento
+      const ref: StoredCustomer[] = [];
+      for (const raw of rows) {
+        const clean = normalizeCustomerRecord(raw);
+        const dup = findDuplicate(clean, ref);
+        if (dup) { const { value } = fillMissing(dup, clean); ref[ref.indexOf(dup)] = { ...value, createdAt: 0, updatedAt: 0 }; }
+        else ref.push({ ...clean, id: clean.id, createdAt: 0, updatedAt: 0 });
+      }
+      await __resetStorageForTests(); await deleteDB(DB_NAME);
+      await upsertCustomers(rows);
+      const got = (await listCustomers()).map(({ createdAt: _c, updatedAt: _u, ...x }) => x).sort((a, b) => (a.id < b.id ? -1 : 1));
+      const want = ref.map(({ createdAt: _c, updatedAt: _u, ...x }) => x).sort((a, b) => (a.id < b.id ? -1 : 1));
+      expect(got, `seed ${seed}`).toEqual(JSON.parse(JSON.stringify(want)));
+    }
+  }, 60_000);
+
+  it('2000 righe si importano in meno di 5 secondi (prima ~16 s: rilettura e confronto di tutta la rubrica a ogni riga)', async () => {
+    await __resetStorageForTests(); await deleteDB(DB_NAME);
+    const list: Customer[] = Array.from({ length: 2000 }, (_, i) => ({ id: `b${i}`, name: `Cliente numero ${i}` }));
+    const t = Date.now();
+    const res = await upsertCustomers(list);
+    expect(res).toMatchObject({ created: 2000, merged: 0 });
+    expect(Date.now() - t).toBeLessThan(5000);
+  }, 60_000);
+});
+
+// ------------------------------------------------------------------ backup con contatori corrotti
+import { exportBackup, getProfile, importBackup, issueInvoice, nextDocumentNumber, saveDocument } from './index';
+import { seedProfile } from './testkit';
+
+describe('REV2-B3 importBackup: contatori del profilo non numerici', () => {
+  it('un backup con nextQuoteNumber / nextProgressivoInvio / nextInvoiceNumber corrotti non azzera né rompe la numerazione', async () => {
+    await __resetStorageForTests(); await deleteDB(DB_NAME);
+    await seedProfile({ nextQuoteNumber: 7 });
+    await saveDocument(draftData('f1', '2026-03-10'));
+    await issueInvoice('f1'); // nextProgressivoInvio -> 2
+    const data = JSON.parse(await exportBackup());
+    data.profile.nextQuoteNumber = 'abc';
+    data.profile.nextProgressivoInvio = 'x';
+    data.profile.nextInvoiceNumber = null;
+    await importBackup(JSON.stringify(data));
+    const p = await getProfile();
+    expect(Number.isFinite(p.nextQuoteNumber) && p.nextQuoteNumber >= 7).toBe(true);
+    expect(Number.isFinite(p.nextProgressivoInvio) && (p.nextProgressivoInvio ?? 0) >= 2).toBe(true);
+    expect(Number.isFinite(p.nextInvoiceNumber) && p.nextInvoiceNumber >= 1).toBe(true);
+    expect(await nextDocumentNumber('preventivo')).toBe('PRev-0007');
+    await saveDocument(draftData('f2', '2026-03-11'));
+    const second = await issueInvoice('f2');
+    expect(second.invoice?.number).toBe('2/2026');
+    expect(second.invoice?.progressivoInvio).toBe('00002');
+  });
+});

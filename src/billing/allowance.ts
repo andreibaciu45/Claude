@@ -14,7 +14,9 @@ export interface Allowance {
 
 /** Pura. `serverUsed` = documenti del mese noti al server (solo se la verifica è del mese corrente). */
 export function computeAllowance(plan: Plan, localUsed: number, serverUsed?: number | null): Allowance {
-  const used = Math.max(0, localUsed, plan === 'free' && typeof serverUsed === 'number' ? serverUsed : 0);
+  // REV2-B2: la cache sta in localStorage (modificabile, `1e999` diventa Infinity): solo interi finiti >= 0
+  const whole = (n: unknown): number => (typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0);
+  const used = Math.max(whole(localUsed), plan === 'free' ? whole(serverUsed) : 0);
   return { plan, used, limit: docsLimitFor(plan), remaining: remainingFreeDocs(plan, used), canCreate: canCreateDocument(plan, used) };
 }
 

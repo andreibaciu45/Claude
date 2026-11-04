@@ -3,7 +3,7 @@ import type { MeResponse } from '../../shared/api';
 import { syncEngine } from '../sync/engine';
 import { useSyncStatus } from '../sync/useSyncStatus';
 import { BILLING_CHANGED_EVENT, notifyBillingChanged } from './usage';
-import { cacheFromMe, clearPlanCache, readPlanCache, resolvePlan, writePlanCache, type PlanState } from './entitlement';
+import { cacheFromMe, canReplacePlanCache, clearPlanCache, readPlanCache, resolvePlan, writePlanCache, type PlanState } from './entitlement';
 
 /** Ultima risposta di /me già registrata in cache (evita di "ringiovanire" una risposta vecchia rimasta in memoria). */
 let lastRecorded: MeResponse | null = null;
@@ -33,7 +33,7 @@ export function usePlan(): UsePlan {
       // la verifica vale dal momento in cui il server ha risposto, non da quando questo componente si è montato
       const at = st.meAt ?? Date.now();
       const cur = readPlanCache();
-      if (!cur || cur.verifiedAt <= at || (cur.email && cur.email !== st.me.email)) writePlanCache(cacheFromMe(st.me, at)); // mai una verifica più vecchia sopra una più recente (altra scheda)
+      if (canReplacePlanCache(cur, at, st.me.email)) writePlanCache(cacheFromMe(st.me, at)); // mai una verifica più vecchia sopra una più recente (altra scheda)
       notifyBillingChanged();
     }
   }, [st.signedIn, st.me]);

@@ -364,7 +364,7 @@ L'account **non è obbligatorio**. Serve se vuoi ritrovare i dati su un altro te
 
 1. Tocca **Account** (in fondo alla pagina).
 2. Scrivi la tua **email** e tocca **Inviami il codice**. Se ti hanno dato un **codice invito**, c'è un campo apposta (serve solo per creare un nuovo account).
-3. Ti arriva una email con un **codice di 6 cifre**: scrivilo e tocca **Accedi**. Niente password da ricordare. La prima volta devi accettare i Termini.
+3. Ti arriva una email con un **codice numerico** (di solito di 8 cifre): scrivilo e tocca **Accedi**. Niente password da ricordare. La prima volta devi accettare i Termini.
 4. La prima volta l'app ti mostra cosa caricherà sul tuo account (listino, preventivi, fatture) e chiede conferma: **Carica e sincronizza**.
 
 **[SCREENSHOT: pagina Account con login]**

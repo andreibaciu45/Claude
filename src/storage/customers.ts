@@ -9,7 +9,7 @@ import type { Customer, QuoteDocument } from '../types';
 import { uid } from '../types';
 import { getBackend } from './db';
 import {
-  fillMissing, findDuplicate, normalizeCustomerRecord, seedCustomersFromDocuments,
+  fillMissing, findDuplicate, normalizeCustomerRecord, normCf, normName, normVat, sameCustomer, seedCustomersFromDocuments,
   type StoredCustomer,
 } from './customerModel';
 
@@ -50,22 +50,66 @@ export async function saveCustomer(c: Customer): Promise<StoredCustomer> {
 
 export interface UpsertResult { customer: StoredCustomer; created: boolean; updated: boolean }
 
-const upsertIn = async (t: { all<T>(s: 'customers'): Promise<T[]>; put<T extends { id: string }>(s: 'customers', v: T): Promise<void> }, c: Customer): Promise<UpsertResult> => {
+type UpsertTx = { all<T>(s: 'customers'): Promise<T[]>; put<T extends { id: string }>(s: 'customers', v: T): Promise<void> };
+
+/**
+ * Indice della rubrica per trovare i duplicati senza confrontare ogni scheda con ogni riga (REV2-C2: l'importazione di 2000 righe
+ * rileggeva tutta la rubrica a ogni riga e confrontava tutte le coppie: 16 s, interfaccia ferma). Un duplicato ha per forza la
+ * stessa P.IVA, lo stesso CF o lo stesso nome normalizzato: si confrontano (con `sameCustomer`) solo quelle schede, nell'ordine originale.
+ */
+class BookIndex {
+  private order = new Map<string, number>();
+  private recs = new Map<string, StoredCustomer>();
+  private keys = new Map<string, Set<string>>();
+  private seq = 0;
+  constructor(list: StoredCustomer[]) { for (const c of list) this.set(c); }
+  private keysOf(c: Customer): string[] {
+    const k: string[] = [];
+    const v = normVat(c.vatNumber ?? c.vatOrFiscalCode); if (v) k.push(`v:${v}`);
+    const f = normCf(c.fiscalCode); if (f) k.push(`f:${f}`);
+    const n = normName(c.name ?? ''); if (n) k.push(`n:${n}`);
+    return k;
+  }
+  private unindex(c: StoredCustomer): void { for (const k of this.keysOf(c)) this.keys.get(k)?.delete(c.id); }
+  set(c: StoredCustomer): void {
+    const old = this.recs.get(c.id);
+    if (old) this.unindex(old); else this.order.set(c.id, this.seq++);
+    this.recs.set(c.id, c);
+    for (const k of this.keysOf(c)) (this.keys.get(k) ?? this.keys.set(k, new Set()).get(k)!).add(c.id);
+  }
+  find(c: Customer): StoredCustomer | undefined {
+    const ids = new Set<string>();
+    for (const k of this.keysOf(c)) for (const id of this.keys.get(k) ?? []) ids.add(id);
+    // 'vatOrFiscalCode' legacy non smistato: raro, ripiego sul confronto completo
+    if (c.vatOrFiscalCode && !ids.size) return findDuplicate(c, [...this.recs.values()]);
+    let best: StoredCustomer | undefined;
+    for (const id of ids) {
+      const r = this.recs.get(id)!;
+      if (sameCustomer(c, r) && (!best || this.order.get(id)! < this.order.get(best.id)!)) best = r;
+    }
+    return best;
+  }
+}
+
+const upsertWith = async (t: UpsertTx, index: BookIndex, c: Customer): Promise<UpsertResult> => {
   const clean = normalizeCustomerRecord(c);
-  const all = await t.all<StoredCustomer>('customers');
-  const dup = findDuplicate(clean, all);
+  const dup = index.find(clean);
   const now = Date.now();
   if (dup) {
     const { value, changed } = fillMissing(dup, clean);
     if (!changed) return { customer: dup, created: false, updated: false };
     const rec = { ...value, updatedAt: now };
     await t.put('customers', rec);
+    index.set(rec);
     return { customer: rec, created: false, updated: true };
   }
   const rec: StoredCustomer = { ...clean, id: clean.id || uid(), createdAt: now, updatedAt: now };
   await t.put('customers', rec);
+  index.set(rec);
   return { customer: rec, created: true, updated: false };
 };
+
+const upsertIn = async (t: UpsertTx, c: Customer): Promise<UpsertResult> => upsertWith(t, new BookIndex(await t.all<StoredCustomer>('customers')), c);
 
 /**
  * Inserisce il cliente se nuovo; se esiste già (stessa P.IVA/CF/nome) completa SOLO i campi vuoti della scheda
@@ -80,9 +124,10 @@ export const upsertCustomer = async (c: Customer): Promise<UpsertResult> => {
 export async function upsertCustomers(list: Customer[]): Promise<{ created: number; merged: number; skipped: number }> {
   return getBackend().transact('readwrite', async (t) => {
     let created = 0; let merged = 0; let skipped = 0;
+    const index = new BookIndex(await t.all<StoredCustomer>('customers'));
     for (const c of list) {
       if (!normalizeCustomerRecord(c).name) { skipped++; continue; }
-      const r = await upsertIn(t, c);
+      const r = await upsertWith(t, index, c);
       if (r.created) created++; else merged++;
     }
     return { created, merged, skipped };

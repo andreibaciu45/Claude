@@ -36,6 +36,12 @@ export function housekeeping(): Record<string, number> {
   // Bozze/preventivi eliminati (tombstone senza contenuto) e voci di catalogo eliminate: servono solo a propagare la cancellazione agli altri
   // dispositivi; dopo il periodo di conservazione si eliminano (le fatture emesse non sono mai toccate: locked_at IS NULL + trigger).
   const tomb = t - envDays('TOMBSTONE_RETENTION_DAYS', 180);
+  // Prima di eliminare alzare (solo in avanti) il confine di sicurezza: da qui in poi un'upsert piu' vecchia su una voce assente e' rifiutata
+  // con `resync_required` (vedi sync/service.ts). Va fatto PRIMA del DELETE: nessuna finestra in cui un tombstone sparisce e il confine non lo copre.
+  try {
+    run(`INSERT INTO sync_meta(key, value) VALUES ('tombstone_floor', ?) ON CONFLICT(key) DO UPDATE SET value = MAX(value, excluded.value)`, tomb);
+    out.tombstone_floor = tomb;
+  } catch { out.tombstone_floor = -1; }
   del('documents_tombstones', 'DELETE FROM documents WHERE deleted_at IS NOT NULL AND locked_at IS NULL AND deleted_at < ?', tomb);
   del('catalog_tombstones', 'DELETE FROM catalog_items WHERE deleted_at IS NOT NULL AND deleted_at < ?', tomb);
   del('sdi_jobs_dead', "DELETE FROM sdi_jobs WHERE status = 'dead' AND created_at < ?", t - 180 * DAY);

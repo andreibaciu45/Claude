@@ -71,6 +71,19 @@ export function resolvePlan(cache: PlanCache | null, signedIn: boolean, now: num
   };
 }
 
+/**
+ * Una nuova risposta di /me (verificata a `at`) può sostituire la cache `cur`? Mai una verifica più vecchia sopra una più recente
+ * (altra scheda). REV2-B1: ma una cache con `verifiedAt` nel futuro (orologio del dispositivo sballato quando fu scritta) non
+ * è più "recente": `resolvePlan` la considera non attendibile e, se restasse intoccabile, un abbonato Pro rimarrebbe Free
+ * finché non esce e rientra nell'account.
+ */
+export function canReplacePlanCache(cur: PlanCache | null, at: number, newEmail?: string | null): boolean {
+  if (!cur) return true;
+  if (cur.email && cur.email !== newEmail) return true;
+  if (!Number.isFinite(cur.verifiedAt) || cur.verifiedAt - at > CLOCK_SKEW_MS) return true;
+  return cur.verifiedAt <= at;
+}
+
 // ---- funzioni pure sui limiti ----
 
 /** Limite mensile di documenti nuovi: null = illimitato. */
@@ -98,7 +111,7 @@ export function readPlanCache(): PlanCache | null {
     return {
       plan: j.plan, verifiedAt: j.verifiedAt,
       email: typeof j.email === 'string' ? j.email : undefined,
-      docsThisMonth: typeof j.docsThisMonth === 'number' ? j.docsThisMonth : undefined,
+      docsThisMonth: typeof j.docsThisMonth === 'number' && Number.isFinite(j.docsThisMonth) ? j.docsThisMonth : undefined,
       docsLimit: j.docsLimit === null || typeof j.docsLimit === 'number' ? j.docsLimit : undefined,
       periodKey: typeof j.periodKey === 'string' && /^\d{4}-\d{2}$/.test(j.periodKey) ? j.periodKey : undefined,
     };

@@ -684,7 +684,12 @@ export function createSyncEngine(deps: EngineDeps) {
     } else if (choice === 'keep-both') {
       if (rec.entity !== 'document' || !rec.payload || isLockedDoc(rec.payload)) throw new Error('Non è possibile tenere entrambe le copie.');
       // la copia locale diventa una NUOVA bozza (nuovo id, nota "copia in conflitto", nessun numero fiscale); l'originale adotta il server
-      await store.saveDocument(makeConflictCopy(rec.payload as QuoteDocument, uid(), deps.now()));
+      // REV2-S1: id DETERMINISTICO (dall'opId): se `useServer` fallisce o l'app si chiude prima di `removeOps`, ripetere la scelta
+      // non crea una seconda copia (prima ogni tentativo aggiungeva una bozza nuova). Una copia già creata non si sovrascrive.
+      const copyId = `cc-${rec.opId}`.slice(0, 100);
+      if (!(await store.listDocuments()).some((d) => d.id === copyId)) {
+        await store.saveDocument(makeConflictCopy(rec.payload as QuoteDocument, copyId, deps.now()));
+      }
       if (server) await useServer(); else await removeOps([rec.opId]);
     } else if (choice === 'keep-local' && draftStale) {
       // "Tieni la mia": la bozza locale sostituisce quella del server (scelta esplicita dell'utente)

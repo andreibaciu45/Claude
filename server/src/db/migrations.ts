@@ -344,6 +344,16 @@ CREATE TABLE otp_trusted_ips (
 );
 `);
 
+registerMigration(9, 'sync_tombstone_floor', `
+-- Convergenza del sync: i tombstone (bozze e catalogo) sono conservati per TOMBSTONE_RETENTION_DAYS, poi eliminati dalla pulizia periodica.
+-- 'tombstone_floor' = confine (epoch ms, solo crescente) sotto il quale i tombstone possono essere stati eliminati: un'upsert con timestamp
+-- <= confine su una voce assente NON si applica (risposta 'resync_required'), altrimenti una cancellazione gia' purgata verrebbe "risuscitata".
+CREATE TABLE sync_meta (
+  key TEXT PRIMARY KEY,
+  value INTEGER NOT NULL
+);
+`);
+
 /** Elenco (ordinato) delle migrazioni registrate: serve ai test di upgrade e a /health/deep. */
 export const listMigrations = (): Migration[] => [...migrations].sort((a, b) => a.version - b.version);
 

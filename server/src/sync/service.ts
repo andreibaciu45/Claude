@@ -1,7 +1,21 @@
 // Applicazione delle operazioni di sync. Regole (ARCHITECTURE-V2 §2.3-2.4, CONTRACT-V2):
 //  - idempotenza per (tenant, opId): un'op già accettata è riconfermata senza riapplicarla;
-//  - last-write-wins per bozze/profilo/catalogo confrontando updatedAt del payload (clientTs per il profilo) con quello del server:
-//    se l'op è PIÙ VECCHIA di quanto il server ha → conflitto `stale` (non applicata, serverVersion restituita);
+//  - CONVERGENZA (CRDT-like, last-writer-wins con tombstone) per bozze/preventivi, catalogo e profilo: lo stato finale dipende SOLO dall'insieme delle
+//    operazioni, mai dall'ordine di arrivo né dai duplicati. Ogni voce ha una versione (ts, tipo, chiave) con ordine TOTALE:
+//      1. ts = updatedAt del payload (clientTs per delete e profilo), normalizzato lato server (clampTs);
+//      2. a parità di ts una `delete` batte una `upsert` (la cancellazione vince);
+//      3. a parità anche di tipo, vince la upsert con il contenuto canonico (chiavi ordinate) maggiore (confronto di stringhe): deterministico e
+//         indipendente dall'opId; contenuti identici = stessa versione = no-op.
+//    Una `delete` crea SEMPRE un tombstone con il suo ts, anche se la voce non era mai stata vista; più delete tengono il ts maggiore.
+//    Un'op con versione PIÙ VECCHIA di quella del server → conflitto `stale` (non applicata; serverVersion solo se la voce è viva);
+//    versione identica → accettata senza effetti (idempotente). Una upsert più recente del tombstone risuscita la voce.
+//    Il pull propaga i tombstone (op 'delete') perché ogni scrittura effettiva registra una modifica nel log.
+//    Eccezione fiscale: una upsert di fattura EMESSA (invoice.lockedAt) non è mai scartata da un tombstone (le emesse non si cancellano).
+//  - Retention dei tombstone (db/housekeeping.ts, TOMBSTONE_RETENTION_DAYS, default 180 giorni, uguale per bozze e catalogo): la pulizia alza il
+//    confine `sync_meta.tombstone_floor`. Su una voce ASSENTE: upsert con ts <= confine → conflitto `resync_required` (il device è rimasto offline oltre
+//    la finestra: il tombstone potrebbe essere stato eliminato, applicarla risusciterebbe una voce cancellata); delete con ts <= confine → no-op accettato.
+//    Il client deve rifare un full resync (pull da cursore 0, poi riaccodare le proprie modifiche rispetto allo stato server).
+//  - tetto ai tombstone per tenant (MAX_TOMBSTONES, default 20000 per documenti e per catalogo): una delete in più → `invalid` (anti-abuso di spazio);
 //  - fatture bloccate (invoice.lockedAt): mai sovrascritte; ammessi solo status/updatedAt/sdiEvents/payments/paymentStatus;
 //  - numero fattura unico per (tenant, sezionale, anno, seq) → `duplicate_invoice_number`;
 //  - Free: 3 documenti NUOVI/mese → `quota_exceeded`.
@@ -26,7 +40,8 @@ import { aadAudit, aadProfile, isSealed, openJson, sealJson } from '../db/seal';
 
 export interface PushContext { tenantId: string; userId: string; deviceId: string }
 type Raw = Omit<SyncOp, 'payload'> & { payload?: unknown };
-type Reason = SyncConflict['reason'];
+/** `resync_required` non è ancora in shared/api.ts (SyncConflict['reason']): il valore viaggia comunque nella risposta JSON. */
+type Reason = SyncConflict['reason'] | 'resync_required';
 type Result = { ok: true } | { ok: false; reason: Reason; message: string; serverVersion?: unknown };
 const bad = (reason: Reason, message: string, serverVersion?: unknown): Result => ({ ok: false, reason, message, serverVersion });
 
@@ -35,6 +50,16 @@ const envInt = (name: string, def: number) => { const n = Number(process.env[nam
 export const clockSkewMaxMs = () => envInt('CLOCK_SKEW_MAX_MS', 10 * 60_000);
 export const maxDocBytes = () => envInt('MAX_DOC_BYTES', 1_500_000);
 export const maxCatalogItems = () => envInt('MAX_CATALOG_ITEMS', 5000);
+export const maxTombstones = () => envInt('MAX_TOMBSTONES', 20_000);
+/** Confine (epoch ms) sotto il quale i tombstone possono essere stati purgati dalla pulizia periodica (0 = mai purgato). */
+const tombstoneFloor = (): number => one<{ value: number }>("SELECT value FROM sync_meta WHERE key='tombstone_floor'")?.value ?? 0;
+const RESYNC = 'Dispositivo offline oltre la finestra di conservazione delle cancellazioni: serve una risincronizzazione completa';
+
+/** Versione di una voce: ordine totale (ts, delete > upsert, contenuto canonico). */
+interface Ver { ts: number; del: boolean; key: string }
+const cmpVer = (a: Ver, b: Ver): number =>
+  a.ts !== b.ts ? (a.ts < b.ts ? -1 : 1) : a.del !== b.del ? (a.del ? 1 : -1) : a.key === b.key ? 0 : a.key < b.key ? -1 : 1;
+const tombVer = (ts: number): Ver => ({ ts, del: true, key: '' });
 /** Un timestamp del client non può stare più avanti dell'ora del server + tolleranza. */
 const clampTs = (ts: number): number => Math.min(ts, now() + clockSkewMaxMs());
 
@@ -72,9 +97,21 @@ function applyDocument(ctx: PushContext, op: Raw): Result {
   const existing = getDocumentRecord(tenantId, op.entityId);
 
   if (op.op === 'delete') {
-    if (!existing || existing.deletedAt !== null && existing.lockedAt === null) return { ok: true }; // già assente: idempotente
-    if (existing.lockedAt !== null) return bad('locked_document', 'Documento emesso: non eliminabile', existing.data);
     const at = clampTs(op.clientTs);
+    if (!existing) {
+      // Voce mai vista: tombstone comunque (altrimenti una upsert più vecchia in ritardo la farebbe risorgere). Tipo ignoto: lo fissa la prima upsert.
+      if (at <= tombstoneFloor()) return { ok: true }; // oltre la finestra: nessuna upsert così vecchia verrebbe applicata comunque
+      if ((one<{ n: number }>('SELECT COUNT(*) AS n FROM documents WHERE tenant_id=? AND deleted_at IS NOT NULL', tenantId)?.n ?? 0) >= maxTombstones()) return bad('invalid', 'Troppe cancellazioni in sospeso');
+      run(`INSERT INTO documents(tenant_id, id, type, status, created_at, updated_at, deleted_at, data) VALUES (?,?,?,?,?,?,?,?)`,
+        tenantId, op.entityId, 'tombstone', 'bozza', at, at, at, JSON.stringify({ id: op.entityId, deleted: true }));
+      appendChange(tenantId, op.opId, 'document', op.entityId, 'delete', null);
+      return { ok: true };
+    }
+    if (existing.lockedAt !== null) return bad('locked_document', 'Documento emesso: non eliminabile', existing.data);
+    if (existing.deletedAt !== null) { // già tombstone: si tiene il ts maggiore (nessuna nuova modifica da propagare)
+      if (at > existing.updatedAt) softDeleteDocument(tenantId, op.entityId, at);
+      return { ok: true };
+    }
     if (existing.updatedAt > at) return bad('stale', 'Il server ha una versione più recente', existing.data);
     softDeleteDocument(tenantId, op.entityId, at);
     appendChange(tenantId, op.opId, 'document', op.entityId, 'delete', null);
@@ -91,7 +128,8 @@ function applyDocument(ctx: PushContext, op: Raw): Result {
   if ([doc.notes, doc.transcript, doc.invoice?.xml].some((v) => isSealed(v))) return bad('invalid', 'Testo non ammesso (prefisso riservato)');
   doc.updatedAt = clampTs(doc.updatedAt);
   if (doc.id !== op.entityId) return bad('invalid', 'entityId e payload.id non coincidono');
-  if (existing && existing.type !== doc.type) return bad('invalid', 'Il tipo di documento non può cambiare');
+  // Il tipo di un tombstone è irrilevante (può essere ignoto: delete su voce mai vista): la risurrezione lo riassegna.
+  if (existing && existing.deletedAt === null && existing.type !== doc.type) return bad('invalid', 'Il tipo di documento non può cambiare');
 
   // --- documento già bloccato ---
   if (existing && existing.lockedAt !== null) {
@@ -135,7 +173,16 @@ function applyDocument(ctx: PushContext, op: Raw): Result {
   }
 
   // --- bozza / preventivo / nuovo ---
-  if (existing && existing.updatedAt > doc.updatedAt) return bad('stale', 'Il server ha una versione più recente', existing.deletedAt === null ? existing.data : undefined);
+  const mine: Ver = { ts: doc.updatedAt, del: false, key: `${doc.invoice?.lockedAt !== undefined ? 1 : 0}${canon(doc)}` };
+  const issuedOverTombstone = existing?.deletedAt != null && doc.invoice?.lockedAt !== undefined; // fattura emessa: mai scartata da un tombstone
+  if (existing && !issuedOverTombstone) {
+    const cur: Ver = existing.deletedAt !== null ? tombVer(existing.updatedAt)
+      : { ts: existing.updatedAt, del: false, key: `${existing.lockedAt !== null ? 1 : 0}${canon(existing.data)}` };
+    const c = cmpVer(mine, cur);
+    if (c < 0) return bad('stale', 'Il server ha una versione più recente', existing.deletedAt === null ? existing.data : undefined);
+    if (c === 0) return { ok: true }; // stessa versione già presente: idempotente
+  }
+  if (!existing && doc.updatedAt <= tombstoneFloor() && doc.invoice?.lockedAt === undefined) return bad('resync_required', RESYNC);
 
   const inv = doc.invoice;
   // Una fattura in uno stato successivo all'emissione DEVE avere lockedAt (salvo le fatture di cortesia v1, `legacy`, non fiscali): altrimenti il server
@@ -160,6 +207,7 @@ function applyDocument(ctx: PushContext, op: Raw): Result {
   if (isNew && getPlan(tenantId) === 'free' && getDocsThisMonth(tenantId) >= FREE_DOCS_PER_MONTH) {
     return bad('quota_exceeded', `Piano Free: massimo ${FREE_DOCS_PER_MONTH} documenti al mese`);
   }
+  if (existing && existing.deletedAt !== null) run('UPDATE documents SET type=? WHERE tenant_id=? AND id=? AND deleted_at IS NOT NULL AND locked_at IS NULL', doc.type, tenantId, doc.id);
   upsertDocument(tenantId, doc, doc.updatedAt);
   // Prima ricezione dell'emissione: attestata dal server nella catena di hash del tenant (vedi db/chain.ts).
   if (inv?.lockedAt !== undefined && (!existing || existing.lockedAt === null)) {
@@ -174,8 +222,18 @@ function applyCatalog(ctx: PushContext, op: Raw): Result {
   const { tenantId } = ctx;
   const row = one<{ data: string; updated_at: number; deleted_at: number | null }>('SELECT data, updated_at, deleted_at FROM catalog_items WHERE tenant_id=? AND id=?', tenantId, op.entityId);
   if (op.op === 'delete') {
-    if (!row || row.deleted_at !== null) return { ok: true };
     const at = clampTs(op.clientTs);
+    if (!row) { // mai vista: tombstone comunque
+      if (at <= tombstoneFloor()) return { ok: true };
+      if ((one<{ n: number }>('SELECT COUNT(*) AS n FROM catalog_items WHERE tenant_id=? AND deleted_at IS NOT NULL', tenantId)?.n ?? 0) >= maxTombstones()) return bad('invalid', 'Troppe cancellazioni in sospeso');
+      run("INSERT INTO catalog_items(tenant_id, id, data, updated_at, deleted_at) VALUES (?,?,'{}',?,?)", tenantId, op.entityId, at, at);
+      appendChange(tenantId, op.opId, 'catalog', op.entityId, 'delete', null);
+      return { ok: true };
+    }
+    if (row.deleted_at !== null) { // già tombstone: si tiene il ts maggiore
+      if (at > row.updated_at) run('UPDATE catalog_items SET deleted_at=?, updated_at=? WHERE tenant_id=? AND id=?', at, at, tenantId, op.entityId);
+      return { ok: true };
+    }
     if (row.updated_at > at) return bad('stale', 'Il server ha una versione più recente', JSON.parse(row.data));
     run("UPDATE catalog_items SET deleted_at=?, updated_at=?, data='{}' WHERE tenant_id=? AND id=?", at, at, tenantId, op.entityId);
     appendChange(tenantId, op.opId, 'catalog', op.entityId, 'delete', null);
@@ -187,8 +245,14 @@ function applyCatalog(ctx: PushContext, op: Raw): Result {
   if (p.data.id !== op.entityId) return bad('invalid', 'entityId e payload.id non coincidono');
   if (JSON.stringify(p.data).length > 20_000) return bad('invalid', 'Voce di catalogo troppo grande');
   p.data.updatedAt = clampTs(p.data.updatedAt);
-  if (row && row.updated_at > p.data.updatedAt) return bad('stale', 'Il server ha una versione più recente', row.deleted_at === null ? JSON.parse(row.data) : undefined);
-  if (!row && (one<{ n: number }>('SELECT COUNT(*) AS n FROM catalog_items WHERE tenant_id=? AND deleted_at IS NULL', tenantId)?.n ?? 0) >= maxCatalogItems()) {
+  if (row) {
+    const cur: Ver = row.deleted_at !== null ? tombVer(row.updated_at) : { ts: row.updated_at, del: false, key: canon(JSON.parse(row.data)) };
+    const c = cmpVer({ ts: p.data.updatedAt, del: false, key: canon(p.data) }, cur);
+    if (c < 0) return bad('stale', 'Il server ha una versione più recente', row.deleted_at === null ? JSON.parse(row.data) : undefined);
+    if (c === 0) return { ok: true };
+  } else if (p.data.updatedAt <= tombstoneFloor()) return bad('resync_required', RESYNC);
+  // tetto sulle voci VIVE: vale anche per la risurrezione di un tombstone
+  if ((!row || row.deleted_at !== null) && (one<{ n: number }>('SELECT COUNT(*) AS n FROM catalog_items WHERE tenant_id=? AND deleted_at IS NULL', tenantId)?.n ?? 0) >= maxCatalogItems()) {
     return bad('invalid', `Catalogo pieno: massimo ${maxCatalogItems()} voci`);
   }
   run(`INSERT INTO catalog_items(tenant_id, id, data, updated_at, deleted_at) VALUES (?,?,?,?,NULL)
@@ -208,7 +272,12 @@ function applyProfile(ctx: PushContext, op: Raw): Result {
   if (JSON.stringify(p.data).length > 600_000) return bad('invalid', 'Profilo troppo grande');
   const row = one<{ data: string; updated_at: number }>('SELECT data, updated_at FROM profiles WHERE tenant_id=?', tenantId);
   const at = clampTs(op.clientTs);
-  if (row && row.updated_at > at) return bad('stale', 'Il server ha una versione più recente', openJson(row.data, aadProfile(tenantId)));
+  if (row) {
+    const server = openJson(row.data, aadProfile(tenantId));
+    const c = cmpVer({ ts: at, del: false, key: canon(p.data) }, { ts: row.updated_at, del: false, key: canon(server) });
+    if (c < 0) return bad('stale', 'Il server ha una versione più recente', server);
+    if (c === 0) return { ok: true };
+  }
   run('INSERT INTO profiles(tenant_id, data, updated_at) VALUES (?,?,?) ON CONFLICT(tenant_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at',
     tenantId, sealJson(p.data, aadProfile(tenantId)), at);
   appendChange(tenantId, op.opId, 'profile', 'profile', 'upsert', p.data);
@@ -276,7 +345,7 @@ export function pushOps(ctx: PushContext, ops: Raw[]): SyncPushResponse & { serv
       else throw e;
     }
     if (res.ok) accepted.push(op.opId);
-    else conflicts.push({ opId: op.opId, reason: res.reason, message: res.message, ...(res.serverVersion !== undefined ? { serverVersion: res.serverVersion } : {}) });
+    else conflicts.push({ opId: op.opId, reason: res.reason as SyncConflict['reason'], message: res.message, ...(res.serverVersion !== undefined ? { serverVersion: res.serverVersion } : {}) });
   }
   recordSyncPush(accepted.length, conflicts); // contatori aggregati (motivi costanti, nessun dato personale)
   return { accepted, conflicts, cursor: String(currentCursor(ctx.tenantId)), serverTime: now() };
