@@ -182,6 +182,22 @@ describe('corsia dei dispositivi noti: la vittima non resta chiusa fuori', () =>
   });
 });
 
+describe('assistenza: otp-unlock', () => {
+  it('toglie il cooldown di un indirizzo e il tetto dei 10 minuti; il codice giusto torna verificabile', async () => {
+    process.env.OTP_MAX_ATTEMPTS = '1000';
+    await reqOtp('v@x.it', '2.2.2.2');
+    const code = sent.at(-1)!.code;
+    for (let i = 0; i < 40; i++) await ver('v@x.it', wrongOf(code), ipN(i));
+    expect((await ver('v@x.it', code, ipN(900))).status).toBe(429);
+    const { runCli } = await import('../../scripts/admin');
+    const out: string[] = [];
+    const rc = await runCli(['otp-unlock', 'V@x.it'], { out: (s) => out.push(s), err: (s) => out.push(s) });
+    expect(rc, out.join('\n')).toBe(0);
+    expect((await ver('v@x.it', code, ipN(901))).status).toBe(200);
+    expect(one("SELECT 1 AS x FROM admin_actions WHERE action='otp_unlock'")).toBeTruthy();
+  });
+});
+
 describe('avviso «qualcuno sta tentando di accedere»', () => {
   const alerts: string[] = [];
   const mailer: Mailer = {

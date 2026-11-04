@@ -9,13 +9,14 @@ import { ToastProvider } from '../../ui';
 import { __resetStorageForTests, getProfile, issueInvoice, listAudit, saveDocument } from '../../storage';
 import { draftData, seedProfile } from '../../storage/testkit';
 import NumberingCard from './NumberingCard';
+import { settleUi } from '../../__tests__/settle';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 if (!globalThis.crypto?.subtle) Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
 
 let host: HTMLDivElement;
 let root: Root;
-const flush = async () => { for (let i = 0; i < 12; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
+const flush = settleUi; // attende che il DOM si stabilizzi (niente attese fisse): vedi src/__tests__/settle.ts
 const setValue = (el: HTMLInputElement, v: string) => act(() => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v);
   el.dispatchEvent(new Event('input', { bubbles: true }));

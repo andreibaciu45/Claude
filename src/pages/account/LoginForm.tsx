@@ -49,7 +49,7 @@ export function LoginForm({ engine, reacceptEmail, onDone }: { engine: SyncEngin
 
   const verify = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!/^\d{6}$/.test(code)) { setError('Il codice ha 6 cifre.'); return; }
+    if (!/^\d{6,10}$/.test(code)) { setError('Inserisci il codice che abbiamo inviato (solo cifre).'); return; }
     if (!accepted) { setTermsError(TERMS_NEEDED); return; }
     setBusy(true); setError(''); setTermsError(''); setInviteError('');
     try {
@@ -80,7 +80,7 @@ export function LoginForm({ engine, reacceptEmail, onDone }: { engine: SyncEngin
       <div style={a.stack}>
         <h2 style={a.h2}>{reacceptEmail ? 'Accetta i Termini aggiornati' : 'Accedi (facoltativo)'}</h2>
         {reacceptEmail
-          ? <p style={a.muted}>Per continuare a usare la sincronizzazione conferma di nuovo l’accesso: ti mandiamo un codice a 6 cifre.</p>
+          ? <p style={a.muted}>Per continuare a usare la sincronizzazione conferma di nuovo l’accesso: ti mandiamo un codice di accesso.</p>
           : <p style={a.muted}>Serve solo per sincronizzare i dati tra più dispositivi e per il piano Pro. L'app funziona benissimo anche senza account.</p>}
         <p style={a.notice} role="note">{PRIVACY_NOTICE}</p>
         {step === 'email' ? (
@@ -94,16 +94,16 @@ export function LoginForm({ engine, reacceptEmail, onDone }: { engine: SyncEngin
           </form>
         ) : (
           <form onSubmit={verify} style={a.stack} noValidate>
-            <p style={a.muted} aria-live="polite">Abbiamo inviato un codice a 6 cifre a <strong>{email}</strong>.</p>
-            <Field label="Codice a 6 cifre" error={error || undefined}>
+            <p style={a.muted} aria-live="polite">Abbiamo inviato un codice di accesso a <strong>{email}</strong>.</p>
+            <Field label="Codice di accesso" error={error || undefined}>
               <Input
-                style={a.code} inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}"
-                value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }} aria-invalid={!!error} data-autofocus autoFocus
+                style={a.code} inputMode="numeric" autoComplete="one-time-code" maxLength={10} pattern="[0-9]{6,10}"
+                value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, '').slice(0, 10)); setError(''); }} aria-invalid={!!error} data-autofocus autoFocus
               />
             </Field>
             {inviteField}
             <TermsCheckbox checked={accepted} onChange={(v) => { setAccepted(v); if (v) setTermsError(''); }} error={termsError} />
-            <Button type="submit" disabled={busy || code.length !== 6}>{busy ? 'Verifico…' : 'Accedi'}</Button>
+            <Button type="submit" disabled={busy || code.length < 6}>{busy ? 'Verifico…' : 'Accedi'}</Button>
             <div style={a.row}>
               {!reacceptEmail && <Button variant="ghost" size="sm" onClick={() => { setStep('email'); setError(''); }}>Cambia email</Button>}
               <Button variant="ghost" size="sm" disabled={busy} onClick={() => void send()}>Invia di nuovo il codice</Button>

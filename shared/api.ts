@@ -7,7 +7,7 @@ import type { CatalogItem, Profile, QuoteDocument, AuditEntry } from './types';
 
 export interface ApiError { error: { code: string; message: string } }
 
-// ---- Auth: email + codice a 6 cifre ----
+// ---- Auth: email + codice monouso (6-10 cifre, default 8) ----
 export interface AuthRequestBody { email: string }                 // POST /v1/auth/request  -> 204
 export interface TermsAcceptance { termsVersion: string; dpaVersion?: string; acceptedAt?: number }
 /** Errori possibili su verify: 'terms_required' (primo accesso senza accettazione con REQUIRE_TERMS=1), 'terms_version_mismatch' */

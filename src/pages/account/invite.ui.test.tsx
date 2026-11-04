@@ -12,6 +12,7 @@ import { MemStore } from '../../sync/testing/fakes';
 import { LoginForm, inviteFromUrl } from './LoginForm';
 import { ConflictList } from './ConflictList';
 import { MigrationCard } from './MigrationCard';
+import { settleUi } from '../../__tests__/settle';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -50,7 +51,9 @@ beforeEach(async () => {
   });
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); window.history.replaceState(null, '', '/'); });
+// prima di smontare si lasciano concludere le operazioni asincrone in corso (verifyCode -> sync): altrimenti un setState tardivo
+// avviene dopo la chiusura di jsdom ("window is not defined", errore non gestito intermittente).
+afterEach(async () => { await settleUi(); act(() => root.unmount()); host.remove(); window.history.replaceState(null, '', '/'); });
 
 const $ = <T extends Element>(sel: string) => host.querySelector(sel) as T | null;
 const type = async (el: HTMLInputElement, value: string) => {

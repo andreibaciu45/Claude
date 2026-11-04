@@ -144,10 +144,11 @@ Ogni cancellazione ed export è registrata in `admin_actions`. Ricordati di risp
 ### Avviso «è giù» (obbligatorio, gratuito)
 Su UptimeRobot / Better Stack crea un monitor **HTTPS ogni 5 minuti** su `https://app.tuodominio.it/health/deep` con controllo della parola chiave `"status":"ok"` (così ti avvisa anche per `degraded`/`fail`) e un secondo, più semplice, su `/health`. Avviso email/Telegram se giù da più di 2 minuti.
 
-`/health/deep` controlla: **db_write** (il database accetta scritture), **migrations** (schema aggiornato), **disk** (spazio libero: `degraded` sotto 1 GB o 10%, `fail`/503 sotto 200 MB o 3%), **backup** (età dell'ultimo file in `BACKUP_DIR`; `degraded` oltre 36 ore), **maintenance** (pulizia periodica in corso). Senza token mostra solo ok/warn/fail; con `Authorization: Bearer $METRICS_TOKEN` anche i numeri:
+`/health/deep` controlla: **db_write** (il database accetta scritture; solo con token, vedi sotto), **migrations** (schema aggiornato), **disk** (spazio libero: `degraded` sotto 1 GB o 10%, `fail`/503 sotto 200 MB o 3%), **backup** (età dell'ultimo file in `BACKUP_DIR`; `degraded` oltre 36 ore), **maintenance** (pulizia periodica in corso). Senza token mostra solo ok/warn/fail; con `Authorization: Bearer $METRICS_TOKEN` anche i numeri:
 ```bash
 curl -s -H "Authorization: Bearer $METRICS_TOKEN" https://app.tuodominio.it/health/deep
 ```
+**Senza token l'endpoint è di sola lettura** (nessuna scrittura sul database: al posto di `db_write` c'è `db_read`) e ha un rate-limit per IP in memoria (`RL_HEALTH_DEEP_PER_MIN`, default 30/min): non può essere usato per consumare disco o I/O. **Con token valido** esegue anche la scrittura di prova, ma il risultato resta in cache `HEALTH_CACHE_MS` (default 5 secondi, 0 = nessuna cache) e c'è un limite per IP (`RL_HEALTH_DEEP_AUTH_PER_MIN`, default 120/min): al massimo una scrittura ogni 5 secondi, qualunque sia il traffico. Per il monitor esterno scegli: *senza token* (basta a vedere giù/migrazioni/disco/backup/manutenzione; il DB «pieno» emerge comunque dalla manutenzione oraria che scrive, `maintenance` diventa `warn` dopo 3 ore) oppure *con token* per la prova di scrittura completa (consigliato se il monitor non è pubblico). Durante l'arresto risponde sempre 503 subito (la cache non lo nasconde).
 
 ### Metriche (facoltative, per chi vuole i grafici)
 1. Genera un token: `openssl rand -hex 24` e mettilo in `server.env` come `METRICS_TOKEN=...`; riavvia. **Senza token (o con meno di 16 caratteri) `/metrics` non esiste** (risponde 404).
@@ -177,7 +178,7 @@ Le metriche **non contengono dati personali** (nessuna email, token, codice OTP,
 I contatori ripartono da zero a ogni riavvio (normale: Prometheus lo gestisce).
 
 ### Cosa fa il server da solo (manutenzione)
-Ogni ora: elimina sessioni scadute, codici OTP, contatori dei limiti, eventi di fatturazione e job SDI completati vecchi, bozze/preventivi/voci di catalogo già eliminati (dopo 180 giorni), errori vecchi, inviti scaduti; fa un `wal_checkpoint(PASSIVE)` (non blocca nessuno). Una volta al giorno `PRAGMA optimize`. **Mai** tocca le fatture emesse. Il `VACUUM` (compattazione del database) è **spento** di default perché riscrive tutto il file e Litestream deve ricopiarlo; accendilo solo se il database ha molto spazio inutilizzato (`vp_db_free_bytes`): `MAINTENANCE_VACUUM=1` in `server.env` (agisce alle 03:00 UTC, al massimo ogni 7 giorni, solo se serve e c'è spazio su disco).
+Ogni ora: elimina sessioni scadute, codici OTP, contatori dei limiti, eventi di fatturazione e job SDI completati vecchi, bozze/preventivi/voci di catalogo già eliminati (dopo 180 giorni), errori vecchi, inviti scaduti; fa un `wal_checkpoint(PASSIVE)` (non blocca nessuno). Una volta al giorno `PRAGMA optimize`. **Mai** tocca le fatture emesse. Pota anche l'audit non fiscale (§7bis), toglie le righe scadute di difesa OTP e aggancia alla catena fiscale le fatture emesse non ancora presenti. Il `VACUUM` (compattazione del database) è **spento** di default perché riscrive tutto il file e Litestream deve ricopiarlo; accendilo solo se il database ha molto spazio inutilizzato (`vp_db_free_bytes`): `MAINTENANCE_VACUUM=1` in `server.env` (agisce alle 03:00 UTC, al massimo ogni 7 giorni, solo se serve e c'è spazio su disco).
 
 ---
 
@@ -224,6 +225,9 @@ Sintomi: errori «database disk image is malformed», `integrity-check` con `ERR
 ### 7.4 Le email di accesso non arrivano
 Sintomo: `vp_otp_requests_total` sale ma `vp_logins_total` no; i clienti scrivono «non mi arriva il codice». Nei log compare `"error":"mail_failed"`. Controlla `SMTP_URL`/credenziali del fornitore, la quota giornaliera, lo spam. Il server non registra mai il codice né l'indirizzo.
 
+### 7.4b Un cliente «non riesce ad entrare» e ci sono molti `429` sul login (difesa OTP)
+Sintomo: `vp_otp_cooldowns_total` / `vp_otp_locked_total` salgono, un cliente scrive che il codice «non funziona» o che deve aspettare. Significa che l'indirizzo è sotto un tentativo di indovinare il codice da molti IP (o che il cliente ha sbagliato più di 10 volte in 24 ore). Il cliente continua a **ricevere** i codici (l'invio non è mai bloccato), le sue sessioni già aperte restano valide, e dalle reti da cui ha già fatto un accesso (casa, ufficio, ultimi 30 giorni, max 5) entra normalmente. Se è bloccato da una rete nuova e vuoi sbloccarlo subito: `vpadmin otp-unlock cliente@example.it` (se l'attacco continua il blocco si riattiva da solo). Vedi «Difesa OTP» sotto.
+
 ### 7.5 Molti errori `429` (troppe richieste)
 Un indirizzo o un client sta superando i limiti. Se è un attacco, i limiti già proteggono; se invece **tutti** i clienti ricevono 429, probabilmente `TRUST_PROXY` non è corretto e tutti sembrano lo stesso IP (nei log: `xff_ignored_public_peer`). Vedi `server/README.md` (TRUST_PROXY).
 
@@ -235,6 +239,53 @@ Senza `APP_ENCRYPTION_KEY` i campi cifrati (anagrafica clienti, note, XML) **non
 
 ### 7.8 Sospetta violazione di dati
 Isola (ferma il servizio se serve), conserva i log (`sudo journalctl -u vocepreventivo-server --since "7 days ago" > /root/log.txt`), ruota i segreti (`infra/scripts/rotate-secrets.md`) e contatta il consulente privacy: una violazione di dati personali va notificata al Garante **entro 72 ore** dalla scoperta (da verificare con il consulente).
+
+---
+
+## 7bis. Difesa dall'attacco OTP distribuito, retention dell'audit, catena fiscale (riferimento)
+
+### Difesa OTP (`src/auth/guard.ts`, `src/auth/service.ts`)
+**Minaccia**: un attaccante con molti indirizzi IP chiede codici per l'email della vittima e prova a indovinarli. I limiti per IP e per coppia email+IP non lo fermano (ogni IP sbaglia poco), e il vecchio tetto globale (15 verifiche ogni 10 minuti) si azzerava continuamente.
+
+**Difese combinate** (tutte attive di default, parametri in `server/.env.example`):
+1. **Codice a 8 cifre** (`OTP_DIGITS`, default 8; 6 per compatibilità con i client che inseriscono solo 6 cifre).
+2. **Tetto di tentativi per codice** (`OTP_MAX_ATTEMPTS`, default 5), somma di tutti gli IP: al sesto il codice è invalidato anche se poi arriva quello giusto (la vittima ne richiede un altro: l'invio non è bloccato).
+3. **Cooldown crescente globale per email** sulle sole *verifiche*: dopo `OTP_GUARD_FREE_FAILS` (10) errori in 24 ore, da qualunque IP, ogni nuovo errore blocca le verifiche per 2, 4, 8 ... fino a 120 minuti (`OTP_GUARD_BASE_MIN`, `OTP_GUARD_MAX_MIN`). Durante il blocco il codice **non viene valutato** (nessun tentativo regalato). 24 ore senza errori azzerano il contatore; un login riuscito *non* lo azzera (altrimenti ogni accesso legittimo regalerebbe una finestra nuova).
+4. **Corsia delle reti note**: chi ha già completato un accesso da una rete (HMAC di email e rete, max 5 per email, 30 giorni) non subisce il cooldown globale né il tetto dei 10 minuti. Così un attacco distribuito **non può chiudere fuori il proprietario** che accede da casa o dall'ufficio. Restano per lui il backoff per coppia email+IP e il tetto per codice. Le righe contengono solo HMAC (mai email o IP in chiaro) e si cancellano con l'account.
+5. **Avviso al proprietario**: a `OTP_ALERT_FAILS` (8) errori l'account riceve una email «qualcuno sta tentando di accedere» (senza codici, al massimo una ogni 24 ore, solo per account esistenti: il servizio non manda email a indirizzi inventati; fallimenti SMTP ignorati).
+6. Invariato: il tetto di richieste di codice per email/coppia/IP e i 3 codici attivi in contemporanea.
+
+**Calcolo della probabilità di successo** (una verifica valutata confronta il tentativo con al più 3 codici attivi: P per tentativo ≤ 3/10^cifre):
+
+| Scenario | Tentativi valutati | Successo/giorno | Successo in 30 giorni |
+|---|---|---|---|
+| Prima: 6 cifre, 10 tentativi/codice, 10 richieste/ora (2.400 coppie codice-tentativo/giorno) | ~2.400/giorno | ~0,24 % | ~7 % |
+| Ora, `OTP_DIGITS=6` (compatibilità) | primo giorno ≤ 27, poi 12/giorno → ≈ 375 in 30 giorni | 8,1·10⁻⁵ (0,008 %) il primo giorno, 3,6·10⁻⁵ poi | ≈ 1,1·10⁻³ (**0,11 %**) |
+| Ora, `OTP_DIGITS=8` (default) | come sopra | 8,1·10⁻⁷ il primo giorno, 3,6·10⁻⁷ poi | ≈ 1,1·10⁻⁵ (**0,0011 %**) |
+
+Come si ottiene: i primi 10 errori sono gratuiti; poi i blocchi 2+4+8+16+32+64 minuti = 126 minuti consentono 6 tentativi, e da lì ogni 120 minuti un tentativo (12 al giorno a regime, il contatore non si azzera finché l'attacco continua): 10 + 6 + ⌊(1440−126)/120⌋ ≈ 27 il primo giorno (verificato dal test `otp-distributed`: ≤ 30 contro ~2.000 senza la difesa), 12 al giorno poi; in 30 giorni 27 + 29·12 = 375; × 3 codici attivi = 1.125 coppie su 10⁶ (6 cifre) o 10⁸ (8 cifre). Riduzione rispetto a prima: ~60× con 6 cifre, ~6.000× con 8 cifre.
+
+**Trade-off (da sapere)**: un cooldown per email è anche una leva di DoS sul *login da reti nuove*: durante un attacco distribuito *continuo* il proprietario che accede da una rete mai usata riesce a farlo solo nelle finestre in cui il cooldown scade (e l'attaccante le consuma per prime). Lo limitano: l'invio dei codici non è mai bloccato; le sessioni aperte restano valide; le reti note sono esenti; l'avviso email lo informa; `vpadmin otp-unlock` sblocca l'assistenza. Il costo per l'attaccante è alto (molti IP per un guadagno quasi nullo); il rischio opposto (presa di controllo) è ridotto di 3-4 ordini di grandezza. Alternative scartate: bloccare anche l'invio (DoS puro sulla vittima), bloccare per sempre dopo N errori (DoS permanente), CAPTCHA (dipendenza esterna). Il vero rimedio definitivo sono le passkey (futuro). **Per il client**: con `OTP_DIGITS=8` serve che `src/pages/account/LoginForm.tsx` accetti 8 cifre; fino ad allora impostare `OTP_DIGITS=6`.
+
+### Audit: retention (`src/db/audit.ts`)
+- Ogni voce ha una **classe** decisa dal server (`audit_log.retain`): **1 = fiscale** (voci su una fattura *davvero emessa* — verificato lato server, non basta dichiararlo —, eventi SDI, accettazione Termini/DPA, cancellazione/esportazione account) e **0 = non fiscale** (`voice_command`, bozze e preventivi, catalogo, profilo, accessi, voci del client non collegate a una fattura emessa).
+- Le **fiscali non si eliminano mai** (conservazione per obbligo, 10 anni da verificare col commercialista). Per evitare che diventino un modo di riempire il disco, le voci fiscali per singolo documento hanno un tetto (`AUDIT_MAX_FISCAL_PER_DOC`, 200): oltre, le nuove sono potabili.
+- Le **non fiscali** dopo `AUDIT_RETENTION_DAYS` (default 365; orologio del *server*, non la data dichiarata dal client) sono **aggregate** in `audit_daily` (tenant, giorno, azione, conteggio: nessun contenuto) e **cancellate**, dalla manutenzione oraria, a blocchi. In più c'è un **tetto per tenant** (`AUDIT_MAX_ROWS_PER_TENANT`, default 50.000, ~10 MB): le voci non fiscali più vecchie in eccesso vengono potate anche se recenti. Insieme al tetto giornaliero di ingresso (`RL_AUDIT_PER_DAY`), la crescita per tenant è limitata.
+- **Append-only intatto**: `UPDATE` resta vietato; `DELETE` è ammesso dal trigger *solo* per righe non fiscali più vecchie del limite scritto in `audit_prune_ctl`, riga che esiste soltanto dentro la transazione di potatura (se la transazione fallisce sparisce con lei). Una riga fiscale non si cancella nemmeno con quel permesso aperto (test).
+- Chi ha accesso diretto al file DB può comunque aggirare qualunque trigger: la difesa è la catena fiscale (sotto) e i backup.
+- Cancellazione dell'account: l'audit resta (pseudonimo) con la stessa regola; il crypto-shredding per tenant (chiavi per tenant) resta una proposta futura.
+
+### Fatti fiscali dichiarati dal client: proposta di mitigazione e catena di hash (`src/db/chain.ts`)
+**Limite**: il server non può sapere se una fattura è davvero stata emessa o se un esito SDI registrato a mano è vero (`lockedAt`, `sdiEvents` li dichiara il client; lo SDI in v1 non è collegato).
+**Proposta realistica (in ordine di costo)**:
+1. *(fatto)* Stato successivo all'emissione senza `invoice.lockedAt` (e non `legacy`) → rifiutato (`invalid`): il server non tiene mai una fattura «emessa» modificabile.
+2. *(fatto)* **Catena di hash per tenant sulle emissioni**: alla prima ricezione di una fattura emessa il server aggiunge una riga (`fiscal_chain`: n progressivo senza buchi, documento, serie/anno/numero, `lockedAt` dichiarato, **orario di ricezione del server**, hash precedente, hash = SHA-256 dei campi). Append-only per trigger. `vpadmin integrity-check` verifica continuità, hash e corrispondenza con le fatture presenti (una fattura cancellata, rinumerata o riordinata a DB spento dà ERRORE) e stampa il **SIGILLO** (digest di tutte le teste di catena).
+3. *(procedura)* **Sigillo periodico fuori dal server**: ogni settimana/mese copia la riga «SIGILLO» di `integrity-check` (o `--json`, campo `chain.digest`) in un posto che il server non può modificare (email a te stesso, nota nel gestionale, repository privato). Una catena riscritta per intero si smaschera confrontandola con un sigillo esterno più vecchio. Il backup mensile può includerlo.
+4. *(futuro)* Ammettere il rinvio dopo «scartata» solo con un NS ricevuto dal provider SDI; numerazione assegnata dal server (CONTRACT-V2: futuro).
+La catena **non dimostra che l'emissione sia fiscalmente vera**: attesta *cosa* il server ha ricevuto e *quando*. Le fatture emesse prima dell'introduzione della catena vengono agganciate all'avvio e dalla manutenzione, marcate `legacy`. Per la procedura manuale di purge decennale delle fatture (sospendere i trigger) vanno sospesi anche `trg_fiscal_chain_*` e la riga di catena va rimossa nella stessa operazione; poi `integrity-check` deve tornare pulito.
+
+### SMTP
+`SMTP_REQUIRE_TLS=1` è il valore consigliato e quello di `.env.example`: se il server di posta non offre STARTTLS il server **non invia** (né password SMTP né codici OTP in chiaro). In produzione, se la variabile manca, il default del codice è già 1. Usare 0 solo per un SMTP di prova locale.
 
 ---
 

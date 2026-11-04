@@ -15,7 +15,9 @@ import { createInterface } from 'node:readline/promises';
 import { pipeline } from 'node:stream/promises';
 import { createGunzip } from 'node:zlib';
 import { DatabaseSync } from 'node:sqlite';
-import { all, closeDb, getDb, one, openDb } from '../src/db';
+import { all, closeDb, getDb, one, openDb, run } from '../src/db';
+import { emailKey } from '../src/auth/guard';
+import { sha256Hex } from '../src/auth/crypto';
 import '../src/billing/sqlite-store'; // registra le migrazioni 100+ (billing)
 import '../src/sdi/sqlite';          // ... e 101 (SDI)
 import { monthKey, now } from '../src/db/clock';
@@ -56,6 +58,8 @@ DATI PERSONALI (GDPR)
   export-tenant <email> [--out file|-]           esporta tutti i dati del cliente in JSON
   delete-tenant <email> [--conferma <email>] [--ack-subscription]
                                                  cancella l'account (le fatture emesse restano per legge: tenant anonimizzato)
+ACCESSO
+  otp-unlock <email>                             toglie il cooldown globale OTP di un indirizzo (cliente chiuso fuori durante un attacco: vedi docs/OPERAZIONI.md)
 CONTROLLO E MANUTENZIONE
   stats [--json]                                 utenti attivi, documenti, fatture, conflitti di sync, errori
   integrity-check [--file db] [--rapido] [--json]  integrita' DB, trigger, buchi/duplicati nella numerazione, cifratura
@@ -395,7 +399,19 @@ const cmdInviteRevoke: Cmd = (pos, _f, io) => {
   return ok ? OK : FAIL;
 };
 
+const cmdOtpUnlock: Cmd = (pos, _f, io) => {
+  requireDbFile();
+  if (!pos[0]) throw new CliError('Indica l\'email.', USAGE);
+  const email = normalizeEmail(pos[0]);
+  const r = run('DELETE FROM otp_guard WHERE email_hash=?', emailKey(email));
+  run('DELETE FROM rate_limits WHERE key=?', `otpver:email:${sha256Hex(email)}`); // anche il tetto dei 10 minuti per email
+  logAdminAction('otp_unlock', { note: 'cooldown OTP rimosso', actor: actor() });
+  io.out(Number(r.changes) ? 'OK: cooldown rimosso. Se l\'attacco continua tornera\' ad attivarsi: considera di avvisare il cliente.' : 'Nessun cooldown attivo per questo indirizzo.');
+  return OK;
+};
+
 const COMMANDS: Record<string, Cmd> = {
+  'otp-unlock': cmdOtpUnlock,
   tenants: cmdTenants, utenti: cmdTenants, info: cmdInfo, 'grant-pro': cmdGrant, 'revoke-pro': cmdRevoke,
   'export-tenant': cmdExport, 'delete-tenant': cmdDelete, stats: cmdStats, 'integrity-check': cmdIntegrity,
   backup: cmdBackup, 'restore-test': cmdRestoreTest, 'rotate-key': cmdRotate,

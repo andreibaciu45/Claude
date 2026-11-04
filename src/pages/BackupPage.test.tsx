@@ -12,13 +12,14 @@ import {
 import { draftData, seedProfile } from '../storage/testkit';
 import { getBackend } from '../storage/db';
 import BackupPage from './BackupPage';
+import { settleUi } from '../__tests__/settle';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 if (!globalThis.crypto?.subtle) Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
 
 let host: HTMLDivElement;
 let root: Root;
-const flush = async () => { for (let i = 0; i < 12; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
+const flush = settleUi; // attende che il DOM si stabilizzi (niente attese fisse): vedi src/__tests__/settle.ts
 /** Attende (con act) che la condizione diventi vera: niente attese fisse, regge i picchi di carico della macchina. */
 const until = async <T,>(fn: () => T | null | undefined | false, ms = 8000): Promise<T> => {
   const end = Date.now() + ms;

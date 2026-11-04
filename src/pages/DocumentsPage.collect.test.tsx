@@ -11,13 +11,14 @@ import { ToastProvider } from '../ui';
 import { __resetStorageForTests, createCreditNote, issueInvoice, recordPayment, saveDocument } from '../storage';
 import { draftData, lineData, seedProfile } from '../storage/testkit';
 import DocumentsPage from './DocumentsPage';
+import { settleUi } from '../__tests__/settle';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 if (!globalThis.crypto?.subtle) Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
 
 let host: HTMLDivElement;
 let root: Root;
-const flush = async () => { for (let i = 0; i < 12; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
+const flush = settleUi; // attende che il DOM si stabilizzi (niente attese fisse): vedi src/__tests__/settle.ts
 // Orologio fisso a metà 2026 (vedi beforeEach): le date dei fixture non dipendono dall'anno in cui gira la suite.
 const year = 2026;
 const stat = (label: string): string => {

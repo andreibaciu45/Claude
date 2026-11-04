@@ -52,3 +52,12 @@ Correzioni e variabili introdotte dalla seconda revisione (test: `test/review/**
 - Numerazione: oltre all'indice UNIQUE (tenant, sezionale, anno, seq), il server rifiuta un secondo numero identico (testo) nella stessa serie e confronta il sezionale senza distinguere maiuscole/minuscole.
 - Una fattura già `consegnata`, `stornata` o `pagato` non può essere dichiarata `scartata` dal client (lo stato `scartata` apre il rinvio con contenuto corretto); un NS tardivo del provider si registra ma non cambia lo stato di una fattura consegnata.
 - Testi (`notes`, `transcript`, `invoice.xml`) che iniziano con `enc:v1:` sono rifiutati (`invalid`): verrebbero scambiati per valori già cifrati.
+
+## Rischi residui della revisione: cosa è stato fatto (SERVER-FIX)
+Test in `test/fix/**` (compresi tre scenari con DUE processi sullo stesso file DB). Dettagli, calcoli e trade-off in `docs/OPERAZIONI.md` §7bis.
+- **OTP distribuito** (`auth/guard.ts`): codice a `OTP_DIGITS` cifre (default 8), `OTP_MAX_ATTEMPTS` (5) per codice su tutti gli IP, cooldown crescente globale per email solo sulle verifiche (mai sull'invio), reti note esenti, email di avviso a soglia (`Mailer.sendSecurityAlert`, opzionale), comando `admin.ts otp-unlock`. Probabilità di successo in 30 giorni: ~7 % → 0,11 % con 6 cifre, 0,0011 % con 8. La verifica accetta 6-10 cifre (un client a 6 cifre funziona con `OTP_DIGITS=6`).
+- **Audit** (`db/audit.ts`, migrazione 6): classe fiscale/non fiscale decisa dal server, potatura delle sole non fiscali dopo `AUDIT_RETENTION_DAYS` con aggregazione in `audit_daily`, tetto per tenant, trigger append-only con permesso di cancellazione che esiste solo dentro la transazione di potatura.
+- **`/health/deep`**: senza token sola lettura (`db_read`, nessuna scrittura), con token sonda di scrittura in cache (`HEALTH_CACHE_MS`), rate-limit per IP in memoria.
+- **Catena fiscale** (`db/chain.ts`, migrazione 7): hash chain per tenant sulle emissioni, verificata da `integrity-check` (che stampa il sigillo da conservare fuori dal server); una fattura in stato emesso senza `lockedAt` è rifiutata.
+- **Configurazione sicura**: `SMTP_REQUIRE_TLS=1` in `.env.example`; con `NODE_ENV` non impostato `AUTH_DEV_RETURN_CODE` e i provider mock (SDI/STT/LLM) restano spenti (servono `development` o `test` espliciti).
+- Migrazioni 6-8: `audit_retention`, `fiscal_chain`, `otp_guard`.
