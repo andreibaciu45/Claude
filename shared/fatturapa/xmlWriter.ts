@@ -7,7 +7,7 @@ export interface XNode {
   children?: XNode[];
 }
 
-export type XChild = XNode | null | undefined | false;
+export type XChild = XNode | null | undefined | false | '';
 
 /** Nodo con figli; i valori falsy sono ignorati (comodo per gli elementi opzionali). */
 export const el = (name: string, ...children: XChild[]): XNode => ({

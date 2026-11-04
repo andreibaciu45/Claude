@@ -1,6 +1,7 @@
 // Utilità condivise dai moduli SERVER-EXTRA (billing, sdi, voice): auth iniettabile, clock, errori.
 import type { MiddlewareHandler } from 'hono';
 import { timingSafeEqual } from 'node:crypto';
+import { requireAuth as coreRequireAuth } from '../auth/middleware';
 
 export type AuthVars = { tenantId: string; userId: string };
 export type AppEnv = { Variables: AuthVars };
@@ -9,10 +10,10 @@ export interface Clock { now(): number }
 export const systemClock: Clock = { now: () => Date.now() };
 
 /**
- * Cablaggio auth. CORE esporta `requireAuth` (server/src/auth/middleware.ts) che imposta
- * c.get('tenantId') e c.get('userId'). Finché non è collegato, il gate è FAIL-CLOSED (503).
+ * Auth: di default il `requireAuth` di CORE (imposta c.get('tenantId') e c.get('userId')).
+ * Sostituibile nei test (`authHolder.requireAuth = fake`); se nullo il gate è FAIL-CLOSED (503).
  */
-export const authHolder: { requireAuth: MiddlewareHandler | null } = { requireAuth: null };
+export const authHolder: { requireAuth: MiddlewareHandler | null } = { requireAuth: coreRequireAuth as unknown as MiddlewareHandler };
 
 export const apiError = (code: string, message: string) => ({ error: { code, message } });
 

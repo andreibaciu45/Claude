@@ -3,10 +3,11 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { apiError, authGate, systemClock, type AppEnv, type Clock, type Env } from '../billing/common';
 import { HttpSdiProvider, httpConfigFromEnv } from './http-provider';
-import { createJobRunner, InMemoryJobStore, PermanentJobError, type JobStore } from './jobs';
+import { createJobRunner, PermanentJobError, type JobStore } from './jobs';
+import { SqliteDocumentSink, SqliteDocumentSource, SqliteJobStore, SqliteSdiStore } from './sqlite';
 import { MockProvider } from './mock';
 import {
-  InMemorySdiStore, SdiParseError, type DocumentSource, type DocumentStatusSink, type SdiEvent, type SdiProvider, type SdiStore,
+  SdiParseError, type DocumentSource, type DocumentStatusSink, type SdiEvent, type SdiProvider, type SdiStore,
 } from './types';
 
 export const UNSUPPORTED_MESSAGE =
@@ -32,13 +33,13 @@ export function providerFromEnv(env: Env, fetchImpl?: typeof fetch): SdiProvider
 }
 
 let envProvider: SdiProvider | null | undefined;
-/** Dipendenze di default MUTABILI: CORE imposta `documents`, `sink`, `jobs` (SQLite). */
+/** Dipendenze di default (SQLite di CORE). Mutabili; i test passano deps proprie. */
 export const defaultSdiDeps: SdiDeps = {
   provider: () => (envProvider ??= providerFromEnv(process.env)),
-  jobs: new InMemoryJobStore(),
-  store: new InMemorySdiStore(),
-  documents: null,
-  sink: null,
+  jobs: new SqliteJobStore(),
+  store: new SqliteSdiStore(),
+  documents: new SqliteDocumentSource(),
+  sink: new SqliteDocumentSink(),
   clock: systemClock,
   env: () => process.env,
 };

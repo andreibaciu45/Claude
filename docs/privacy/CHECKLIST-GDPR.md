@@ -39,7 +39,7 @@ Contratto (6.1.b) per il servizio; obbligo di legge (6.1.c) per la contabilità;
 - Cifratura dei campi sensibili (IBAN).
 
 ### Altri punti
-- [ ] Marketing/newsletter: oggi non previsti; se introdotti serve base giuridica e consenso/soft-spin [DA VERIFICARE].
+- [ ] Marketing/newsletter: oggi non previsti; se introdotti serve base giuridica e consenso o altra base idonea [DA VERIFICARE].
 - [ ] Cookie: nessun analytics di terze parti; verificare l'inquadramento come soli strumenti tecnici [DA VERIFICARE].
 - [ ] Minori: servizio non rivolto a minori.
 - [ ] Formazione di chi ha accesso ai dati; accessi amministrativi tracciati.

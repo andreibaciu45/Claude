@@ -44,12 +44,13 @@ jobs:
           ref: ${{ inputs.ref }}
 
       - name: Controlla che i segreti esistano
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
         run: |
-          for v in VPS_HOST VPS_USER DEPLOY_PATH; do
-            if [ -z "${!v}" ]; then echo "::error::Segreto $v mancante"; exit 1; fi
+          for v in VPS_HOST VPS_USER DEPLOY_PATH SSH_KEY KNOWN_HOSTS; do
+            if [ -z "${!v}" ]; then echo "::error::Segreto mancante: $v"; exit 1; fi
           done
-          if [ -z "${{ secrets.VPS_SSH_KEY != '' && 'ok' || '' }}" ]; then echo "::error::Segreto VPS_SSH_KEY mancante"; exit 1; fi
-          if [ -z "${{ secrets.VPS_KNOWN_HOSTS != '' && 'ok' || '' }}" ]; then echo "::error::Segreto VPS_KNOWN_HOSTS mancante"; exit 1; fi
 
       - name: Calcola etichetta versione
         id: tag
@@ -80,10 +81,13 @@ jobs:
           cache-to: type=gha,scope=web,mode=max
 
       - name: Prepara SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
         run: |
           install -m 700 -d ~/.ssh
-          printf '%s\n' "${{ secrets.VPS_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-          (umask 077; printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key)
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          (umask 077; printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key)
 
       - name: Invia file di infrastruttura e immagini
         env:

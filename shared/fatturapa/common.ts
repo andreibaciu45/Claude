@@ -180,5 +180,3 @@ export const derivePayment = (
     iban: modalita === 'MP05' && ibanValid ? (profile.iban ?? '').replace(/\s+/g, '').toUpperCase() : undefined,
   };
 };
-
-export const vatLooksValid = (s: string): boolean => isValidPartitaIva(s);

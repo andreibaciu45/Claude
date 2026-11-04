@@ -62,9 +62,9 @@ export interface Tx {
   putProfile(p: Profile): Promise<void>;
   get<T>(s: StoreName, id: string): Promise<T | undefined>;
   all<T>(s: StoreName): Promise<T[]>;
-  put(s: StoreName, v: { id: string }): Promise<void>;
+  put<T extends { id: string }>(s: StoreName, v: T): Promise<void>;
   /** Solo inserimento: fallisce se la chiave esiste (usato per l'audit append-only). */
-  add(s: StoreName, v: { id: string }): Promise<void>;
+  add<T extends { id: string }>(s: StoreName, v: T): Promise<void>;
   del(s: StoreName, id: string): Promise<void>;
   clear(s: StoreName): Promise<void>;
 }
@@ -102,11 +102,11 @@ function memoryBackend(): Backend {
           async putProfile(p) { wp = clone(p); },
           async get<T>(s: StoreName, id: string) { const v = ws[s].get(id); return v === undefined ? undefined : (clone(v) as T); },
           async all<T>(s: StoreName) { return [...ws[s].values()].map((v) => clone(v) as T); },
-          async put(s, v) {
-            if (s === 'documents') checkUnique(ws.documents, v as QuoteDocument);
+          async put<T extends { id: string }>(s: StoreName, v: T) {
+            if (s === 'documents') checkUnique(ws.documents, v as unknown as QuoteDocument);
             ws[s].set(v.id, clone(v));
           },
-          async add(s, v) {
+          async add<T extends { id: string }>(s: StoreName, v: T) {
             if (ws[s].has(v.id)) throw new Error(`ConstraintError: chiave duplicata in ${s}`);
             ws[s].set(v.id, clone(v));
           },
@@ -222,14 +222,15 @@ function idbBackend(dbp: Promise<IDBPDatabase>): Backend {
   return {
     async transact<R>(mode: 'readonly' | 'readwrite', fn: (t: Tx) => Promise<R>): Promise<R> {
       const db = await dbp;
-      const tx = db.transaction([...ALL_STORES], mode);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tx: any = db.transaction([...ALL_STORES], mode);
       const t: Tx = {
         async getProfile() { return (await tx.objectStore('profile').get(PROFILE_KEY)) as Partial<Profile> | undefined; },
-        async putProfile(p) { await tx.objectStore('profile').put(p, PROFILE_KEY); },
+        async putProfile(p: Profile) { await tx.objectStore('profile').put(p, PROFILE_KEY); },
         async get<T>(s: StoreName, id: string) { return (await tx.objectStore(s).get(id)) as T | undefined; },
         async all<T>(s: StoreName) { return (await tx.objectStore(s).getAll()) as T[]; },
-        async put(s, v) { await tx.objectStore(s).put(v); },
-        async add(s, v) { await tx.objectStore(s).add(v); },
+        async put<T extends { id: string }>(s: StoreName, v: T) { await tx.objectStore(s).put(v); },
+        async add<T extends { id: string }>(s: StoreName, v: T) { await tx.objectStore(s).add(v); },
         async del(s, id) { await tx.objectStore(s).delete(id); },
         async clear(s) { await tx.objectStore(s).clear(); },
       };

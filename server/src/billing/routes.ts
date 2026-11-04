@@ -5,8 +5,9 @@ import {
   apiError, authGate, systemClock, type AppEnv, type Clock, type Env,
 } from './common';
 import {
-  createBillingService, InMemoryBillingStore, type BillingService, type BillingStore,
+  createBillingService, type BillingService, type BillingStore,
 } from './entitlements';
+import { SqliteBillingStore } from './sqlite-store';
 import { StripeApiError, stripePost, verifyStripeSignature } from './stripe';
 import { parseStripeEvent, processStripeEvent } from './webhook';
 
@@ -17,9 +18,9 @@ export interface BillingDeps {
   env: () => Env;
 }
 
-/** Dipendenze di default MUTABILI: CORE può sostituire `store` con l'implementazione SQLite. */
+/** Dipendenze di default (SQLite di CORE). Mutabili; i test passano deps proprie (InMemoryBillingStore). */
 export const defaultBillingDeps: BillingDeps = {
-  store: new InMemoryBillingStore(),
+  store: new SqliteBillingStore(),
   clock: systemClock,
   fetch: (...a) => fetch(...a),
   env: () => process.env,

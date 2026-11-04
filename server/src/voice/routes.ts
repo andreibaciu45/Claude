@@ -4,6 +4,7 @@ import { bodyLimit } from 'hono/body-limit';
 import {
   apiError, authGate, createRateLimiter, systemClock, type AppEnv, type Clock, type Env, type RateLimiter,
 } from '../billing/common';
+import { addUsage as addCoreUsage, getUsage as getCoreUsage } from '../db/entitlements';
 import { billingService } from '../billing/routes';
 import type { Plan } from '../billing/entitlements';
 import {
@@ -31,8 +32,14 @@ export interface VoiceDeps {
   metric: (m: VoiceMetric) => void;
   transcribeLimiter: RateLimiter;
   interpretLimiter: RateLimiter;
-  /** Minuti trascritti nel mese: { 'tenant|YYYY-MM': ms } */
-  usage: Map<string, number>;
+  /** Consumo STT del mese corrente per tenant (ms). Default: tabella `usage` di CORE. */
+  usage: { getMs(tenantId: string, now: number): number; addMs(tenantId: string, ms: number, now: number): void };
+}
+
+export function inMemoryVoiceUsage(): VoiceDeps['usage'] {
+  const m = new Map<string, number>();
+  const k = (t: string, now: number) => `${t}|${new Date(now).toISOString().slice(0, 7)}`;
+  return { getMs: (t, n) => m.get(k(t, n)) ?? 0, addMs: (t, ms, n) => void m.set(k(t, n), (m.get(k(t, n)) ?? 0) + ms) };
 }
 
 let sttEnv: SttProvider | null | undefined;
@@ -46,11 +53,13 @@ export const defaultVoiceDeps: VoiceDeps = {
   metric: (m) => console.info(JSON.stringify({ metric: m.name, tenantId: m.tenantId, costUsd: m.costUsd, units: m.units, unit: m.unit })),
   transcribeLimiter: createRateLimiter({ limit: 10, windowMs: 60_000 }),
   interpretLimiter: createRateLimiter({ limit: DEFAULTS.interpretPerDay, windowMs: 86_400_000 }),
-  usage: new Map(),
+  usage: {
+    getMs: (t) => getCoreUsage(t).sttSeconds * 1000,
+    addMs: (t, ms) => addCoreUsage(t, { sttSeconds: Math.ceil(ms / 1000) }),
+  },
 };
 
 const num = (v: string | undefined, d: number) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
-const month = (now: number) => new Date(now).toISOString().slice(0, 7);
 
 export function createVoiceRoutes(deps: VoiceDeps = defaultVoiceDeps) {
   const r = new Hono<AppEnv>();
@@ -93,8 +102,7 @@ export function createVoiceRoutes(deps: VoiceDeps = defaultVoiceDeps) {
       // Quota minuti mensile per piano
       const plan = await deps.getPlan(tenantId);
       const limitMs = (plan === 'pro' ? num(env.VOICE_MINUTES_PRO, DEFAULTS.minutesPro) : num(env.VOICE_MINUTES_FREE, DEFAULTS.minutesFree)) * 60_000;
-      const key = `${tenantId}|${month(deps.clock.now())}`;
-      const used = deps.usage.get(key) ?? 0;
+      const used = deps.usage.getMs(tenantId, deps.clock.now());
       if (used + durationMs > limitMs) return c.json(apiError('quota_exceeded', 'Quota di trascrizione mensile esaurita'), 429);
 
       let buf: Uint8Array | null = new Uint8Array(await file.arrayBuffer());
@@ -102,7 +110,7 @@ export function createVoiceRoutes(deps: VoiceDeps = defaultVoiceDeps) {
         const vocab = typeof form.get('vocabulary') === 'string'
           ? String(form.get('vocabulary')).split(',').map((s) => s.trim()).filter(Boolean).slice(0, 60) : undefined;
         const res = await stt.transcribe({ audio: buf, mime, vocabulary: vocab });
-        deps.usage.set(key, used + durationMs);
+        deps.usage.addMs(tenantId, durationMs, deps.clock.now());
         deps.metric({ name: 'voice.transcribe', tenantId, costUsd: res.costUsd ?? 0, units: durationMs, unit: 'ms' });
         return c.json({ text: res.text });
       } catch {

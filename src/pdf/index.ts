@@ -1,8 +1,10 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import type { DocLine, Profile, QuoteDocument, Totals } from '../types';
+import type { DocLine, Profile, QuoteDocument } from '../types';
 import { roundMoney } from '../types';
-import { computeTotals } from '../engine';
+import { documentTotals } from './totals';
+export { documentTotals } from './totals';
+export type { DocTotals } from './totals';
 
 /* ---------- formattazione it-IT (indipendente dall'ICU del browser) ---------- */
 const group = (intPart: string) => intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
@@ -32,8 +34,19 @@ export const lineAmount = (l: DocLine): number =>
 
 export const FORFETTARIO_TEXT =
   'Operazione effettuata ai sensi dell’art. 1, commi 54-89, Legge n. 190/2014 e successive modificazioni – regime forfettario, non soggetta a IVA.';
-export const BOLLO_TEXT = 'Imposta di bollo assolta ai sensi del DPR 642/72.';
-export const COURTESY_TEXT = 'Documento di cortesia: non sostituisce la fattura elettronica trasmessa tramite SDI.';
+export const BOLLO_TEXT = 'Imposta di bollo assolta in modo virtuale (DPR 642/72).';
+/** Fattura/nota di credito fiscale emessa: il PDF è solo una copia leggibile. */
+export const COURTESY_TEXT = 'Copia di cortesia della fattura elettronica: l’originale è il file XML trasmesso tramite SDI.';
+/** Fattura v1 migrata (non fiscale). */
+export const LEGACY_COURTESY_TEXT = 'Documento di cortesia: non sostituisce la fattura elettronica trasmessa tramite SDI.';
+export const DRAFT_TEXT = 'BOZZA - documento senza numero e senza valore fiscale. Non inviare al cliente.';
+
+/** Fattura o nota di credito con dati fiscali (non legacy). */
+const isFiscal = (d: QuoteDocument): boolean => d.type === 'fattura' && !!d.invoice && !d.invoice.legacy;
+const isNote = (d: QuoteDocument): boolean => isFiscal(d) && d.invoice!.tipoDocumento === 'TD04';
+const isDraft = (d: QuoteDocument): boolean => isFiscal(d) && !d.invoice!.lockedAt && d.status === 'bozza';
+/** Data fiscale del documento (elemento XML Data = data operazione). */
+const docDate = (d: QuoteDocument): string => (isFiscal(d) && d.invoice!.operationDate) || d.date;
 
 /* ---------- colori ---------- */
 const PRIMARY: [number, number, number] = [11, 92, 107];
@@ -49,13 +62,38 @@ const FOOT = 18; // spazio riservato al footer
 
 type PdfWithTable = jsPDF & { lastAutoTable?: { finalY: number } };
 
-export const docTitle = (doc: QuoteDocument): string =>
-  doc.type === 'preventivo' ? `PREVENTIVO n. ${doc.number}` : `FATTURA (copia di cortesia) n. ${doc.number}`;
+export const docTitle = (doc: QuoteDocument): string => {
+  if (doc.type === 'preventivo') return `PREVENTIVO n. ${doc.number}`;
+  if (!isFiscal(doc)) return `FATTURA (copia di cortesia) n. ${doc.number}`;
+  const inv = doc.invoice!;
+  if (isDraft(doc)) return isNote(doc) ? 'NOTA DI CREDITO (bozza)' : 'FATTURA (bozza)';
+  return `${isNote(doc) ? 'NOTA DI CREDITO' : 'FATTURA'} n. ${inv.number ?? doc.number}`;
+};
+
+/** Righe sotto il titolo: riferimento alla fattura rettificata e motivo (solo nota di credito TD04). */
+export const creditNoteLines = (doc: QuoteDocument): string[] => {
+  if (!isNote(doc)) return [];
+  const inv = doc.invoice!;
+  const out: string[] = [];
+  const num = inv.number ?? doc.number;
+  const orig = inv.originalNumber ? `rettifica la fattura n. ${inv.originalNumber}${inv.originalDate ? ` del ${fmtDate(inv.originalDate)}` : ''}` : 'rettifica la fattura originale';
+  out.push(`NOTA DI CREDITO n. ${num} del ${fmtDate(docDate(doc))} ${orig}`);
+  if (inv.creditNoteReason?.trim()) out.push(`Motivo: ${inv.creditNoteReason.trim()}`);
+  return out;
+};
 
 export async function generateDocumentPdf(doc: QuoteDocument, profile: Profile): Promise<Blob> {
-  const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true }) as PdfWithTable;
+  return renderDocumentPdf(doc, profile).output('blob');
+}
+
+/** Costruisce il PDF (esposto per i test, che leggono il testo con compress:false). */
+export function renderDocumentPdf(doc: QuoteDocument, profile: Profile, opts: { compress?: boolean } = {}): jsPDF {
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: opts.compress ?? true }) as PdfWithTable;
   const forf = !!profile.regimeForfettario;
-  const totals: Totals = computeTotals(doc.lines, { forfettario: forf, type: doc.type });
+  const fiscal = isFiscal(doc);
+  const note = isNote(doc);
+  const draft = isDraft(doc);
+  const totals = documentTotals(doc, forf);
   const title = docTitle(doc);
 
   pdf.setProperties({ title: `${title} - ${doc.customer.name}`, author: profile.businessName, creator: 'VocePreventivo' });
@@ -105,20 +143,34 @@ export async function generateDocumentPdf(doc: QuoteDocument, profile: Profile):
   const titleLines = pdf.splitTextToSize(title, W - 2 * M - 50) as string[];
   pdf.text(titleLines, M, y);
   pdf.setTextColor(...INK).setFont('helvetica', 'normal').setFontSize(10);
-  pdf.text(`Data: ${fmtDate(doc.date)}`, W - M, y, { align: 'right' });
+  pdf.text(`Data: ${fmtDate(docDate(doc))}`, W - M, y, { align: 'right' });
   y += (titleLines.length - 1) * 7 + 9;
+  const refs = creditNoteLines(doc);
+  if (refs.length) {
+    pdf.setFont('helvetica', 'bold').setFontSize(9.5).setTextColor(...INK);
+    for (const r of refs) for (const part of pdf.splitTextToSize(r, W - 2 * M) as string[]) { pdf.text(part, M, y - 2); y += 4.8; }
+    y += 3;
+  }
 
   /* ---------- cliente ---------- */
   const c = doc.customer;
   const custLines: string[] = [];
   if (c.address) custLines.push(...(pdf.splitTextToSize(c.address, 110) as string[]));
-  if (c.vatOrFiscalCode) custLines.push(`P.IVA / C.F.: ${c.vatOrFiscalCode}`);
+  if (fiscal) {
+    const cityC = [c.zip, c.city].filter(Boolean).join(' ') + (c.province ? ` (${c.province})` : '');
+    if (cityC.trim() && !(c.address ?? '').includes(c.city ?? '\u0000')) custLines.push(cityC.trim());
+    const ids = [c.vatNumber && `P.IVA ${c.vatNumber}`, c.fiscalCode && `C.F. ${c.fiscalCode}`].filter(Boolean).join('   ');
+    if (ids) custLines.push(ids);
+    else if (c.vatOrFiscalCode) custLines.push(`P.IVA / C.F.: ${c.vatOrFiscalCode}`);
+    if (!note && c.codiceDestinatario && c.codiceDestinatario !== '0000000') custLines.push(`Codice destinatario: ${c.codiceDestinatario}`);
+    if (!note && c.pec) custLines.push(`PEC: ${c.pec}`);
+  } else if (c.vatOrFiscalCode) custLines.push(`P.IVA / C.F.: ${c.vatOrFiscalCode}`);
   const cc = [c.email, c.phone && `Tel. ${c.phone}`].filter(Boolean).join('   ');
   if (cc) custLines.push(cc);
   const boxH = 9.5 + custLines.length * 4.4;
   pdf.setFillColor(...SOFT).roundedRect(M, y - 4, W - 2 * M, boxH, 2, 2, 'F');
   pdf.setFont('helvetica', 'bold').setFontSize(7.5).setTextColor(...MUTED);
-  pdf.text(doc.type === 'preventivo' ? 'PREVENTIVO PER' : 'FATTURATO A', M + 4, y + 0.5);
+  pdf.text(doc.type === 'preventivo' ? 'PREVENTIVO PER' : note ? 'INTESTATA A' : 'FATTURATO A', M + 4, y + 0.5);
   pdf.setFont('helvetica', 'bold').setFontSize(11).setTextColor(...INK);
   pdf.text((pdf.splitTextToSize(c.name || '-', W - 2 * M - 8) as string[])[0], M + 4, y + 6);
   pdf.setFont('helvetica', 'normal').setFontSize(9).setTextColor(...INK);
@@ -188,14 +240,15 @@ export async function generateDocumentPdf(doc: QuoteDocument, profile: Profile):
   const boxW = 78;
   const bx = W - M - boxW;
   const rows: [string, string, boolean?][] = [];
+  const stampLabel = fiscal ? 'Rimborso imposta di bollo' : 'Marca da bollo';
   if (forf) {
     rows.push(['Imponibile', fmtEuro(totals.net)]);
-    if (totals.stamp > 0) rows.push(['Marca da bollo', fmtEuro(totals.stamp)]);
+    if (totals.stamp > 0) rows.push([stampLabel, fmtEuro(totals.stamp)]);
   } else {
     rows.push(['Imponibile', fmtEuro(totals.net)]);
     for (const r of totals.byRate) rows.push([`IVA ${fmtNum(r.rate, 0)}% su ${fmtEuro(r.base)}`, fmtEuro(r.vat)]);
     if (!totals.byRate.length) rows.push(['IVA', fmtEuro(totals.vat)]);
-    if (totals.stamp > 0) rows.push(['Marca da bollo', fmtEuro(totals.stamp)]);
+    if (totals.stamp > 0) rows.push([stampLabel, fmtEuro(totals.stamp)]);
   }
   ensure(rows.length * 5.6 + 16);
   pdf.setFontSize(9.5);
@@ -234,15 +287,16 @@ export async function generateDocumentPdf(doc: QuoteDocument, profile: Profile):
   if (doc.type === 'preventivo' && profile.quoteValidityDays > 0) {
     conds.push(`Preventivo valido ${profile.quoteValidityDays} giorni, fino al ${fmtDate(addDays(doc.date, profile.quoteValidityDays))}.`);
   }
-  if (profile.paymentTerms) conds.push(`Pagamento: ${profile.paymentTerms}.`.replace(/\.\.$/, '.'));
-  if (profile.iban) conds.push(`IBAN: ${profile.iban}${profile.businessName ? ` - intestato a ${profile.businessName}` : ''}`);
+  if (!note && profile.paymentTerms) conds.push(`Pagamento: ${profile.paymentTerms}.`.replace(/\.\.$/, '.'));
+  if (!note && profile.iban) conds.push(`IBAN: ${profile.iban}${profile.businessName ? ` - intestato a ${profile.businessName}` : ''}`);
   if (conds.length) block('Condizioni', conds.join('\n'));
   if (doc.notes?.trim()) block('Note', doc.notes.trim());
   if (forf) {
     block('', FORFETTARIO_TEXT, { small: true });
-    if (totals.stamp > 0) block('', BOLLO_TEXT, { small: true });
+    if (totals.stampDue > 0) block('', BOLLO_TEXT, { small: true });
   }
-  if (doc.type === 'fattura') block('', COURTESY_TEXT, { small: true, muted: true });
+  if (draft) block('', DRAFT_TEXT, { small: true });
+  else if (doc.type === 'fattura' && !fiscal) block('', LEGACY_COURTESY_TEXT, { small: true, muted: true });
 
   /* ---------- footer + numeri pagina ---------- */
   const pages = pdf.getNumberOfPages();
@@ -255,7 +309,18 @@ export async function generateDocumentPdf(doc: QuoteDocument, profile: Profile):
       pdf.text(f, M, H - FOOT + 6);
     }
     pdf.text(`Pagina ${i} di ${pages}`, W - M, H - FOOT + 6, { align: 'right' });
+    if (fiscal) {
+      pdf.setFontSize(7).setTextColor(...MUTED);
+      pdf.text(draft ? DRAFT_TEXT : COURTESY_TEXT, W / 2, H - 6, { align: 'center', maxWidth: W - 2 * M });
+    }
+    if (draft) {
+      pdf.saveGraphicsState();
+      pdf.setGState(pdf.GState({ opacity: 0.13 }));
+      pdf.setTextColor(180, 35, 24).setFont('helvetica', 'bold').setFontSize(110);
+      pdf.text('BOZZA', W / 2, H / 2 + 20, { align: 'center', angle: 35 });
+      pdf.restoreGraphicsState();
+    }
   }
 
-  return pdf.output('blob');
+  return pdf;
 }
