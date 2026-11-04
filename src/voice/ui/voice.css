@@ -17,6 +17,8 @@
 .vc-body { display: flex; flex-direction: column; gap: var(--sp-4); }
 .vc-live { min-height: 3.2em; padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); background: var(--c-surface-2); font-size: var(--fs-lg); font-weight: 600; line-height: 1.35; word-break: break-word; }
 .vc-live[data-empty="true"] { color: var(--c-text-2); font-weight: 500; font-size: var(--fs-md); }
+.vc-check { display: flex; align-items: center; gap: var(--sp-2); min-height: var(--touch); cursor: pointer; }
+.vc-check input { width: 22px; height: 22px; flex: none; }
 .vc-hint { color: var(--c-text-2); font-size: var(--fs-sm); margin: 0; }
 .vc-examples { margin: 0; padding-left: 1.1em; color: var(--c-text-2); font-size: var(--fs-sm); display: grid; gap: 2px; }
 .vc-form { display: flex; gap: var(--sp-2); align-items: stretch; }

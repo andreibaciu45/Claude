@@ -26,6 +26,7 @@ const err = (status: number, code: string, message = 'm', headers = {}) => json(
 let token: string | null;
 let account: { email: string; tenantId: string } | null;
 let engine: SyncEngine;
+let client: ReturnType<typeof createApiClient>;
 let store: MemStore;
 let calls: { method: string; path: string; body: unknown }[];
 let handler: Handler;
@@ -57,9 +58,9 @@ beforeEach(async () => {
     calls.push(req);
     return handler(req);
   }) as unknown as typeof fetch;
-  const api = createApiClient({ baseUrl: '/v1', fetchImpl, getToken: () => token, sleep: async () => undefined, maxAttempts: 1 });
+  client = createApiClient({ baseUrl: '/v1', fetchImpl, getToken: () => token, sleep: async () => undefined, maxAttempts: 1 });
   engine = createSyncEngine({
-    api, store, isOnline: () => true, now: () => Date.now(),
+    api: client, store, isOnline: () => true, now: () => Date.now(),
     tokenStore: { get: () => token, set: (t) => { token = t; }, clear: () => { token = null; } },
     accountStore: { get: () => account, set: (a) => { account = a; }, clear: () => { account = null; } },
   });
@@ -139,7 +140,7 @@ const renderCard = async (extra: Partial<ReturnType<typeof me>> = {}) => {
   signIn();
   handler = (r) => (r.path === '/me' && r.method === 'GET' ? json(200, me(extra)) : defaultHandler(r));
   await engine.refreshMe();
-  await act(async () => { root.render(<ToastProvider><DataPrivacyCard engine={engine} api={{ exportData: () => createApiClient({ baseUrl: '/v1', fetchImpl: ((u: string, i: RequestInit) => handler({ method: i?.method ?? 'GET', path: String(u).replace(/^\/v1/, ''), body: undefined })) as unknown as typeof fetch, getToken: () => token }).exportData(), portal: async () => ({ url: 'https://pay.example.test/portal' }) }} /></ToastProvider>); });
+  await act(async () => { root.render(<ToastProvider><DataPrivacyCard engine={engine} api={{ exportData: () => client.exportData(), portal: async () => ({ url: 'https://pay.example.test/portal' }) }} /></ToastProvider>); });
 };
 
 describe('export dei dati', () => {
@@ -267,6 +268,7 @@ describe('AccountView: orologio e termini aggiornati', () => {
     signIn();
     await setMeta('migrated', true);
     termsAcceptanceStore.set({ termsVersion: 'versione-vecchia', dpaVersion: 'versione-vecchia' });
+    await engine.syncNow();
     await act(async () => { view(); });
     expect(host.textContent).toContain('Accetta i Termini aggiornati');
     expect($<HTMLInputElement>('input[type=email]')!.value).toBe('mario@example.it');
@@ -274,6 +276,8 @@ describe('AccountView: orologio e termini aggiornati', () => {
     await submit($('form'));
     await type($<HTMLInputElement>('input[inputmode=numeric]')!, '123456');
     await submit($('form'));
+    await vi.waitFor(() => expect(termsAcceptanceStore.get()?.termsVersion).toBe(TERMS_VERSION));
+    await flush(); await flush();
     expect(calls.find((c) => c.path === '/auth/verify')?.body).toMatchObject({ acceptedTerms: { termsVersion: TERMS_VERSION } });
     expect(host.textContent).not.toContain('Accetta i Termini aggiornati');
   });

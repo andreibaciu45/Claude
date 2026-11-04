@@ -17,6 +17,7 @@ import {
 import { useVoiceInput } from '../provider';
 import type { DocChoice } from '../resolve';
 import type { Command, ScoredCommand } from '../types';
+import { useVoiceFabHidden } from './fabVisibility';
 import './voice.css';
 
 type View =
@@ -53,6 +54,8 @@ export function VoiceCommandWidget() {
   const failures = useRef(0);
   const transcriptRef = useRef('');
   const [kbOpen, setKbOpen] = useState(false);
+  // Home in fase di dettatura: c'è già il microfono grande, il pulsante flottante resta nascosto (vedi fabVisibility.ts).
+  const fabHidden = useVoiceFabHidden();
   const vocabRef = useRef<string[]>([]);
 
   /* ---------- tastiera virtuale: nasconde il pulsante flottante ---------- */
@@ -249,7 +252,7 @@ export function VoiceCommandWidget() {
   return (
     <>
       <button
-        type="button" className="vc-fab" data-state={fabState} data-kb={kbOpen ? 'open' : undefined}
+        type="button" className="vc-fab" hidden={fabHidden} data-state={fabState} data-kb={kbOpen ? 'open' : undefined}
         aria-label={voice.listening ? 'Ferma il comando vocale' : 'Comando vocale: tocca o tieni premuto per parlare'}
         aria-pressed={voice.listening}
         onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
@@ -348,7 +351,7 @@ function ListenView(p: {
           <Button data-autofocus variant={p.listening ? 'danger' : 'primary'} size="lg" onClick={p.listening ? p.onStop : p.onStart} disabled={p.processing}>
             <Icon name="mic" /> {p.processing ? 'Trascrivo…' : p.listening ? 'Ti ascolto… tocca per inviare' : 'Parla'}
           </Button>
-          <div className="vc-live" data-empty={!p.partial} aria-live="polite">
+          <div className="vc-live" data-empty={!p.partial} role="status" aria-live="polite">
             {p.processing ? 'Invio l’audio per la trascrizione…' : p.partial || (p.listening ? 'Parla pure…' : 'Tocca «Parla» e dì un comando.')}
           </div>
         </>
@@ -361,7 +364,7 @@ function ListenView(p: {
       )}
       <CommandForm onSubmit={p.onSubmit} />
       {!p.noVoice && (
-        <label className="row" style={{ gap: 'var(--sp-2)' }}>
+        <label className="vc-check">
           <input type="checkbox" checked={p.preferRecorder} onChange={(e) => p.onPrefer(e.target.checked)} />
           <span className="vc-hint">Cantiere rumoroso: registra e trascrivi con il server{p.usesServer ? ' (attivo)' : ''}</span>
         </label>
