@@ -10,7 +10,7 @@ import { issueTarget, previewNumber, splitIssues } from './model';
 export const DISCLAIMER =
   'Strumento di supporto: la responsabilità fiscale resta tua. Verifica i dati con il tuo commercialista.';
 
-export const IssueIssues = ({ issues, docId, onNavigate }: { issues: ValidationIssue[]; docId: string; onNavigate?: () => void }) => {
+export const IssueIssues = ({ issues, docId, onNavigate, returnTo }: { issues: ValidationIssue[]; docId: string; onNavigate?: () => void; returnTo?: string }) => {
   if (!issues.length) return null;
   return (
     <ul className="iv-issues" aria-label="Controlli prima dell’emissione">
@@ -20,7 +20,8 @@ export const IssueIssues = ({ issues, docId, onNavigate }: { issues: ValidationI
           <li key={`${i.field}-${i.code}-${k}`} className="iv-issue" data-sev={i.severity === 'error' ? 'error' : 'warning'}>
             <strong>{i.severity === 'error' ? 'Da correggere' : 'Attenzione'}</strong>
             <span>{i.message}</span>
-            <Link to={t.to} onClick={onNavigate}>{t.label}</Link>
+            {/* returnTo: dal profilo si torna alla stessa fattura; la bozza è già salvata e non si perde */}
+            <Link to={t.to} state={returnTo ? { returnTo } : undefined} onClick={onNavigate}>{t.label}</Link>
           </li>
         );
       })}
@@ -38,9 +39,11 @@ interface Props {
   issues: ValidationIssue[];
   busy: boolean;
   onIssue: () => void;
+  /** Percorso a cui tornare dopo aver completato il profilo. */
+  returnTo?: string;
 }
 
-export function IssueSheet({ open, onClose, doc, profile, totals, issues, busy, onIssue }: Props) {
+export function IssueSheet({ open, onClose, doc, profile, totals, issues, busy, onIssue, returnTo }: Props) {
   const [ok, setOk] = useState(false);
   useEffect(() => { if (!open) setOk(false); }, [open]);
   const { errors } = splitIssues(issues);
@@ -69,7 +72,7 @@ export function IssueSheet({ open, onClose, doc, profile, totals, issues, busy, 
         </dl>
         {profile.regimeForfettario && <p className="muted" style={{ fontSize: 'var(--fs-sm)', margin: 0 }}>In fattura comparirà: “{FORFETTARIO_TEXT}”{totals.stampDue > 0 ? ` ${BOLLO_TEXT}` : ''}</p>}
 
-        {issues.length > 0 && <IssueIssues issues={issues} docId={doc.id} onNavigate={onClose} />}
+        {issues.length > 0 && <IssueIssues issues={issues} docId={doc.id} onNavigate={onClose} returnTo={returnTo} />}
         {blocked && <p className="iv-note" data-tone="danger" role="alert">Correggi gli errori in rosso per poter emettere la fattura.</p>}
 
         <label className="iv-check">

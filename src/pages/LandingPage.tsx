@@ -163,7 +163,7 @@ export default function LandingPage() {
                 <Badge tone="success">Il più scelto</Badge>
                 <h3 style={{ marginTop: 8 }}>Pro</h3>
                 <div className="lp-price">{eur(PRO_PRICE_MONTH)} <small>al mese</small></div>
-                <p className="lp-muted">oppure {eur(PRO_PRICE_YEAR)} all’anno (due mesi in meno rispetto al mensile).</p>
+                <p className="lp-muted">oppure {eur(PRO_PRICE_YEAR)} all’anno (risparmi {eur(PRO_PRICE_MONTH * 12 - PRO_PRICE_YEAR)} rispetto al mensile).</p>
                 <ul>
                   <li>Documenti illimitati</li>
                   <li>Tutto quello che c’è nel Gratis</li>

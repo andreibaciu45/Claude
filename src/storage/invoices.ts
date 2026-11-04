@@ -10,7 +10,8 @@
  */
 import type { AuditEntry, Customer, DocLine, Profile, QuoteDocument, SdiEvent, ValidationIssue, InvoiceFiscal, DocStatus } from '../types';
 import { uid } from '../types';
-import { invoiceTotalsCents } from './invoiceTotals';
+import { invoiceTotalsCents, CREDIT_NOTE_STAMP_NOTE } from './invoiceTotals';
+export { CREDIT_NOTE_STAMP_NOTE };
 import { creditResidual, effectiveCreditNotes, lineKey } from './creditResidual';
 import { lineTotalCents } from '../../shared/fiscal/money';
 import * as fatturapa from '../../shared/fatturapa';
@@ -421,15 +422,6 @@ export const issueInvoice = async (docId: string): Promise<QuoteDocument> => (aw
 const cents = (n: number): number => Math.round(n * 100);
 
 const CREDITABLE: DocStatus[] = ['emessa', 'inviata', 'consegnata', 'mancata_consegna'];
-
-/**
- * Bollo sulle note di credito [DA VERIFICARE col commercialista]: le fonti sono discordanti (FISCAL-SPEC §1.4).
- * Scelta prudente: il bollo già versato sulla fattura originale NON viene stornato e il rimborso addebitato al cliente
- * non viene restituito dalla nota; la nota ha un proprio bollo (2 €, a carico dell'emittente) solo se il suo
- * imponibile supera 77,47 €, con la stessa regola di una fattura.
- */
-export const CREDIT_NOTE_STAMP_NOTE =
-  'Bollo sulla nota di credito [DA VERIFICARE col commercialista]: il bollo della fattura originale non viene stornato; la nota ha un proprio bollo di 2 € a tuo carico solo se il suo importo supera 77,47 €.';
 
 /** Stato "naturale" di una fattura in base agli esiti SDI registrati (usato quando una nota di credito smette di valere). */
 function statusFromEvents(d: QuoteDocument): DocStatus {

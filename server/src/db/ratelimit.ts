@@ -10,7 +10,7 @@ import { now } from './clock';
 export interface RateLimitResult { ok: boolean; limit: number; remaining: number; retryAfterSec: number; resetAt: number }
 export interface RateLimitStore {
   /** Conta una richiesta sulla chiave. `ok=false` se il limite della finestra è già stato raggiunto (la richiesta NON viene contata). */
-  hit(key: string, limit: number, windowMs: number): RateLimitResult;
+  hit(key: string, limit: number, windowMs: number, cost?: number): RateLimitResult;
   /** Come hit ma senza contare (per controllare un budget prima di un'azione). */
   peek(key: string, limit: number, windowMs: number): RateLimitResult;
   reset?(key?: string): void;
@@ -28,16 +28,17 @@ export class DbRateLimitStore implements RateLimitStore {
     if (!row || t - row.window_start >= windowMs) return result(true, limit, 0, t, windowMs, t);
     return result(row.count < limit, limit, row.count, row.window_start, windowMs, t);
   }
-  hit(key: string, limit: number, windowMs: number): RateLimitResult {
+  hit(key: string, limit: number, windowMs: number, cost = 1): RateLimitResult {
     const t = now();
     const row = one<{ window_start: number; count: number }>('SELECT window_start, count FROM rate_limits WHERE key=?', key);
     if (!row || t - row.window_start >= windowMs) {
-      run('INSERT INTO rate_limits(key, window_start, count) VALUES (?,?,1) ON CONFLICT(key) DO UPDATE SET window_start=excluded.window_start, count=1', key, t);
-      return result(true, limit, 1, t, windowMs, t);
+      if (cost > limit) return result(false, limit, 0, t, windowMs, t);
+      run('INSERT INTO rate_limits(key, window_start, count) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET window_start=excluded.window_start, count=excluded.count', key, t, cost);
+      return result(true, limit, cost, t, windowMs, t);
     }
-    if (row.count >= limit) return result(false, limit, row.count, row.window_start, windowMs, t);
-    run('UPDATE rate_limits SET count = count + 1 WHERE key=?', key);
-    return result(true, limit, row.count + 1, row.window_start, windowMs, t);
+    if (row.count + cost > limit) return result(false, limit, row.count, row.window_start, windowMs, t);
+    run('UPDATE rate_limits SET count = count + ? WHERE key=?', cost, key);
+    return result(true, limit, row.count + cost, row.window_start, windowMs, t);
   }
   reset(key?: string): void {
     if (key) run('DELETE FROM rate_limits WHERE key=?', key); else run('DELETE FROM rate_limits');
@@ -62,7 +63,7 @@ export class MemoryRateLimitStore implements RateLimitStore {
     if (!b || t - b.windowStart >= windowMs) return result(true, limit, 0, t, windowMs, t);
     return result(b.count < limit, limit, b.count, b.windowStart, windowMs, t);
   }
-  hit(key: string, limit: number, windowMs: number): RateLimitResult {
+  hit(key: string, limit: number, windowMs: number, cost = 1): RateLimitResult {
     const t = now();
     let b = this.buckets.get(key);
     if (!b || t - b.windowStart >= windowMs) {
@@ -70,8 +71,8 @@ export class MemoryRateLimitStore implements RateLimitStore {
       this.buckets.set(key, b);
       this.sweep(t);
     }
-    if (b.count >= limit) return result(false, limit, b.count, b.windowStart, windowMs, t);
-    b.count++;
+    if (b.count + cost > limit) return result(false, limit, b.count, b.windowStart, windowMs, t);
+    b.count += cost;
     return result(true, limit, b.count, b.windowStart, windowMs, t);
   }
   reset(key?: string): void {

@@ -8,6 +8,7 @@
  *   Icon({ name, size?, title? })        name: IconName (mic, file, plus, list, box, user, check, x, trash, edit, download, share, search, settings, alert, euro, send, copy, camera, info)
  *   IconButton(props: button props & { label: string; icon: IconName })   bottone icona 48px con aria-label
  *   MicButton({ state: 'idle'|'listening'|'processing', onClick, disabled?, label? })   microfono grande pulsante
+ *   Skeleton({ lines?, blocks?, label? })   segnaposto di caricamento (role=status)
  *   Stat({ label, value, hint? })
  *   Spinner({ label? })
  *   Chip({ selected?, onClick?, children })   pulsante-filtro (aria-pressed)
@@ -79,9 +80,9 @@ export const Badge = ({ tone = 'neutral', children }: { tone?: 'neutral' | 'succ
   <span className="badge" data-tone={tone}>{children}</span>
 );
 
-export const EmptyState = ({ title, text, action }: { title: string; text?: string; action?: React.ReactNode }) => (
+export const EmptyState = ({ title, text, action, icon = 'file' }: { title: string; text?: string; action?: React.ReactNode; icon?: IconName }) => (
   <div className="empty">
-    <svg className="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{PATHS.file}</svg>
+    <svg className="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{PATHS[icon]}</svg>
     <h3>{title}</h3>
     {text && <p>{text}</p>}
     {action && <div style={{ marginTop: 'var(--sp-3)' }}>{action}</div>}
@@ -105,6 +106,14 @@ export const Stat = ({ label, value, hint }: { label: string; value: React.React
   <div className="stat"><span className="stat-label">{label}</span><span className="stat-value">{value}</span>{hint && <span className="field-hint">{hint}</span>}</div>
 );
 
+/** Segnaposto di caricamento: righe di testo e blocchi-scheda. Con prefers-reduced-motion l'effetto shimmer si ferma. */
+export const Skeleton = ({ lines = 3, blocks = 0, label = 'Caricamento…' }: { lines?: number; blocks?: number; label?: string }) => (
+  <div className="skeleton" role="status" aria-label={label} aria-busy="true">
+    {Array.from({ length: blocks }, (_, i) => <div key={`b${i}`} className="sk-block" />)}
+    {Array.from({ length: lines }, (_, i) => <div key={`l${i}`} className="sk-line" data-w={i === lines - 1 ? 'short' : i % 2 ? 'mid' : undefined} />)}
+  </div>
+);
+
 export const Spinner = ({ label = 'Caricamento…' }: { label?: string }) => <span className="spinner" role="status" aria-label={label} />;
 
 export const Chip = ({ selected, onClick, children }: { selected?: boolean; onClick?: () => void; children: React.ReactNode }) => (
@@ -112,10 +121,20 @@ export const Chip = ({ selected, onClick, children }: { selected?: boolean; onCl
 );
 
 export function Segmented<T extends string>({ value, onChange, options, ariaLabel }: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; ariaLabel: string }) {
+  // pattern radiogroup: un solo tab stop (opzione attiva), frecce per cambiare
+  const onKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const dir = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+    if (!dir) return;
+    e.preventDefault();
+    const i = options.findIndex((o) => o.value === value);
+    const next = options[(i + dir + options.length) % options.length];
+    onChange(next.value);
+    requestAnimationFrame(() => e.currentTarget.querySelector<HTMLElement>('[aria-checked="true"]')?.focus());
+  };
   return (
-    <div className="segmented" role="radiogroup" aria-label={ariaLabel}>
+    <div className="segmented" role="radiogroup" aria-label={ariaLabel} onKeyDown={onKey}>
       {options.map((o) => (
-        <button key={o.value} type="button" role="radio" aria-checked={o.value === value} onClick={() => onChange(o.value)}>{o.label}</button>
+        <button key={o.value} type="button" role="radio" aria-checked={o.value === value} tabIndex={o.value === value ? 0 : -1} onClick={() => onChange(o.value)}>{o.label}</button>
       ))}
     </div>
   );
@@ -145,6 +164,17 @@ export const Sheet = ({ open, onClose, title, children }: { open: boolean; onClo
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const el = ref.current;
+    // tastiera virtuale (iOS non ridimensiona il layout): la scheda segue il viewport visivo e il campo a fuoco resta visibile
+    const vv = window.visualViewport;
+    const overlay = el?.parentElement;
+    const fit = () => { if (vv && overlay) overlay.style.setProperty('--kb-inset', `${Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop))}px`); };
+    const onFocusIn = (e: FocusEvent) => {
+      const t = e.target as HTMLElement;
+      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) setTimeout(() => t.scrollIntoView({ block: 'center', behavior: 'auto' }), 250);
+    };
+    fit();
+    vv?.addEventListener('resize', fit); vv?.addEventListener('scroll', fit);
+    el?.addEventListener('focusin', onFocusIn);
     (el?.querySelector<HTMLElement>('[data-autofocus],input,textarea,select') ?? el)?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.stopPropagation(); closeRef.current(); return; }
@@ -156,7 +186,7 @@ export const Sheet = ({ open, onClose, title, children }: { open: boolean; onClo
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     };
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; prev?.focus?.(); };
+    return () => { vv?.removeEventListener('resize', fit); vv?.removeEventListener('scroll', fit); el?.removeEventListener('focusin', onFocusIn); document.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; prev?.focus?.(); };
   }, [open]);
   if (!open) return null;
   return (
@@ -191,7 +221,7 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
     <ToastCtx.Provider value={value}>
       {children}
       <div className="toast-region" role="status" aria-live="polite" aria-atomic="false">
-        {items.map((t) => <div key={t.id} className="toast" data-tone={t.tone}>{t.msg}</div>)}
+        {items.map((t) => <div key={t.id} className="toast" data-tone={t.tone} role={t.tone === 'error' ? 'alert' : undefined}>{t.msg}</div>)}
       </div>
     </ToastCtx.Provider>
   );

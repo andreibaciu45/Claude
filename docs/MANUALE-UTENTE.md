@@ -13,7 +13,7 @@ Per artigiani: idraulici, elettricisti, imbianchini, fabbri... Si legge in dieci
 - Quando il lavoro è finito, trasforma il preventivo in **fattura** e prepara il **file XML** della fattura elettronica e una **copia PDF** da mandare al cliente.
 - Se sbagli una fattura già emessa, prepara la **nota di credito** per annullarla.
 
-Cosa **non** fa: non invia la fattura all'Agenzia delle Entrate, non conserva le fatture "a norma di legge", non paga tasse né bollo, non ti avvisa se superi il limite di ricavi del forfettario.
+Cosa **non** fa: non invia la fattura all'Agenzia delle Entrate, non conserva le fatture "a norma di legge", non paga tasse né bollo, non controlla in modo completo il limite di ricavi del forfettario (se c'è un indicatore, usa solo gli incassi che hai registrato nell'app).
 
 ---
 
@@ -163,7 +163,7 @@ Il modo gratuito è il portale **"Fatture e Corrispettivi"** dell'Agenzia delle 
 5. Dopo un po', lo SDI risponde con un esito. Toccando **Registra esito SDI** scegli:
    - **Consegnata**: tutto a posto, la fattura è arrivata al cliente.
    - **Mancata consegna**: lo SDI non è riuscito a consegnarla (per esempio PEC piena), ma la fattura è comunque **emessa**. Avvisa il cliente e mandagli il PDF.
-   - **Scartata**: lo SDI l'ha rifiutata, quindi **non è emessa**. Va corretta e rinviata **entro 5 giorni** dallo scarto con lo stesso numero e la stessa data. L'app oggi **non** ti guida a correggere il file: **chiama il tuo commercialista**.
+   - **Scartata**: lo SDI l'ha rifiutata, quindi **non è emessa**. Va corretta e rinviata **entro 5 giorni** dallo scarto con lo stesso numero e la stessa data. Se sulla fattura vedi il pulsante **Correggi e rinvia**, usalo: corregge i dati tenendo numero e data e prepara un nuovo file XML da caricare. Oltre i 5 giorni l'app propone invece una nuova fattura collegata. *[DA AGGIORNARE sulla versione finale: la funzione era ancora in lavorazione il 4/11/2026]* In ogni caso, **senti il tuo commercialista**: è lui a dirti come comportarti.
 
 **[SCREENSHOT: scheda "Come inviarla allo SDI"]**
 **[SCREENSHOT: scheda "Registra esito SDI"]**
@@ -225,7 +225,7 @@ Stati di una fattura:
 | Scartata dallo SDI | Rifiutata: non è emessa. Da correggere e rinviare |
 | Stornata | Annullata da una nota di credito |
 
-In cima trovi un **riepilogo** dell'anno: totale fatturato (senza IVA, al netto delle note di credito), un promemoria dei **bolli** del trimestre e quanto resta **da incassare**. Sono solo somme di controllo: **non sostituiscono il lavoro del tuo commercialista**. In particolare l'app **non ti avvisa** se ti avvicini al limite di ricavi del regime forfettario: tienilo d'occhio con lui.
+In cima trovi un **riepilogo** dell'anno: totale fatturato (senza IVA, al netto delle note di credito), un promemoria dei **bolli** del trimestre e quanto resta **da incassare**. Sono solo somme di controllo: **non sostituiscono il lavoro del tuo commercialista**. Il limite di ricavi del regime forfettario (85.000 €) **va tenuto d'occhio con il tuo commercialista**: l'app può mostrarti un indicatore calcolato solo sugli incassi che hai registrato lì dentro, ma non conosce i tuoi ricavi reali. *[DA AGGIORNARE sulla versione finale: l'indicatore era ancora in lavorazione il 4/11/2026]*
 
 Su ogni fattura emessa c'è anche la **Cronologia**: tutto quello che è successo (emessa, XML scaricato, inviata, incassi...). Non si cancella.
 
@@ -235,7 +235,7 @@ Su ogni fattura emessa c'è anche la **Cronologia**: tutto quello che è success
 
 Se **non usi l'account**, i tuoi dati stanno **solo nel telefono**. Se cancelli i dati del browser, perdi il telefono o lo cambi, **perdi tutto**. Quindi:
 
-1. Vai su **Backup** (dalla pagina Documenti o dal menu: l'indirizzo è `/backup`).
+1. Apri la pagina **Backup**. *(Nota per chi scrive il manuale: nella versione attuale non c'è ancora un pulsante che porta a questa pagina; si raggiunge aggiungendo `#/backup` in fondo all'indirizzo dell'app. Va aggiunto un collegamento, per esempio nel Profilo.)*
 2. Tocca **Scarica backup (.json)**. Si salva un file con data nel nome.
 3. **Conservalo in un posto sicuro** (email a te stesso, Google Drive, computer). Fallo ogni tanto, e **sempre prima di cambiare telefono o di cancellare i dati del browser**.
 
@@ -269,7 +269,7 @@ Cose da sapere:
 
 ### Piani e prezzi
 
-C'è un piano **Gratis** (limite di documenti al mese, indicato nella pagina Account) e un piano **Pro** senza limite di documenti. Il Pro si attiva da **Account → Passa a Pro**, con pagamento a carta e disdetta in qualsiasi momento (**Gestisci abbonamento**). I prezzi sono indicati nella pagina Informazioni.
+C'è un piano **Gratis** (con un numero limitato di documenti al mese: nella pagina Account vedi quanti ne hai usati) e un piano **Pro** senza limite di documenti. Il Pro si attiva da **Account → Passa a Pro**, con pagamento a carta e disdetta in qualsiasi momento (**Gestisci abbonamento**). I prezzi sono indicati nella pagina Informazioni.
 
 ---
 

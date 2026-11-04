@@ -40,3 +40,12 @@
 .dl-summary .stat { min-width: 0; }
 .dl-selects { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
 .dl-actions .dl-open { flex: 1; min-height: var(--touch); display: inline-flex; align-items: center; justify-content: center; border-left: 1px solid var(--c-border); color: var(--c-primary); font-weight: 700; font-size: var(--fs-sm); text-decoration: none; }
+
+/* Soglia forfettario (DocumentsPage) */
+.dl-thr { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border: 1px solid var(--c-border); border-radius: var(--r-md); background: var(--c-surface); }
+.dl-thr-head { display: flex; justify-content: space-between; gap: var(--sp-3); align-items: baseline; flex-wrap: wrap; }
+.dl-bar { height: 12px; border-radius: 999px; background: var(--c-surface-2); overflow: hidden; border: 1px solid var(--c-border); }
+.dl-bar > span { display: block; height: 100%; background: var(--c-primary); border-radius: 999px; transition: width .3s; }
+.dl-thr[data-level="warn"] .dl-bar > span { background: var(--c-warning); }
+.dl-thr[data-level="over"] .dl-bar > span { background: var(--c-danger); }
+.iv-history summary { min-height: var(--touch); display: flex; align-items: center; cursor: pointer; color: var(--c-primary); font-weight: 600; }

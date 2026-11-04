@@ -2,3 +2,4 @@ server in ascolto su :8798
 (node:16321) ExperimentalWarning: SQLite is an experimental feature and might change at any time
 (Use `node --trace-warnings ...` to show where the warning was created)
 {"t":"2026-11-04T21:45:05.070Z","request_id":"24cf7936-8af1-4ad0-9ea5-414c907c1eac","tenant_id":null,"method":"GET","path":"/healthz","status":200,"ms":5}
+{"t":"2026-11-04T21:53:03.975Z","request_id":"3458dba2-ff13-42c4-b5d3-31371ff8f6ad","tenant_id":null,"method":"GET","path":"/healthz","status":200,"ms":2}

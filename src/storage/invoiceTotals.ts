@@ -53,3 +53,12 @@ export function invoiceTotalsCents(
 
 /** Importo di riga in euro (centesimi → euro). */
 export const lineEuro = (l: Pick<DocLine, 'qty' | 'unitPrice' | 'discountPct'>): number => lineTotalCents(l) / 100;
+
+/**
+ * Bollo sulle note di credito [DA VERIFICARE col commercialista]: le fonti sono discordanti (FISCAL-SPEC §1.4).
+ * Scelta prudente: il bollo già versato sulla fattura originale NON viene stornato e il rimborso addebitato al cliente
+ * non viene restituito dalla nota; la nota ha un proprio bollo (2 €, a carico dell'emittente) solo se il suo
+ * imponibile supera 77,47 €, con la stessa regola di una fattura.
+ */
+export const CREDIT_NOTE_STAMP_NOTE =
+  'Bollo sulla nota di credito [DA VERIFICARE col commercialista]: il bollo della fattura originale non viene stornato; la nota ha un proprio bollo di 2 € a tuo carico solo se il suo importo supera 77,47 €.';

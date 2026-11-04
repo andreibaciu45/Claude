@@ -8,14 +8,27 @@
   "scope": "./",
   "id": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
   "background_color": "#f3f6f7",
   "theme_color": "#0b5c6b",
-  "categories": ["business", "productivity"],
+  "categories": ["business", "productivity", "finance"],
+  "prefer_related_applications": false,
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Nuovo preventivo", "short_name": "Nuovo", "description": "Detta o scrivi un nuovo preventivo", "url": "./#/", "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Documenti", "short_name": "Documenti", "description": "Preventivi e fatture in archivio", "url": "./#/documenti", "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Listino", "short_name": "Listino", "description": "Materiali, manodopera e servizi", "url": "./#/catalogo", "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Backup dei dati", "short_name": "Backup", "description": "Scarica o ripristina il backup", "url": "./#/backup", "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }] }
+  ],
+  "screenshots": [
+    { "src": "screenshots/home-narrow.png", "sizes": "390x844", "type": "image/png", "form_factor": "narrow", "label": "Nuovo preventivo a voce" },
+    { "src": "screenshots/documenti-narrow.png", "sizes": "390x844", "type": "image/png", "form_factor": "narrow", "label": "Archivio di preventivi e fatture" },
+    { "src": "screenshots/home-wide.png", "sizes": "1280x800", "type": "image/png", "form_factor": "wide", "label": "VocePreventivo su computer" }
   ]
 }

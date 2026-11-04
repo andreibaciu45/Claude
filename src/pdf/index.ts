@@ -3,7 +3,7 @@ import autoTable from 'jspdf-autotable';
 import type { DocLine, Profile, QuoteDocument } from '../types';
 import { documentTotals } from './totals';
 import { lineEuro } from '../storage/invoiceTotals';
-export { documentTotals } from './totals';
+export { documentTotals, draftTotals } from './totals';
 export type { DocTotals } from './totals';
 
 /* ---------- formattazione it-IT (indipendente dall'ICU del browser) ---------- */

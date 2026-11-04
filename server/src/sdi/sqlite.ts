@@ -3,6 +3,7 @@
 import { all, one, registerMigration, run, transaction } from '../db';
 import { appendChange } from '../db/changes';
 import { audit } from '../db/audit';
+import { openDocument } from '../db/seal';
 import type { Job, JobStatus, JobStore, NewJob } from './jobs';
 import type { DocumentSource, DocumentStatusSink, IssuedInvoice, SdiEvent, SdiStore, SubmissionRef } from './types';
 
@@ -66,7 +67,7 @@ export class SqliteDocumentSource implements DocumentSource {
     const r = one<{ status: string; data: string }>(
       `SELECT status, data FROM documents WHERE tenant_id=? AND id=? AND type='fattura' AND deleted_at IS NULL AND locked_at IS NOT NULL`, tenantId, docId);
     if (!r) return null;
-    const d = JSON.parse(r.data) as { invoice?: { xml?: string; fileName?: string } };
+    const d = openDocument(tenantId, JSON.parse(r.data)) as { invoice?: { xml?: string; fileName?: string } };
     if (!d.invoice?.xml) return null;
     return { docId, tenantId, xml: d.invoice.xml, fileName: d.invoice.fileName, status: r.status };
   }
@@ -88,12 +89,13 @@ export class SqliteDocumentSink implements DocumentStatusSink {
       // Una fattura già 'stornata' non regredisce; 'INVIO' non sovrascrive un esito già ricevuto.
       const terminal = new Set(['consegnata', 'mancata_consegna', 'scartata', 'stornata']);
       const status = r.status === 'stornata' || (event.type === 'INVIO' && terminal.has(r.status)) ? r.status : STATUS_BY_EVENT[event.type];
-      const now = Date.now();
+      const now = Math.max(Date.now(), (doc.updatedAt ?? 0) + 1); // mai all'indietro rispetto alla versione che il client ha già visto
       doc.invoice = { ...(doc.invoice ?? {}), sdiEvents: [...events, event] };
       doc.status = status;
       doc.updatedAt = now;
       run('UPDATE documents SET status=?, updated_at=?, data=? WHERE tenant_id=? AND id=?', status, now, JSON.stringify(doc), tenantId, docId);
-      appendChange(tenantId, `sdi:${docId}:${event.type}:${event.at}`, 'document', docId, 'upsert', doc);
+      // Il DB conserva la forma "raw" (campi sensibili ancora cifrati, invariati); il log di sync riceve il documento in chiaro.
+      appendChange(tenantId, `sdi:${docId}:${event.type}:${event.at}`, 'document', docId, 'upsert', openDocument(tenantId, doc as Record<string, any>));
       audit(tenantId, null, 'sdi_event', 'document', docId, { type: event.type, codes: event.errorCodes }, `sdi:${docId}:${event.type}:${event.at}`);
     });
   }

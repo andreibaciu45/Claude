@@ -1,5 +1,7 @@
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+  /* il campo a fuoco non resta nascosto da tab bar/microfono (WCAG 2.4.11) */
+  scroll-padding-top: calc(var(--sat) + 16px); scroll-padding-bottom: calc(var(--stack-top) + 16px); }
 html, body { margin: 0; padding: 0; max-width: 100%; overflow-x: hidden; }
 body {
   background: var(--c-bg); color: var(--c-text);
@@ -15,6 +17,12 @@ a { color: var(--c-primary); text-underline-offset: 3px; }
 img, svg, video { max-width: 100%; }
 table { max-width: 100%; }
 :focus-visible { outline: 3px solid var(--c-focus); outline-offset: 2px; border-radius: 4px; }
+/* Pulsanti con stile inline `all: unset` (listino): l'inline azzera l'outline, qui lo ripristiniamo. */
+button[style*="all: unset"]:focus-visible { outline: 3px solid var(--c-focus) !important; outline-offset: 2px !important; border-radius: var(--r-sm) !important; }
+button[style*="min-width: 28px"] { min-width: 44px !important; min-height: 44px !important; display: inline-grid !important; place-items: center; }
+/* Griglie a 2 colonne inline: i figli possono restringersi (campi tagliati) e a schermo stretto/zoom vanno in colonna. */
+div[style*="grid-template-columns: 1fr 1fr"] > * { min-width: 0; }
+@media (max-width: 400px) { div[style*="grid-template-columns: 1fr 1fr"] { grid-template-columns: minmax(0, 1fr) !important; } }
 button { font: inherit; color: inherit; }
 .visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .muted { color: var(--c-text-2); }
@@ -26,6 +34,18 @@ button { font: inherit; color: inherit; }
 .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
 .grow { flex: 1 1 0; min-width: 0; }
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: var(--sp-3); }
-.sticky-actions { position: sticky; bottom: calc(var(--tabbar-h) + var(--sab) + var(--sp-3)); z-index: 5; }
+.sticky-actions { position: sticky; bottom: calc(var(--bottom-ui) + var(--sp-3)); z-index: 5; margin-right: calc(var(--fab-size) + var(--fab-gap)); /* lascia accanto lo spazio al microfono */ }
 @media (min-width: 900px) { .sticky-actions { bottom: var(--sp-4); } }
+@media (min-width: 1040px) { .sticky-actions { margin-right: 0; } }
+/* Barre azioni con stile inline nelle pagine (es. profilo): stessa regola, senza toccare il TSX. */
+form > div[style*="position: sticky"] { bottom: calc(var(--bottom-ui) + var(--sp-3)) !important; margin-right: calc(var(--fab-size) + var(--fab-gap)); }
+@media (min-width: 900px) { form > div[style*="position: sticky"] { bottom: var(--sp-4) !important; } }
+@media (min-width: 1040px) { form > div[style*="position: sticky"] { margin-right: 0; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+/* Movimento ridotto: niente animazioni di ingresso/pulsazione/transizioni; lo spinner resta (indica attività) ma più lento. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+  .spinner, .mic[data-state="processing"]::after { animation-duration: 1.6s !important; animation-iteration-count: infinite !important; }
+}
+div[style*="overflow-x: auto"] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); padding-right: 24px; }

@@ -3,7 +3,7 @@
 .shell-main {
   flex: 1; width: 100%; max-width: var(--content-w); margin: 0 auto;
   padding: calc(var(--sat) + var(--sp-4)) calc(var(--sp-4) + var(--sar)) var(--sp-5) calc(var(--sp-4) + var(--sal));
-  padding-bottom: calc(var(--tabbar-h) + var(--sab) + var(--sp-5));
+  padding-bottom: calc(var(--bottom-ui) + var(--fab-zone) + var(--sp-4)); /* contenuto mai coperto da tab bar e microfono */
   min-width: 0;
 }
 .shell-footer { text-align: center; font-size: var(--fs-xs); color: var(--c-text-2); padding: var(--sp-5) 0 var(--sp-2); }
@@ -15,7 +15,10 @@
   background: var(--c-surface); border-top: 1px solid var(--c-border);
   padding: 0 var(--sar) var(--sab) var(--sal); box-shadow: var(--shadow-3); }
 .nav-link { flex: 1; min-height: var(--tabbar-h); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  text-decoration: none; color: var(--c-text-2); font-size: var(--fs-xs); font-weight: 600; position: relative; min-width: 0; }
+  text-decoration: none; color: var(--c-text-2); font-size: var(--fs-xs); font-weight: 600; position: relative; min-width: 0; padding: 0 2px; }
+.nav-link > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-link:focus-visible { outline-offset: -5px; }
+@media (max-width: 380px) { .nav-link { font-size: .75rem; } .nav-link svg { width: 24px; height: 24px; } }
 .nav-link svg { width: 26px; height: 26px; }
 .nav-link[aria-current="page"] { color: var(--c-primary); }
 .nav-link[aria-current="page"]::before { content: ""; position: absolute; top: 0; left: 25%; right: 25%; height: 3px; border-radius: 0 0 3px 3px; background: var(--c-accent); }
@@ -38,3 +41,10 @@
 .shell-main { display: flex; flex-direction: column; }
 .shell-footer { margin-top: auto; padding-top: var(--sp-6); display: flex; justify-content: center; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 .shell-footer a { padding: var(--sp-3) var(--sp-2); }
+
+/* Separatori del piè di pagina: niente doppio punto quando il badge di sync è vuoto */
+.shell-footer > span[aria-hidden="true"]:has(+ span[aria-hidden="true"]) { display: none; }
+.shell-footer > span[aria-hidden="true"]:last-child { display: none; }
+.shell-footer a { min-height: 44px; display: inline-flex; align-items: center; }
+/* Gerarchia tipografica: titolo pagina un po' più compatto su schermi stretti */
+@media (max-width: 400px) { h1 { font-size: 1.45rem; } }

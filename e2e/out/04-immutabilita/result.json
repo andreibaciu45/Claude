@@ -1,0 +1,128 @@
+{
+  "name": "04-immutabilita",
+  "status": "FAIL",
+  "checks": [
+    {
+      "name": "bozza: link Modifica presente",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "bozza: pulsante \"Elimina bozza\" presente",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "bozza: modifica salvata",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "bozza eliminata: sparita dall'elenco",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "bozza eliminata: URL diretto \"non trovato\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "emessa 1/2026 (la bozza cancellata non ha consumato il numero)",
+      "ok": true,
+      "detail": "1/2026"
+    },
+    {
+      "name": "emessa: nessun link/pulsante Modifica",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "emessa: nessun pulsante Elimina",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "emessa: nessun pulsante \"Salva modifiche\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "emessa: testo \"non si può modificare né eliminare\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "emessa: nessun link /?edit= nella pagina",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "rotta /?edit=bf6f41b5-d313-4acf-a4f9-6a5f79623175: blocco \"non modificabile\"",
+      "ok": true,
+      "detail": "Documento emesso: non modificabile\n\nUna fattura emessa non si può modificare né eliminare. Per annullarla emetti una nota di credito dalla pagina del "
+    },
+    {
+      "name": "rotta /?edit=bf6f41b5-d313-4acf-a4f9-6a5f79623175: nessun campo di modifica/salvataggio",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "rotta /?edit=bf6f41b5-d313-4acf-a4f9-6a5f79623175&focus=customer.name: blocco \"non modificabile\"",
+      "ok": true,
+      "detail": "Documento emesso: non modificabile\n\nUna fattura emessa non si può modificare né eliminare. Per annullarla emetti una nota di credito dalla pagina del "
+    },
+    {
+      "name": "rotta /?edit=bf6f41b5-d313-4acf-a4f9-6a5f79623175&focus=customer.name: nessun campo di modifica/salvataggio",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "rotta /?edit=bf6f41b5-d313-4acf-a4f9-6a5f79623175&focus=lines%5B0%5D: blocco \"non modificabile\"",
+      "ok": true,
+      "detail": "Documento emesso: non modificabile\n\nUna fattura emessa non si può modificare né eliminare. Per annullarla emetti una nota di credito dalla pagina del "
+    },
+    {
+      "name": "rotta /?edit=bf6f41b5-d313-4acf-a4f9-6a5f79623175&focus=lines%5B0%5D: nessun campo di modifica/salvataggio",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "edit con id inesistente (navigazione interna): messaggio non trovato",
+      "ok": false,
+      "detail": "Documento emesso: non modificabile\n\nUna fattura emessa non si può modificare né eliminare. Per annullarla emetti una nota di credito dalla pagina del documento.\n\nApri il documento\nAccount\n·\n·\nInformaz"
+    },
+    {
+      "name": "edit con id inesistente (dopo ricarica): messaggio non trovato",
+      "ok": true,
+      "detail": "Qualcosa non va\n\nDocumento non trovato.\n\nRiprova\nAccount\n·\n·\nInformazioni\n·\nPrivacy"
+    },
+    {
+      "name": "duplicato: e una bozza senza numero",
+      "ok": true,
+      "detail": "Fattura\n\nn. bozza, senza numero\n\nBozza\n\nBOZZA: non ha ancora un numero e non è stata emessa. Il numero viene assegnato s"
+    },
+    {
+      "name": "IndexedDB: fattura emessa presente con lockedAt",
+      "ok": true,
+      "detail": "vocepreventivo stores=audit,catalog,documents,profile"
+    },
+    {
+      "name": "IndexedDB: bozza cancellata assente",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "elenco: nessun pulsante elimina diretto",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "nessun errore in console / pageerror",
+      "ok": true,
+      "detail": "[]"
+    }
+  ],
+  "consoleErrors": [],
+  "notes": []
+}

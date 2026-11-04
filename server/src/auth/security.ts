@@ -5,6 +5,7 @@ import { secureHeaders } from 'hono/secure-headers';
 import { bodyLimit } from 'hono/body-limit';
 import { randomUUID } from 'node:crypto';
 import { apiError } from './http';
+import { ipRateLimit } from './limits';
 import type { AuthEnv } from './middleware';
 
 export function applySecurity(app: Hono<AuthEnv>): void {
@@ -22,6 +23,7 @@ export function applySecurity(app: Hono<AuthEnv>): void {
     }
   });
   app.use('*', secureHeaders());
+  app.use('*', ipRateLimit); // limite generale per IP (a); i limiti di login sono più severi e stanno nelle rotte
   const origins = (process.env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   if (origins.length) {
     app.use('*', cors({

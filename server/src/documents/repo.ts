@@ -5,14 +5,23 @@ import type { QuoteDocument } from '../../../shared/types';
 import { all, one, run } from '../db';
 import { now } from '../db/clock';
 import { appendChange } from '../db/changes';
+import { openDocument, sealDocument } from '../db/seal';
 
-interface Row { id: string; type: string; status: string; number: string | null; inv_year: number | null; inv_sectional: string | null;
+interface Row { tenant_id: string; id: string; type: string; status: string; number: string | null; inv_year: number | null; inv_sectional: string | null;
   inv_seq: number | null; locked_at: number | null; created_at: number; updated_at: number; deleted_at: number | null; data: string }
 
 export interface DocRecord {
-  id: string; type: string; status: string; lockedAt: number | null; updatedAt: number; deletedAt: number | null; data: QuoteDocument;
+  id: string; type: string; status: string; lockedAt: number | null; updatedAt: number; deletedAt: number | null;
+  /** Documento in chiaro (decifrato). Per un tombstone è il segnaposto `{id, deleted:true}`. */
+  data: QuoteDocument;
+  /** Come è memorizzato (campi sensibili cifrati se APP_ENCRYPTION_KEY è attiva): serve per aggiornare le fatture bloccate senza ricifrare. */
+  raw: Record<string, any>;
 }
-const toRecord = (r: Row): DocRecord => ({ id: r.id, type: r.type, status: r.status, lockedAt: r.locked_at, updatedAt: r.updated_at, deletedAt: r.deleted_at, data: JSON.parse(r.data) as QuoteDocument });
+const toRecord = (r: Row): DocRecord => {
+  const raw = JSON.parse(r.data) as Record<string, any>;
+  return { id: r.id, type: r.type, status: r.status, lockedAt: r.locked_at, updatedAt: r.updated_at, deletedAt: r.deleted_at,
+    data: (r.deleted_at !== null ? raw : openDocument(r.tenant_id, raw)) as unknown as QuoteDocument, raw };
+};
 
 /** Include i soft-deleted (tombstone). */
 export function getDocumentRecord(tenantId: string, id: string): DocRecord | undefined {
@@ -48,7 +57,7 @@ function indexed(doc: QuoteDocument) {
 
 export function upsertDocument(tenantId: string, doc: QuoteDocument, updatedAt: number): void {
   const x = indexed(doc);
-  const json = JSON.stringify(doc);
+  const json = JSON.stringify(sealDocument(tenantId, doc as unknown as Record<string, any>));
   run(`INSERT INTO documents(tenant_id, id, type, status, number, inv_year, inv_sectional, inv_seq, locked_at, created_at, updated_at, deleted_at, data)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?)
        ON CONFLICT(tenant_id, id) DO UPDATE SET status=excluded.status, number=excluded.number, inv_year=excluded.inv_year,
@@ -57,8 +66,15 @@ export function upsertDocument(tenantId: string, doc: QuoteDocument, updatedAt: 
     tenantId, doc.id, doc.type, doc.status, x.number, x.year, x.sectional, x.seq, x.lockedAt, doc.createdAt, updatedAt, json);
 }
 
+/** Cancella (tombstone) una bozza/preventivo: il contenuto viene AZZERATO (diritto alla cancellazione), restano id e tipo per il sync. */
 export function softDeleteDocument(tenantId: string, id: string, at: number): void {
-  run('UPDATE documents SET deleted_at=?, updated_at=? WHERE tenant_id=? AND id=? AND locked_at IS NULL', at, at, tenantId, id);
+  run('UPDATE documents SET deleted_at=?, updated_at=?, data=? WHERE tenant_id=? AND id=? AND locked_at IS NULL',
+    at, at, JSON.stringify({ id, deleted: true }), tenantId, id);
+}
+
+/** Tutti i documenti attivi del tenant, in chiaro (export GDPR). */
+export function allActiveDocuments(tenantId: string): QuoteDocument[] {
+  return all<Row>('SELECT * FROM documents WHERE tenant_id=? AND deleted_at IS NULL ORDER BY created_at, id', tenantId).map((r) => toRecord(r).data);
 }
 
 /**
@@ -71,16 +87,21 @@ export function patchLockedDocument(tenantId: string, id: string, patch: {
 }): boolean {
   const rec = getDocumentRecord(tenantId, id);
   if (!rec || rec.deletedAt !== null || rec.lockedAt === null) return false;
-  const d = JSON.parse(JSON.stringify(rec.data)) as Record<string, any>;
-  if (patch.status) d.status = patch.status;
-  if (d.invoice) {
-    if (patch.sdiEvents) d.invoice.sdiEvents = patch.sdiEvents;
-    if (patch.payments) d.invoice.payments = patch.payments;
-    if (patch.paymentStatus) d.invoice.paymentStatus = patch.paymentStatus;
-  }
   const t = Math.max(now(), rec.updatedAt + 1);
-  d.updatedAt = t;
-  run('UPDATE documents SET status=?, updated_at=?, data=? WHERE tenant_id=? AND id=?', d.status, t, JSON.stringify(d), tenantId, id);
-  appendChange(tenantId, randomUUID(), 'document', id, 'upsert', d);
+  // Si modifica la copia "raw" (campi sensibili ancora cifrati, identici byte per byte: il trigger SQL li confronta) e la copia in chiaro per il log.
+  const apply = (d: Record<string, any>) => {
+    if (patch.status) d.status = patch.status;
+    if (d.invoice) {
+      if (patch.sdiEvents) d.invoice.sdiEvents = patch.sdiEvents;
+      if (patch.payments) d.invoice.payments = patch.payments;
+      if (patch.paymentStatus) d.invoice.paymentStatus = patch.paymentStatus;
+    }
+    d.updatedAt = t;
+    return d;
+  };
+  const raw = apply(JSON.parse(JSON.stringify(rec.raw)));
+  const plain = apply(JSON.parse(JSON.stringify(rec.data)));
+  run('UPDATE documents SET status=?, updated_at=?, data=? WHERE tenant_id=? AND id=?', raw.status, t, JSON.stringify(raw), tenantId, id);
+  appendChange(tenantId, randomUUID(), 'document', id, 'upsert', plain);
   return true;
 }

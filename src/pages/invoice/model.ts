@@ -25,7 +25,8 @@ export const hasRealNumber = (d: Pick<QuoteDocument, 'type' | 'invoice' | 'numbe
 /** Anteprima NON vincolante del numero che verrà assegnato all'emissione. */
 export const previewNumber = (d: Pick<QuoteDocument, 'invoice'>, p: Pick<Profile, 'invoiceYearCounters'>, today = new Date()): string => {
   const inv = d.invoice;
-  const year = inv?.year || today.getFullYear();
+  // l'anno di numerazione è quello della DATA OPERAZIONE (come in emissione), non un anno memorizzato che può essere stale
+  const year = Number(inv?.operationDate?.slice(0, 4)) || inv?.year || today.getFullYear();
   const sect = inv?.sectional || (inv?.tipoDocumento === 'TD04' ? 'NC' : 'FT');
   const next = (p.invoiceYearCounters?.[`${sect}-${year}`] ?? 0) + 1;
   return `${sect === 'NC' ? 'NC' : ''}${next}/${year}`;
@@ -98,14 +99,31 @@ export interface Actions {
   edit: boolean; delete: boolean; duplicate: boolean;
   issue: boolean; downloadXml: boolean; howToSend: boolean; markSent: boolean; recordOutcome: boolean;
   recordPayment: boolean; creditNote: boolean; convertToInvoice: boolean; quoteStatus: boolean; shareCourtesy: boolean;
+  /** Fattura scartata entro 5 giorni: corregge e rigenera l'XML con stesso numero e stessa data. */
+  correctAndResend: boolean;
+  /** Fattura scartata (anche oltre i 5 giorni): nuova fattura collegata con numero nuovo. */
+  resubmitNew: boolean;
 }
 const NONE: Actions = {
   edit: false, delete: false, duplicate: false, issue: false, downloadXml: false, howToSend: false, markSent: false, recordOutcome: false,
   recordPayment: false, creditNote: false, convertToInvoice: false, quoteStatus: false, shareCourtesy: false,
+  correctAndResend: false, resubmitNew: false,
+};
+
+/** true se è passata la finestra di 5 giorni dalla notifica di scarto (NS) più recente. */
+export const windowExpired = (d: Pick<QuoteDocument, 'invoice'>, now: number = Date.now()): boolean => {
+  const ns = [...(d.invoice?.sdiEvents ?? [])].reverse().find((e) => e.type === 'NS');
+  return !!ns && now > ns.at + RESUBMIT_DAYS_MS;
+};
+export const RESUBMIT_DAYS_MS = 5 * 86_400_000;
+/** Scadenza (epoch ms) per rinviare con lo stesso numero, o null. */
+export const resubmitUntil = (d: Pick<QuoteDocument, 'invoice' | 'status'>): number | null => {
+  const ns = d.status === 'scartata' ? [...(d.invoice?.sdiEvents ?? [])].reverse().find((e) => e.type === 'NS') : undefined;
+  return ns ? ns.at + RESUBMIT_DAYS_MS : null;
 };
 
 /** Quali azioni sono disponibili per un documento, in base a tipo e stato. */
-export function availableActions(d: Pick<QuoteDocument, 'type' | 'invoice' | 'status'>): Actions {
+export function availableActions(d: Pick<QuoteDocument, 'type' | 'invoice' | 'status'>, now: number = Date.now()): Actions {
   if (d.type === 'preventivo') {
     return { ...NONE, edit: true, delete: true, duplicate: true, convertToInvoice: true, quoteStatus: true, shareCourtesy: true };
   }
@@ -120,7 +138,9 @@ export function availableActions(d: Pick<QuoteDocument, 'type' | 'invoice' | 'st
     shareCourtesy: true,
     downloadXml: true,
     howToSend: transmitted,
-    markSent: st === 'emessa' || st === 'scartata',
+    markSent: st === 'emessa' || (st === 'scartata' && !windowExpired(d, now)),
+    correctAndResend: st === 'scartata' && !windowExpired(d, now),
+    resubmitNew: st === 'scartata',
     recordOutcome: st === 'emessa' || st === 'inviata' || st === 'mancata_consegna',
     recordPayment: !nc && st !== 'stornata' && st !== 'scartata' && d.invoice!.paymentStatus !== 'pagata',
     creditNote: !nc && (st === 'emessa' || st === 'inviata' || st === 'consegnata' || st === 'mancata_consegna'),
@@ -142,3 +162,14 @@ export const splitIssues = (list: ValidationIssue[]) => ({
 
 export const paidAmount = (d: Pick<QuoteDocument, 'invoice'>): number =>
   Math.round((d.invoice?.payments ?? []).reduce((s, p) => s + p.amount, 0) * 100) / 100;
+
+/** Data operazione più recente tra le fatture EMESSE dello stesso sezionale/anno (esclude il documento stesso). '' se nessuna. */
+export const lastIssuedIso = (all: Pick<QuoteDocument, 'id' | 'type' | 'invoice'>[], d: Pick<QuoteDocument, 'id' | 'invoice'>): string => {
+  const inv = d.invoice;
+  if (!inv) return '';
+  const sect = inv.tipoDocumento === 'TD04' ? 'NC' : 'FT';
+  const year = Number(inv.operationDate?.slice(0, 4)) || inv.year;
+  return all
+    .filter((x) => x.id !== d.id && isFiscalInvoice(x) && !!x.invoice!.lockedAt && x.invoice!.sectional === sect && x.invoice!.year === year)
+    .reduce((m, x) => (x.invoice!.operationDate > m ? x.invoice!.operationDate : m), '');
+};

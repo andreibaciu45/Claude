@@ -10,12 +10,14 @@
  *   c.get('tenantId'), c.get('userId'), c.get('sessionId')
  * Risponde 401 {error:{code:'unauthorized'}} se manca/è invalido/scaduto/revocato il Bearer token.
  * Il token è salvato come SHA-256 (sessions.token_hash); sessione sliding 90 giorni.
+ * Applica anche il rate-limit per tenant (auth/limits.ts): 429 + Retry-After.
  */
 import type { MiddlewareHandler } from 'hono';
 import { one, run } from '../db';
 import { now } from '../db/clock';
 import { safeEqual, sha256Hex } from './crypto';
 import { apiError } from './http';
+import { tenantRateLimit } from './limits';
 
 export type AuthEnv = { Variables: { tenantId: string; userId: string; sessionId: string; requestId: string } };
 
@@ -37,6 +39,8 @@ export const requireAuth: MiddlewareHandler<AuthEnv> = async (c, next) => {
   if (t - s.last_seen_at > TOUCH_EVERY_MS) {
     run('UPDATE sessions SET last_seen_at=?, expires_at=? WHERE id=?', t, t + SESSION_TTL_MS, s.id);
   }
+  const limited = tenantRateLimit(c, s.tenant_id);
+  if (limited) return limited;
   c.set('tenantId', s.tenant_id);
   c.set('userId', s.user_id);
   c.set('sessionId', s.id);

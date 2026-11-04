@@ -4,14 +4,20 @@ import { Badge, Button, Money } from '../../ui';
 import type { DocTotals } from '../../pdf/totals';
 import { fmtDate } from '../../pdf';
 import {
-  AUDIT_LABEL, CHANNEL_LABEL, OUTCOME_LABEL, PAYMENT_LABEL, PAYMENT_TONE, SDI_INFO, availableActions, daysSince, isCreditNote, paidAmount,
+  AUDIT_LABEL, CHANNEL_LABEL, OUTCOME_LABEL, PAYMENT_LABEL, PAYMENT_TONE, SDI_INFO, availableActions, daysSince, isCreditNote, paidAmount, resubmitUntil, windowExpired,
 } from './model';
 import type { Actions } from './model';
 import { SDI_DEADLINE_WARNING } from './SdiSheets';
 
 export interface Handlers {
   onDownloadXml: () => void; onGuide: () => void; onSend: () => void; onOutcome: () => void; onPayment: () => void; onCreditNote: () => void;
+  onCorrect: () => void; onResubmitNew: () => void;
+  /** Scarica una versione precedente dell'XML conservata nello storico. */
+  onDownloadOldXml?: (v: XmlVersionView) => void;
 }
+
+/** Versione precedente dell'XML (vedi `InvoiceFiscalExt.xmlHistory` in src/storage). */
+export interface XmlVersionView { xml?: string; fileName?: string; progressivoInvio?: string; archivedAt: number; reason: 'scartata' | 'sostituita'; xmlSha256?: string }
 
 /** Badge di stato (fiscale + pagamento) di una fattura/nota di credito. */
 export function InvoiceBadges({ doc }: { doc: QuoteDocument }) {
@@ -32,6 +38,9 @@ export interface PanelProps extends Handlers {
   busy: string | null;
   original?: QuoteDocument | null;
   creditNotes: QuoteDocument[];
+  /** Nuova fattura nata da questa (scartata) e, al contrario, la scartata da cui nasce questa. */
+  resubmission?: QuoteDocument | null;
+  resubmissionOf?: QuoteDocument | null;
   now?: Date;
 }
 
@@ -39,17 +48,26 @@ export interface PanelProps extends Handlers {
 export function InvoicePanel(p: PanelProps) {
   const { doc, totals, busy } = p;
   const inv = doc.invoice!;
-  const a: Actions = availableActions(doc);
+  const a: Actions = availableActions(doc, p.now?.getTime());
   const info = SDI_INFO[doc.status] ?? SDI_INFO.emessa;
   const paid = paidAmount(doc);
   const late = (doc.status === 'emessa' || doc.status === 'scartata') && daysSince(inv.operationDate, p.now) > 12;
   const nc = isCreditNote(doc);
+  const until = resubmitUntil(doc);
+  const expired = windowExpired(doc, p.now?.getTime());
+  const history = ((inv as { xmlHistory?: XmlVersionView[] }).xmlHistory ?? []);
   return (
     <section className="card iv-panel" aria-label="Stato della fattura elettronica">
       <div className="iv-badges"><InvoiceBadges doc={doc} /></div>
       <p className="iv-meaning">{info.meaning}</p>
       {late && <p className="iv-note" data-tone="warning" role="alert">Sono passati più di 12 giorni dalla data dell’operazione ({fmtDate(inv.operationDate)}): se non l’hai ancora trasmessa allo SDI verifica i termini con il tuo commercialista.</p>}
-      {doc.status === 'scartata' && <p className="iv-note" data-tone="danger">Se lo scarto dipende da un dato sbagliato, il file va corretto e rigenerato: questa funzione non è ancora disponibile nell’app, chiedi al tuo commercialista.</p>}
+      {doc.status === 'scartata' && (
+        <p className="iv-note" data-tone="danger" role="alert">
+          {expired
+            ? 'Sono passati più di 5 giorni dallo scarto: non si può più rinviare con lo stesso numero e la stessa data. Rifai la fattura come nuova fattura collegata.'
+            : `Correggi i dati e rigenera il file: numero (${inv.number}) e data restano gli stessi. Puoi rinviarla con lo stesso numero fino al ${until ? new Date(until).toLocaleDateString('it-IT') : '—'}.`}
+        </p>
+      )}
       {!nc && doc.status !== 'bozza' && (
         <p className="iv-meaning" aria-label="Incassi">
           Incassato: <strong className="num"><Money value={paid} /></strong> su <strong className="num"><Money value={totals.gross} /></strong>
@@ -63,17 +81,34 @@ export function InvoicePanel(p: PanelProps) {
         {p.creditNotes.map((c) => (
           <Link key={c.id} to={`/documenti/${c.id}`}>Stornata dalla nota di credito n. {c.invoice?.number ?? c.number}{c.invoice?.operationDate ? ` del ${fmtDate(c.invoice.operationDate)}` : ''}</Link>
         ))}
+        {p.resubmission && <Link to={`/documenti/${p.resubmission.id}`}>Rifatta come nuova fattura{p.resubmission.invoice?.number ? ` n. ${p.resubmission.invoice.number}` : ' (bozza)'}</Link>}
+        {p.resubmissionOf && <Link to={`/documenti/${p.resubmissionOf.id}`}>Rifà la fattura scartata n. {p.resubmissionOf.invoice?.number ?? p.resubmissionOf.number} del {p.resubmissionOf.invoice?.operationDate ? fmtDate(p.resubmissionOf.invoice.operationDate) : ''}</Link>}
         {nc && inv.creditNoteReason && <span className="muted">Motivo: {inv.creditNoteReason}</span>}
       </div>
 
       <div className="dv-actions">
         {a.downloadXml && <Button className="span-2" onClick={p.onDownloadXml} disabled={!!busy || !inv.xml}>Scarica XML</Button>}
         {a.howToSend && <Button variant="secondary" className="span-2" onClick={p.onGuide}>Come inviarla allo SDI</Button>}
+        {a.correctAndResend && <Button className="span-2" onClick={p.onCorrect} disabled={!!busy}>Correggi e rinvia</Button>}
+        {a.resubmitNew && !p.resubmission && <Button variant="secondary" className="span-2" onClick={p.onResubmitNew} disabled={!!busy}>{expired ? 'Rifai come nuova fattura' : 'Rifai con un nuovo numero'}</Button>}
         {a.markSent && <Button variant="secondary" onClick={p.onSend} disabled={!!busy}>{doc.status === 'scartata' ? 'Segna come rinviata' : 'Segna come inviata'}</Button>}
         {a.recordOutcome && <Button variant="secondary" onClick={p.onOutcome} disabled={!!busy}>Registra esito SDI</Button>}
         {a.recordPayment && <Button variant="secondary" className="span-2" onClick={p.onPayment} disabled={!!busy}>Registra incasso</Button>}
         {a.creditNote && <Button variant="danger" className="span-2" onClick={p.onCreditNote} disabled={!!busy}>Annulla con nota di credito</Button>}
       </div>
+      {history.length > 0 && (
+        <details className="iv-history">
+          <summary>File XML precedenti conservati ({history.length})</summary>
+          <ul className="stack-sm" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            {history.map((v, i) => (
+              <li key={`${v.archivedAt}-${i}`} className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ fontSize: 'var(--fs-sm)' }}>{v.fileName ?? 'XML'} · {v.reason === 'scartata' ? 'scartato dallo SDI' : 'sostituito prima dell’invio'}</span>
+                {v.xml && p.onDownloadOldXml && <Button size="sm" variant="secondary" onClick={() => p.onDownloadOldXml!(v)}>Scarica</Button>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {(doc.status === 'emessa' || doc.status === 'inviata') && <p className="muted" style={{ fontSize: 'var(--fs-xs)', margin: 0 }}>{SDI_DEADLINE_WARNING}</p>}
       <p className="muted" style={{ fontSize: 'var(--fs-xs)', margin: 0 }}>Documento emesso: non si può modificare né eliminare. Per annullarlo serve una nota di credito.</p>
     </section>

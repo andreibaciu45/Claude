@@ -18,7 +18,7 @@ Il punto delicato, e il motivo di questa revisione: **l'app calcola e scrive da 
 | Assegna il numero progressivo alla fattura solo al momento dell'emissione (per anno, sezionale `FT`; note di credito sezionale `NC`) | **Non conserva a norma.** L'archivio dell'app (sul telefono o sincronizzato) non è conservazione sostitutiva: l'artigiano deve attivare il servizio gratuito dell'Agenzia o un conservatore |
 | Genera l'XML FatturaPA formato FPR12, tipo documento TD01 (fattura) e TD04 (nota di credito), regime RF19, natura N2.2 | **Non è consulenza fiscale** e non garantisce la conformità: lo dichiarano i Termini e le schermate |
 | Calcola il bollo da 2 € oltre 77,47 € e lo scrive nell'XML (`DatiBollo`) | **Non calcola né versa il bollo** (F24 trimestrale): mostra solo un conteggio indicativo |
-| Blocca modifica e cancellazione di una fattura emessa; si corregge con nota di credito | **Non controlla le soglie del regime forfettario** (85.000 € / 100.000 €): oggi non c'è nessun avviso nel programma (vedi checklist, riga E9) |
+| Blocca modifica e cancellazione di una fattura emessa; si corregge con nota di credito | **Non controlla tutte le soglie del regime forfettario**: nella versione base non c'era alcun avviso; è in lavorazione un controllo degli 85.000 € sugli incassi registrati. Non controlla i 100.000 € né le cause di esclusione (checklist E9) |
 | Registra a mano invio, esito SDI (consegnata / mancata consegna / scartata) e incassi | Non legge le ricevute dello SDI da sola: le registra l'utente |
 | Genera una copia PDF "di cortesia" con la dicitura forfettario | Non gestisce: clienti esteri (solo avviso), PA e split payment, ritenute, casse previdenziali, reverse charge, fattura differita, autofatture, regimi diversi da RF19 |
 

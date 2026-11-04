@@ -6,6 +6,7 @@ import { documentTotals, fmtDate, generateDocumentPdf } from '../pdf';
 import { Badge, Button, Card, EmptyState, Input, Money, PageHeader, Select, Stat, useToast } from '../ui';
 import { STATUS_LABEL, STATUS_TONE, downloadBlob, fileNameFor } from './quote/shared';
 import { INVOICE_STATUSES, PAYMENT_LABEL, QUOTE_STATUSES, displayNumber, isCreditNote, isFiscalInvoice, kindLabel } from './invoice/model';
+import { FORFETTARIO_THRESHOLD, docYear, invoiceRegisterCsv, isCounted, stampsByQuarter, thresholdStatus } from './invoice/register';
 import './quote/quote.css';
 import './invoice/invoice.css';
 
@@ -16,11 +17,8 @@ const KIND_OPTS: { v: KindFilter; label: string }[] = [
 ];
 const kindOf = (d: QuoteDocument): KindFilter => (d.type === 'preventivo' ? 'preventivo' : isCreditNote(d) ? 'nota' : 'fattura');
 /** Anno di competenza: anno fiscale per le fatture, anno della data per gli altri. */
-const yearOf = (d: QuoteDocument): number => Number((isFiscalInvoice(d) ? d.invoice!.operationDate : d.date)?.slice(0, 4)) || new Date(d.createdAt).getFullYear();
-const quarterOf = (d: QuoteDocument): number => Math.floor((Number((isFiscalInvoice(d) ? d.invoice!.operationDate : d.date).slice(5, 7)) - 1) / 3) + 1;
-
-/** Fattura/nota emessa e valida ai fini del riepilogo (non bozza, non scartata). */
-const counted = (d: QuoteDocument): boolean => isFiscalInvoice(d) && d.status !== 'bozza' && d.status !== 'scartata';
+const yearOf = docYear;
+const counted = isCounted;
 
 export default function DocumentsPage() {
   const toast = useToast();
@@ -59,18 +57,28 @@ export default function DocumentsPage() {
       .map((d) => ({ d, total: documentTotals(d, forf).gross }));
   }, [docs, q, kind, status, year, forf]);
 
-  /* Riepilogo: solo somme dei documenti dell'archivio, nessun calcolo fiscale. */
+  /* Riepilogo: solo somme dei documenti dell'archivio, nessun calcolo fiscale. Importi sempre da documentTotals (centesimi, come XML e PDF). */
   const summary = useMemo(() => {
     const ys = year === 'tutti' ? thisYear : year;
-    const mine = (docs ?? []).filter((d) => counted(d) && yearOf(d) === ys);
+    const all = docs ?? [];
+    const mine = all.filter((d) => counted(d) && yearOf(d) === ys);
     const inv = mine.filter((d) => !isCreditNote(d));
     const sign = (d: QuoteDocument) => (isCreditNote(d) ? -1 : 1);
-    const net = mine.reduce((s, d) => s + sign(d) * documentTotals(d, forf).net, 0);
+    const netC = mine.reduce((s, d) => s + sign(d) * Math.round(documentTotals(d, forf).net * 100), 0);
     const q4 = Math.floor(new Date().getMonth() / 3) + 1;
-    const stamps = mine.filter((d) => !isCreditNote(d) && d.invoice!.stampDuty && quarterOf(d) === (ys === thisYear ? q4 : quarterOf(d)));
-    const toCollect = inv.filter((d) => d.status !== 'stornata').reduce((s, d) => s + Math.max(0, documentTotals(d, forf).gross - d.invoice!.payments.reduce((a, p) => a + p.amount, 0)), 0);
-    return { ys, count: inv.length, net: Math.round(net * 100) / 100, q4, stamps: stamps.length, stampSum: stamps.reduce((s, d) => s + (d.invoice!.stampAmount || 2), 0), toCollect: Math.round(toCollect * 100) / 100 };
+    const toCollectC = inv.filter((d) => d.status !== 'stornata').reduce((s, d) => s + Math.max(0, Math.round(documentTotals(d, forf).gross * 100) - d.invoice!.payments.reduce((a, p) => a + Math.round(p.amount * 100), 0)), 0);
+    const quarters = stampsByQuarter(all, ys, forf);
+    return { ys, count: inv.length, net: netC / 100, q4, quarters, toCollect: toCollectC / 100, thr: thresholdStatus(all, ys) };
   }, [docs, year, thisYear, forf]);
+
+  const exportCsv = () => {
+    if (!docs) return;
+    const y = year === 'tutti' ? undefined : year;
+    const csv = invoiceRegisterCsv(docs, forf, y);
+    if (csv.split('\r\n').filter(Boolean).length <= 1) { toast('Nessuna fattura emessa da esportare per questo anno.', 'error'); return; }
+    downloadBlob(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }), `registro-fatture-${y ?? 'tutti'}.csv`);
+    toast('Registro esportato (CSV).');
+  };
 
   const pdf = async (d: QuoteDocument) => {
     if (!profile) return;
@@ -111,7 +119,35 @@ export default function DocumentsPage() {
               <Stat label={`Fatture emesse ${summary.ys}`} value={summary.count} />
               <Stat label="Fatturato (imponibile)" value={eur(summary.net)} hint="Al netto delle note di credito" />
               <Stat label="Ancora da incassare" value={eur(summary.toCollect)} />
-              <Stat label={`Bolli ${summary.ys === thisYear ? `${summary.q4}° trimestre` : 'anno'}`} value={`${summary.stamps} · ${summary.stampSum.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })}`} hint="Conteggio indicativo" />
+              {summary.ys === thisYear ? (
+                <Stat label={`Bolli ${summary.q4}° trimestre`} value={`${summary.quarters[summary.q4 - 1].count} · ${(summary.quarters[summary.q4 - 1].cents / 100).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })}`} hint="Fatture e note con bollo, conteggio indicativo" />
+              ) : (
+                <Stat label={`Bolli ${summary.ys} per trimestre`} value={summary.quarters.map((q, i) => `T${i + 1}: ${q.count}`).join(' · ')} hint="Conteggio indicativo" />
+              )}
+            </div>
+            {forf && (
+              <div className="dl-thr" data-level={summary.thr.level} aria-label={`Soglia forfettario ${summary.ys}`}>
+                <div className="dl-thr-head">
+                  <strong>Incassato {summary.ys}</strong>
+                  <span className="num">{eur(summary.thr.collectedCents / 100)} su {eur(FORFETTARIO_THRESHOLD)}</span>
+                </div>
+                <div className="dl-bar" role="progressbar" aria-label={`Incassato ${summary.ys} rispetto alla soglia di ${FORFETTARIO_THRESHOLD.toLocaleString('it-IT')} euro`}
+                  aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, Math.round(summary.thr.ratio * 100))}>
+                  <span style={{ width: `${Math.min(100, summary.thr.ratio * 100)}%` }} />
+                </div>
+                {summary.thr.level === 'warn' && (
+                  <p className="iv-note" data-tone="warning" role="alert">Hai incassato il {Math.round(summary.thr.ratio * 100)}% della soglia di {FORFETTARIO_THRESHOLD.toLocaleString('it-IT')} € ({eur(summary.thr.remainingCents / 100)} ancora disponibili): parlane con il tuo commercialista prima di accettare nuovi lavori [DA VERIFICARE].</p>
+                )}
+                {summary.thr.level === 'over' && (
+                  <p className="iv-note" data-tone="danger" role="alert">Hai raggiunto o superato la soglia di {FORFETTARIO_THRESHOLD.toLocaleString('it-IT')} € nel {summary.ys}: contatta subito il tuo commercialista per capire le conseguenze sul regime forfettario [DA VERIFICARE].</p>
+                )}
+                <p className="muted" style={{ fontSize: 'var(--fs-xs)', margin: 0 }}>
+                  Ricavi “per cassa” (ipotesi [DA VERIFICARE]): solo gli incassi registrati in app con data {summary.ys}, senza note di credito né ricavi non fatturati qui.
+                </p>
+              </div>
+            )}
+            <div className="row" style={{ gap: 'var(--sp-2)' }}>
+              <Button variant="secondary" onClick={exportCsv}>Esporta registro fatture (CSV)</Button>
             </div>
             <p className="muted" style={{ fontSize: 'var(--fs-xs)', margin: 0 }}>Somme dei documenti presenti in app, non un calcolo fiscale: per tasse, soglie e bolli da versare chiedi al tuo commercialista.</p>
           </section>

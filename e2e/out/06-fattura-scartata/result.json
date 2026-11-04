@@ -1,0 +1,93 @@
+{
+  "name": "06-fattura-scartata",
+  "status": "PASS",
+  "checks": [
+    {
+      "name": "emessa 1/2026",
+      "ok": true,
+      "detail": "1/2026"
+    },
+    {
+      "name": "stato mostrato: Scartata",
+      "ok": true,
+      "detail": "Scartata dallo SDI"
+    },
+    {
+      "name": "avviso scarto visibile (testo dedicato)",
+      "ok": true,
+      "detail": "Lo SDI l’ha rifiutata: si considera non emessa. Va corretta e rinviata con lo stesso numero e la stessa data, entro 5 giorni dalla notifica di scarto."
+    },
+    {
+      "name": "cronologia riporta codici di scarto 00311, 00400",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS: la fattura mantiene il numero 1/2026",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS: nessun pulsante Modifica/Elimina (resta immutabile)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS: nessun \"Registra incasso\" su fattura scartata",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS: l'XML e ancora scaricabile",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS: azione \"Segna come rinviata\" offerta",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS: l'app spiega il rinvio entro 5 giorni (CONTRACT-V2: stesso numero/data)",
+      "ok": true,
+      "detail": "testo mostrato: (nessuno)"
+    },
+    {
+      "name": "NS: avviso \"non ancora disponibile\" non contraddice l'azione Segna come rinviata",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NS: nessun pulsante \"Annulla con nota di credito\" (non emessa)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "dopo uno scarto, la fattura successiva e 2/2026 (il numero 1 resta riservato al rinvio)",
+      "ok": true,
+      "detail": "2/2026"
+    },
+    {
+      "name": "dopo rinvio: stato Inviata",
+      "ok": true,
+      "detail": "Inviata allo SDI\nNon pagata"
+    },
+    {
+      "name": "rinvio + RC: Consegnata",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "cronologia contiene INVIO, NS, INVIO, RC (>= 4 eventi SDI)",
+      "ok": true,
+      "detail": "Cronologia | Creata | 04/11/26, 22:54 | Bozza fattura creata | Emessa | 04/11/26, 22:54 | Emessa 1/2026 (IT01234567897_00001.xml) | Avvisi: Riga 1: nel regime forfettario l'IVA è sempre 0: l'aliquota 22% verrà ignorata. Bollo da 2,00 € a tuo carico: ricordati di versarlo (non viene addebitato al cliente). | Segnata come inviata | 04/11/26, 22:54 | Invio allo SDI dichiarato (portale_ade): emessa -> inviata | Esito SDI registrato | 04/11/26, 22:54 | Esito SDI NS [00311, 00400]: inviata -> scartata — Scarto di prova | Segnata come inviata | 04/11/26, 22:54 | Invio allo SDI dichiarato (portale_ade): scartata -> inviata | Esito S"
+    },
+    {
+      "name": "nessun errore in console / pageerror",
+      "ok": true,
+      "detail": "[]"
+    }
+  ],
+  "consoleErrors": [],
+  "notes": []
+}

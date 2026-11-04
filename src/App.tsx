@@ -47,7 +47,7 @@ function Shell() {
         <main className="shell-main" id="main">
           <Outlet />
           <footer className="shell-footer">
-            <Link to="/account">Account</Link><span aria-hidden="true">·</span><SyncBadge /><span aria-hidden="true">·</span><Link to="/info">Informazioni</Link><span aria-hidden="true">·</span><a href={privacyHref}>Privacy</a>
+            <Link to="/backup">Backup</Link><span aria-hidden="true">·</span><Link to="/account">Account</Link><span aria-hidden="true">·</span><SyncBadge /><span aria-hidden="true">·</span><Link to="/info">Informazioni</Link><span aria-hidden="true">·</span><a href={privacyHref}>Privacy</a>
           </footer>
         </main>
       </div>

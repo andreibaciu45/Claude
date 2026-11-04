@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button, Card, Field, Input, PageHeader, Select, Textarea, useToast } from '../ui';
 import { getProfile, saveProfile } from '../storage';
 import type { Profile } from '../types';
@@ -28,8 +29,16 @@ function validate(p: Profile): Errors {
 
 const num = (v: string) => (v.trim() === '' ? NaN : Number(v.replace(',', '.')));
 
+/** Percorso a cui tornare (passato dalla scheda "Emetti" via state): solo documenti interni dell'app. */
+const safeReturn = (state: unknown): string | null => {
+  const r = (state as { returnTo?: unknown } | null)?.returnTo;
+  return typeof r === 'string' && /^\/documenti\/[\w-]+$/.test(r) ? r : null;
+};
+
 export default function ProfilePage() {
   const toast = useToast();
+  const returnTo = safeReturn(useLocation().state);
+  const nav = useNavigate();
   const [p, setP] = useState<Profile | null>(null);
   const [errors, setErrors] = useState<Errors>({});
   const [saving, setSaving] = useState(false);
@@ -75,6 +84,7 @@ export default function ProfilePage() {
       setP(clean);
       setDirty(false);
       toast('Dati azienda salvati');
+      if (returnTo) nav(returnTo); // si torna alla fattura da emettere: la bozza non è stata toccata
     } catch { toast('Salvataggio non riuscito'); } finally { setSaving(false); }
   };
 
@@ -83,6 +93,12 @@ export default function ProfilePage() {
   return (
     <div>
       <PageHeader title="Dati azienda" subtitle="Compaiono nell'intestazione di preventivi e fatture" />
+      {returnTo && (
+        <p className="iv-note" data-tone="info" role="note" style={{ margin: '0 16px 12px' }}>
+          Completa i dati richiesti per emettere la fattura e salva: tornerai alla bozza, che resta com’è.{' '}
+          <Link to={returnTo} replace>Torna alla fattura senza salvare</Link>
+        </p>
+      )}
       <form onSubmit={submit} style={s.page} noValidate>
         <Card>
           <div style={{ ...s.col, padding: 12 }}>

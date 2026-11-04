@@ -11,6 +11,7 @@ import { fakeCreditNote, fakeDoc, fakeInvoice, fakeProfile } from '../pdf/fixtur
 const store = vi.hoisted(() => ({
   getDocument: vi.fn(), getProfile: vi.fn(), listDocuments: vi.fn(), listAudit: vi.fn(), saveDocument: vi.fn(), deleteDocument: vi.fn(),
   nextDocumentNumber: vi.fn(), issueInvoice: vi.fn(), createCreditNote: vi.fn(), createInvoiceFromQuote: vi.fn(), recordPayment: vi.fn(), recordSdiEvent: vi.fn(),
+  appendAudit: vi.fn(), reopenRejectedInvoice: vi.fn(), createResubmissionDraft: vi.fn(),
 }));
 vi.mock('../storage', () => store);
 const validate = vi.hoisted(() => vi.fn<() => ValidationIssue[]>(() => []));
@@ -51,6 +52,8 @@ const hold = (ms: number) => {
 const draft = () => fakeInvoice({ status: 'bozza', invoice: { ...fakeInvoice().invoice!, number: undefined, lockedAt: undefined } });
 
 beforeEach(() => {
+  // jsdom non ha scrollIntoView (la scheda lo usa quando un campo prende il fuoco)
+  Element.prototype.scrollIntoView = vi.fn();
   Object.values(store).forEach((f) => f.mockReset());
   validate.mockReset(); validate.mockReturnValue([]);
   host = document.createElement('div');

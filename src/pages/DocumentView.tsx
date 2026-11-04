@@ -3,27 +3,27 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { AuditEntry, DocLine, DocStatus, Profile, QuoteDocument, QuoteStatus, SdiEvent, ValidationIssue } from '../types';
 import { uid } from '../types';
 import {
-  createCreditNote, createInvoiceFromQuote, deleteDocument, getDocument, getProfile, issueInvoice, listAudit, listDocuments,
-  nextDocumentNumber, recordPayment, recordSdiEvent, saveDocument,
+  appendAudit, createCreditNote, createInvoiceFromQuote, createResubmissionDraft, deleteDocument, getDocument, getProfile, issueInvoice, listAudit,
+  listDocuments, nextDocumentNumber, recordPayment, recordSdiEvent, reopenRejectedInvoice, saveDocument,
 } from '../storage';
 import { validateInvoiceForIssue } from '../../shared/fatturapa';
 import {
-  BOLLO_TEXT, COURTESY_TEXT, DRAFT_TEXT, FORFETTARIO_TEXT, creditNoteLines, docTitle, documentTotals, fmtDate, fmtNum, fmtQty, generateDocumentPdf,
+  BOLLO_TEXT, COURTESY_TEXT, DRAFT_TEXT, FORFETTARIO_TEXT, creditNoteLines, docTitle, documentTotals, draftTotals, fmtDate, fmtNum, fmtQty, generateDocumentPdf, lineAmount,
 } from '../pdf';
 import { Badge, Button, EmptyState, Money, PageHeader, Select, Sheet, useToast } from '../ui';
 import { STATUS_LABEL, STATUS_TONE, canShareFiles, downloadBlob, fileNameFor, sharePdf, shareText, todayIso, waNumber } from './quote/shared';
-import { lineTotal } from './quote/QuoteEditor';
 import { CreditNoteSheet } from './invoice/CreditNoteSheet';
 import { InvoiceBadges, InvoicePanel, Timeline } from './invoice/InvoicePanel';
 import { IssueSheet } from './invoice/IssueSheet';
+import { CorrectRejectedSheet, ResubmitNewSheet } from './invoice/RejectedSheets';
 import { PaymentSheet, SdiEventSheet, SdiGuideSheet } from './invoice/SdiSheets';
 import {
-  QUOTE_STATUSES, availableActions, daysSince, displayNumber, isCreditNote, isDraftInvoice, isFiscalInvoice, isLegacyInvoice, kindLabel, newInvoiceFiscal, paidAmount,
+  QUOTE_STATUSES, availableActions, daysSince, displayNumber, isCreditNote, isDraftInvoice, isFiscalInvoice, isLegacyInvoice, kindLabel, lastIssuedIso, newInvoiceFiscal, paidAmount, windowExpired,
 } from './invoice/model';
 import './quote/quote.css';
 import './invoice/invoice.css';
 
-type SheetName = 'issue' | 'credit' | 'guide' | 'send' | 'outcome' | 'payment' | 'delete' | 'convert' | null;
+type SheetName = 'issue' | 'credit' | 'guide' | 'send' | 'outcome' | 'payment' | 'delete' | 'convert' | 'correct' | 'resubmit' | null;
 const LEGACY_STATUSES: DocStatus[] = ['bozza', 'inviato', 'pagato'];
 
 /** Estrae le segnalazioni da un InvoiceValidationError (duck typing: funziona anche tra moduli/mock). */
@@ -45,9 +45,10 @@ export default function DocumentView() {
   const [serverIssues, setServerIssues] = useState<ValidationIssue[]>([]);
   const [audit, setAudit] = useState<AuditEntry[] | null>(null);
   const [auditError, setAuditError] = useState(false);
-  const [related, setRelated] = useState<{ original: QuoteDocument | null; creditNotes: QuoteDocument[]; quote: QuoteDocument | null; invoice: QuoteDocument | null }>({
-    original: null, creditNotes: [], quote: null, invoice: null,
-  });
+  const [related, setRelated] = useState<{
+    original: QuoteDocument | null; creditNotes: QuoteDocument[]; quote: QuoteDocument | null; invoice: QuoteDocument | null;
+    resubmission: QuoteDocument | null; resubmissionOf: QuoteDocument | null; lastIssued: string;
+  }>({ original: null, creditNotes: [], quote: null, invoice: null, resubmission: null, resubmissionOf: null, lastIssued: '' });
 
   const loadExtras = useCallback(async (d: QuoteDocument) => {
     if (d.type === 'fattura' && isFiscalInvoice(d)) {
@@ -60,6 +61,9 @@ export default function DocumentView() {
         creditNotes: all.filter((x) => x.invoice?.originalDocumentId === d.id),
         quote: d.convertedFromQuoteId ? all.find((x) => x.id === d.convertedFromQuoteId) ?? null : null,
         invoice: d.convertedToInvoiceId ? all.find((x) => x.id === d.convertedToInvoiceId) ?? null : null,
+        resubmission: all.find((x) => x.invoice?.resubmissionOf === d.id) ?? null,
+        resubmissionOf: d.invoice?.resubmissionOf ? all.find((x) => x.id === d.invoice!.resubmissionOf) ?? null : null,
+        lastIssued: lastIssuedIso(all, d),
       });
     } catch { /* i collegamenti sono un extra: la pagina funziona anche senza */ }
   }, []);
@@ -79,8 +83,8 @@ export default function DocumentView() {
   const totals = useMemo(() => (doc && profile ? documentTotals(doc, profile.regimeForfettario) : null), [doc, profile]);
   const localIssues = useMemo<ValidationIssue[]>(() => {
     if (!doc || !profile || !isDraftInvoice(doc)) return [];
-    try { return validateInvoiceForIssue(doc, profile); } catch { return []; }
-  }, [doc, profile]);
+    try { return validateInvoiceForIssue(doc, profile, related.lastIssued ? { lastIssuedDate: related.lastIssued } : {}); } catch { return []; }
+  }, [doc, profile, related.lastIssued]);
   const issues = useMemo(() => {
     const seen = new Set(localIssues.map((i) => `${i.field}|${i.code}`));
     return [...localIssues, ...serverIssues.filter((i) => !seen.has(`${i.field}|${i.code}`))];
@@ -139,9 +143,25 @@ export default function DocumentView() {
   const downloadXml = () => {
     if (!inv?.xml) { toast('XML non disponibile per questo documento.', 'error'); return; }
     downloadBlob(new Blob([inv.xml], { type: 'application/xml' }), inv.fileName || `${num.replace(/[^\w-]+/g, '_')}.xml`);
-    toast(daysSince(inv.operationDate) > 12 && doc.status === 'emessa'
+    const late = daysSince(inv.operationDate) > 12 && (doc.status === 'emessa' || doc.status === 'scartata');
+    toast(late
       ? 'XML scaricato. Attenzione: sono passati più di 12 giorni dalla data dell’operazione.'
       : 'XML scaricato: ora caricalo sul portale dell’Agenzia delle Entrate.');
+    // registro (append-only): il download dell'XML lascia traccia; oltre i 12 giorni lo scrive anche (FISCAL-SPEC §1.5)
+    void (async () => {
+      try {
+        await appendAudit({
+          docId: doc.id, action: 'download_xml', xmlSha256: inv.xmlSha256,
+          detail: `Scaricato ${inv.fileName ?? 'XML'}${late ? ` — attenzione: oltre 12 giorni dalla data operazione (${inv.operationDate})` : ''}`,
+        });
+        setAudit(await listAudit(doc.id));
+      } catch { /* il registro non deve bloccare il download */ }
+    })();
+  };
+
+  const downloadOldXml = (v: { xml?: string; fileName?: string }) => {
+    if (!v.xml) return;
+    downloadBlob(new Blob([v.xml], { type: 'application/xml' }), v.fileName || 'xml-precedente.xml');
   };
 
   const duplicate = () => run('dup', async () => {
@@ -149,7 +169,7 @@ export default function DocumentView() {
     const lines = doc.lines.map((l) => ({ ...l, id: uid() }));
     let copy: QuoteDocument;
     if (fiscal) {
-      const t = documentTotals({ lines, type: 'fattura', invoice: undefined }, forf);
+      const t = draftTotals(lines, 'fattura', forf, false);
       const c = { ...doc.customer };
       copy = {
         ...doc, id: uid(), number: '', date: todayIso(), status: 'bozza', lines, createdAt: now, updatedAt: now,
@@ -199,6 +219,25 @@ export default function DocumentView() {
     nav(`/documenti/${created.id}`);
   }, 'Nota di credito non riuscita.');
 
+  const correctRejected = (patch: { customer?: QuoteDocument['customer']; lines?: DocLine[]; notes?: string }) => run('correct', async () => {
+    try {
+      const upd = await reopenRejectedInvoice(doc.id, patch);
+      setServerIssues([]); setSheet(null); apply(upd);
+      toast('File XML rigenerato con lo stesso numero e la stessa data. Scaricalo e rinvialo.', 'success');
+    } catch (e) {
+      const list = issuesOf(e);
+      if (!list) throw e;
+      toast(list.find((i) => i.severity === 'error')?.message ?? 'Ci sono dati da correggere.', 'error');
+    }
+  }, 'Correzione non riuscita.');
+
+  const resubmitNew = () => run('resubmit', async () => {
+    const created = await createResubmissionDraft(doc.id);
+    setSheet(null);
+    toast('Creata la nuova bozza collegata', 'success');
+    nav(`/documenti/${created.id}`);
+  }, 'Non sono riuscito a creare la nuova bozza.');
+
   const saveSdi = (ev: SdiEvent) => run('sdi', async () => {
     const upd = await recordSdiEvent(doc.id, ev);
     setSheet(null); apply(upd);
@@ -238,6 +277,8 @@ export default function DocumentView() {
 
       {issued && <InvoicePanel
         doc={doc} totals={totals} busy={busy} original={related.original} creditNotes={related.creditNotes}
+        resubmission={related.resubmission} resubmissionOf={related.resubmissionOf}
+        onCorrect={() => setSheet('correct')} onResubmitNew={() => setSheet('resubmit')} onDownloadOldXml={downloadOldXml}
         onDownloadXml={downloadXml} onGuide={() => setSheet('guide')} onSend={() => setSheet('send')} onOutcome={() => setSheet('outcome')}
         onPayment={() => setSheet('payment')} onCreditNote={() => setSheet('credit')}
       />}
@@ -317,7 +358,7 @@ export default function DocumentView() {
                   {l.discountPct ? ` (−${fmtNum(l.discountPct, l.discountPct % 1 ? 1 : 0)}%)` : ''}
                   {!forf ? ` · IVA ${l.vat}%` : ''}
                 </span>
-                <strong className="num"><Money value={lineTotal(l)} /></strong>
+                <strong className="num"><Money value={lineAmount(l)} /></strong>
               </div>
             </div>
           ))}
@@ -376,14 +417,20 @@ export default function DocumentView() {
         </div>
       </Sheet>
 
-      {draftInv && <IssueSheet open={sheet === 'issue'} onClose={() => setSheet(null)} doc={doc} profile={profile} totals={totals} issues={issues} busy={busy === 'issue'} onIssue={() => void issue()} />}
+      {draftInv && <IssueSheet open={sheet === 'issue'} onClose={() => setSheet(null)} returnTo={`/documenti/${doc.id}`} doc={doc} profile={profile} totals={totals} issues={issues} busy={busy === 'issue'} onIssue={() => void issue()} />}
       {issued && (
         <>
           <SdiGuideSheet open={sheet === 'guide'} onClose={() => setSheet(null)} fileName={inv?.fileName} />
           <SdiEventSheet open={sheet === 'send'} mode="send" onClose={() => setSheet(null)} busy={busy === 'sdi'} onSave={saveSdi} />
           <SdiEventSheet open={sheet === 'outcome'} mode="outcome" onClose={() => setSheet(null)} busy={busy === 'sdi'} onSave={saveSdi} />
           <PaymentSheet open={sheet === 'payment'} onClose={() => setSheet(null)} doc={doc} residual={residual} busy={busy === 'pay'} onSave={savePayment} />
-          {act.creditNote && <CreditNoteSheet open={sheet === 'credit'} onClose={() => setSheet(null)} doc={doc} busy={busy === 'credit'} onCreate={makeCreditNote} />}
+          {act.creditNote && <CreditNoteSheet open={sheet === 'credit'} onClose={() => setSheet(null)} doc={doc} busy={busy === 'credit'} creditNotes={related.creditNotes} forfettario={forf} onCreate={makeCreditNote} />}
+          {doc.status === 'scartata' && (
+            <>
+              <CorrectRejectedSheet open={sheet === 'correct'} onClose={() => setSheet(null)} doc={doc} profile={profile} busy={busy === 'correct'} onSubmit={(pt) => void correctRejected(pt)} />
+              <ResubmitNewSheet open={sheet === 'resubmit'} onClose={() => setSheet(null)} doc={doc} expired={windowExpired(doc)} busy={busy === 'resubmit'} onConfirm={() => void resubmitNew()} />
+            </>
+          )}
         </>
       )}
     </div>
