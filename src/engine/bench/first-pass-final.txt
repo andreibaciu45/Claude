@@ -1,0 +1,25 @@
+== CIECO: frasi 293/293 (100.0%), righe 373/373 (100.0%)
+   per mestiere: idraulico 46/46, elettricista 49/49, imbianchino 50/50, serramentista 48/48, muratore 48/48, manutentore 52/52
+   per categoria: base 195/195, prezzo 21/21, cliente 20/20, sconto 12/12, iva 13/13, unita 11/11, prev 5/5, doppia 6/6, refuso 3/3, mani 5/5, misure 2/2
+
+== FINALE: frasi 74/80 (92.5%), righe 138/145 (95.2%)
+   per mestiere: idraulico 16/17, elettricista 15/16, imbianchino 11/13, serramentista 10/11, muratore 11/11, manutentore 11/12
+   per categoria: base 46/48, prezzo 5/6, unita 3/3, iva 4/4, sconto 4/4, cliente 8/10, prev 1/1, doppia 2/2, mani 1/1, misure 0/1
+[elettricista] "2 plafoniere e 4 applique per Giulio Cesare Barbieri"
+     cliente null != Giulio Cesare Barbieri; riga 2: id undefined != e-applique
+     -> e-plafo×2pz | ?×4pz
+[imbianchino] "controparete in cartongesso 14 metri quadri con lana di roccia"
+     numero righe 1 != 2; riga 1: id m-lana != m-cg-controparete; riga 2: riga mancante
+     -> m-lana×14mq
+[imbianchino] "ottocento euro a corpo per tinteggiatura vano scale"
+     riga 1: prezzo 900 != 800
+     -> m-tint-scale×1corpo
+[serramentista] "per il signor Elia Caruso quattro finestre pvc 100 per 120 e una portafinestra"
+     riga 1: id undefined != s-fin-pvc
+     -> ?×4pz | s-portafin×1pz cli=Elia Caruso
+[manutentore] "due split 12000 btu e dodici metri di linea frigorifera"
+     numero righe 3 != 2; riga 1: id c-split9 != c-split12; riga 2: id c-split9 != c-linea; riga 2: qty 12000 != 12; riga 2: unit pz != m
+     -> c-split9×2pz | c-split9×12000pz | c-linea×12m
+[idraulico] "fai la fattura a Mario Esposito per quattro ore di manodopera"
+     cliente null != Mario Esposito
+     -> i-man×4h lo=[fai la|a Mario Esposito per]

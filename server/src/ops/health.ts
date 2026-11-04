@@ -1,0 +1,100 @@
+// Controlli per GET /health/deep: DB scrivibile, migrazioni applicate, spazio su disco, eta' dell'ultimo backup (se BACKUP_DIR e' noto), manutenzione.
+import { readdirSync, statSync, statfsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { all, getDb } from '../db';
+import { now } from '../db/clock';
+import { listMigrations } from '../db/migrations';
+import { getState, lastHousekeepingAt, setState } from './stats';
+import { isDraining } from './state';
+
+export type CheckStatus = 'ok' | 'warn' | 'fail';
+export interface Check { status: CheckStatus; detail?: Record<string, string | number | boolean | null> }
+export interface DeepHealth { status: 'ok' | 'degraded' | 'fail'; checks: Record<string, Check> }
+
+const envNum = (name: string, def: number) => { const n = Number(process.env[name]); return Number.isFinite(n) && n > 0 ? n : def; };
+
+let backupCache: { at: number; value: number | null } | null = null;
+/** Istante (ms) dell'ultimo file in BACKUP_DIR (qualunque file non nascosto), oppure null se non configurato o vuoto. */
+export function lastBackupAt(): number | null {
+  const dir = process.env.BACKUP_DIR;
+  if (!dir) return null;
+  const t = Date.now();
+  if (backupCache && t - backupCache.at < 30_000) return backupCache.value;
+  let newest: number | null = null;
+  try {
+    for (const f of readdirSync(dir)) {
+      if (f.startsWith('.')) continue;
+      try { const s = statSync(join(dir, f)); if (s.isFile() && (newest === null || s.mtimeMs > newest)) newest = s.mtimeMs; } catch { /* file sparito */ }
+    }
+  } catch { newest = null; }
+  backupCache = { at: t, value: newest };
+  return newest;
+}
+export function backupAgeSeconds(): number | null {
+  const at = lastBackupAt();
+  return at === null ? null : Math.max(0, (Date.now() - at) / 1000);
+}
+export const resetBackupCache = (): void => { backupCache = null; };
+
+function checkDbWrite(): Check {
+  try {
+    setState('health_probe', String(now()));
+    getDb().prepare('SELECT 1').get();
+    return { status: 'ok' };
+  } catch { return { status: 'fail', detail: { error: 'scrittura non riuscita (disco pieno, DB bloccato o in sola lettura?)' } }; }
+}
+
+function checkMigrations(): Check {
+  try {
+    const applied = new Set(all<{ version: number }>('SELECT version FROM schema_migrations').map((r) => r.version));
+    const expected = listMigrations();
+    const missing = expected.filter((m) => !applied.has(m.version)).map((m) => m.version);
+    const latest = Math.max(0, ...applied);
+    return missing.length ? { status: 'fail', detail: { latest, missing: missing.join(',') } } : { status: 'ok', detail: { latest, expected: expected.length } };
+  } catch { return { status: 'fail', detail: { error: 'tabella migrazioni illeggibile' } }; }
+}
+
+function checkDisk(): Check {
+  const path = process.env.DB_PATH || './data/app.sqlite';
+  if (path === ':memory:') return { status: 'ok', detail: { note: 'db in memoria' } };
+  try {
+    const s = statfsSync(dirname(path));
+    const free = Number(s.bavail) * Number(s.bsize), total = Number(s.blocks) * Number(s.bsize);
+    const pct = total > 0 ? (free / total) * 100 : 100;
+    const critMb = envNum('DISK_CRIT_FREE_MB', 200), warnMb = envNum('DISK_WARN_FREE_MB', 1024);
+    const mb = free / 1048576;
+    const status: CheckStatus = mb < critMb || pct < 3 ? 'fail' : mb < warnMb || pct < 10 ? 'warn' : 'ok';
+    return { status, detail: { freeMb: Math.round(mb), freePercent: Math.round(pct * 10) / 10 } };
+  } catch { return { status: 'warn', detail: { error: 'spazio su disco non leggibile' } }; }
+}
+
+function checkBackup(): Check {
+  if (!process.env.BACKUP_DIR) return { status: 'ok', detail: { note: 'BACKUP_DIR non impostata: eta\' del backup non verificabile' } };
+  const at = lastBackupAt();
+  if (at === null) return { status: 'warn', detail: { error: 'nessun file di backup trovato' } };
+  const ageH = (Date.now() - at) / 3_600_000;
+  const maxH = envNum('BACKUP_MAX_AGE_HOURS', 36);
+  return { status: ageH > maxH ? 'warn' : 'ok', detail: { ageHours: Math.round(ageH * 10) / 10, maxHours: maxH } };
+}
+
+function checkMaintenance(): Check {
+  const last = lastHousekeepingAt();
+  const upH = process.uptime() / 3600;
+  if (last === null) return { status: upH > 2 ? 'warn' : 'ok', detail: { note: 'ancora nessuna pulizia periodica' } };
+  const ageH = (now() - last) / 3_600_000;
+  return { status: ageH > 3 && upH > 3 ? 'warn' : 'ok', detail: { ageHours: Math.round(ageH * 10) / 10, lastVacuum: getState('last_vacuum_at') ?? null } };
+}
+
+export function deepHealth(): DeepHealth {
+  const checks: Record<string, Check> = {
+    db_write: checkDbWrite(), migrations: checkMigrations(), disk: checkDisk(), backup: checkBackup(), maintenance: checkMaintenance(),
+  };
+  if (isDraining()) checks.shutdown = { status: 'fail', detail: { note: 'arresto in corso' } };
+  const sts = Object.values(checks).map((c) => c.status);
+  return { status: sts.includes('fail') ? 'fail' : sts.includes('warn') ? 'degraded' : 'ok', checks };
+}
+
+/** Versione per chi non e' autenticato: solo gli stati, senza numeri ne' percorsi. */
+export const redactHealth = (h: DeepHealth): DeepHealth => ({
+  status: h.status, checks: Object.fromEntries(Object.entries(h.checks).map(([k, c]) => [k, { status: c.status }])),
+});
