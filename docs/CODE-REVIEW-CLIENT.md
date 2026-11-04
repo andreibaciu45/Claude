@@ -86,6 +86,11 @@ Correzione: `LocalStore.saveRemoteDocument` opzionale (agganciato a `storage.sav
 
   **Stato: CORRETTO (SYNC-3), cablato su `importAuditEntries` dello storage.** `applyRemote` importa le voci di audit di altri dispositivi tramite `StorageHooks.importAuditEntries`; alla prima sincronizzazione con la funzione disponibile il cursor riparte da 0 una volta sola (`meta.auditBackfill`) per recuperare le voci saltate in passato. Senza la funzione: comportamento invariato (voci non importate, nessun errore).
 
+> **CHIUSO il 04/11/2026 (S10).** `importAuditEntries` è in `src/storage/index.ts`, collegata a `applyRemote` in `src/sync/engine.ts` tramite `StorageHooks`; backfill una tantum con `meta.auditBackfill`.
+>
+> **CHIUSO il 04/11/2026 (S11).** `isMassRemoteDelete` in `src/sync/engine.ts` (nel pull e nel push) applica la stessa soglia di `detectMassDelete` (`src/sync/snapshot.ts`): oltre soglia i tombstone non vengono applicati e il motivo è nel registro (`remoteIgnored`). Dettagli in `docs/CODE-REVIEW-2.md`, §3. Limite: le cancellazioni già applicate prima del superamento della soglia non vengono ripristinate.
+
+
 ## Cosa ho controllato e NON ho trovato
 
 **Sync**

@@ -1,3 +1,5 @@
+Ultimo allineamento al codice: 04/11/2026
+
 # PWA: installazione, aggiornamenti e avviso privacy sulla voce
 
 ## 1. Installazione
@@ -21,6 +23,13 @@ try { await issueInvoice(id); } finally { unregisterBusy('invoice-issue'); }
 ```
 Chiavi consigliate: `invoice-issue` (emissione fattura/nota di credito: **mai** aggiornare durante), `doc-dirty:<id>` (documento con modifiche non salvate: registrare alla prima modifica, liberare dopo il salvataggio o l'uscita), `hold-confirm` (pressione prolungata di conferma in corso), `sync`, `backup-import`. Le registrazioni sono conteggiate. **Stato attuale:** il registro e l'avviso sono pronti, ma i moduli che emettono fatture, editano documenti o gestiscono la pressione prolungata (UI-FATTURE, VOCE) devono ancora chiamare `registerBusy`; finché non lo fanno l'avviso non sa che c'è un lavoro in corso. Anche in quel caso le bozze sono già salvate in localStorage.
 
+> **Aggiornamento 04/11/2026 (verifica sul codice).** Il paragrafo «Stato attuale» sopra è superato per le voci elencate qui sotto. Chiamate `registerBusy`/`withBusy` trovate nel codice:
+> - `invoice-issue` (emissione e nota di credito): `src/storage/invoices.ts` (`withBusy`).
+> - `backup-import`: `src/storage/index.ts` (`withBusy`).
+> - `hold-confirm` e `voice-command`: `src/voice/ui/VoiceCommandWidget.tsx`.
+>
+> Non ho trovato alcuna chiamata per `doc-dirty:<id>` né per `sync`: restano da collegare, oppure da riverificare se la scelta è stata diversa. Le bozze restano salvate in localStorage.
+
 ## 3. Montare `UpdatePrompt` in `src/App.tsx`
 La registrazione è già in `src/main.tsx`. Resta da montare il componente (una sola volta, fuori dalle rotte, ad es. accanto a `StorageBanner`):
 ```tsx
@@ -29,6 +38,8 @@ import { UpdatePrompt } from './pwa/UpdatePrompt';
 <UpdatePrompt />
 ```
 Il componente non riceve props, usa `role="status"` + `aria-live="polite"`, è fissato in basso (rispetta le aree sicure di iPhone), non rende nulla finché non c'è una nuova versione o se il browser non supporta i service worker. Stili in `src/pwa/UpdatePrompt.css` (variabili `--c-surface`, `--c-text`, `--c-primary`, `--c-on-primary` con valori di riserva).
+
+> **CHIUSO il 04/11/2026.** `UpdatePrompt` è montato in `src/App.tsx` (riga 138, accanto a `StorageBanner`); importato da `src/pwa/UpdatePrompt.tsx`.
 
 ## 4. Provare un aggiornamento in locale
 Il service worker si registra solo in produzione (`import.meta.env.PROD`).

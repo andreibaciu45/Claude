@@ -1,3 +1,5 @@
+Ultimo allineamento al codice: 04/11/2026
+
 # App per telefono (Android e iPhone) — guida non tecnica
 
 Stato: la "scatola" nativa (Capacitor) è pronta nella cartella `mobile/`. **Non è mai stata aperta in Android Studio/Xcode né provata su un telefono vero**: nessuna delle cose qui sotto è stata verificata su dispositivo. Tutto ciò che dipende da regole di Apple/Google è da ricontrollare sui loro siti il giorno in cui si procede: marcato **[DA VERIFICARE]**.
@@ -57,6 +59,9 @@ Apple (linea guida 3.1.1) richiede in generale **In-App Purchase** (commissione 
 | C. **Link esterno consentito** (dove le regole lo permettono, es. USA/UE) | Nell'app c'è un link al sito per abbonarsi | Un solo flusso | Dipende da regole mutevoli e dal paese; possibili commissioni sui link in alcuni casi **[DA VERIFICARE]**; non valido ovunque |
 | D. **Solo app Android + PWA su iPhone** | Si rinuncia allo store Apple | Nessun rischio Apple | Si perde la voce nativa iOS (il motivo principale dell'app) |
 **Raccomandazione per partire:** opzione A su iPhone (solo accesso; piano Free usabile ed evidenziato nelle note per il revisore), vendere il Pro dal sito; su Android lo stesso, per uniformità. Prevedere di passare a B se Apple respinge. Lo stesso criterio vale per ogni testo nell'app (nessun "Passa a Pro" nella versione nativa: va nascosto quando `Capacitor.isNativePlatform()`; **modifica UI da fare, non è stata fatta**).
+
+> **CHIUSO il 04/11/2026 (verifica sul codice).** Nascondere prezzi e «Passa a Pro» nell'app nativa è fatto: `isNativeApp()` in `src/billing/platform.ts` (basato su `window.Capacitor.isNativePlatform`) è usato da `src/billing/LimitGate.tsx` (nel nativo nessun prezzo né pulsante d'acquisto), `src/pages/account/AccountView.tsx` (nel nativo «Gestisci il tuo abbonamento dal sito» al posto di prezzi e «Passa a Pro»), `src/pages/LandingPage.tsx` (blocco prezzi solo con `!isNativeApp()`) e `src/pages/account/ConflictList.tsx` (pulsante «Passa a Pro» solo con `!native`). Voce nativa collegata: `src/voice/provider/factory.ts` sceglie `NativeSpeechProvider` (`src/voice/provider/native.ts`) quando c'è il bridge Capacitor. Download/condivisione nativi: `downloadBlob` in `src/pages/quote/shared.ts` usa la condivisione nativa. Nessuna di queste parti è stata provata su un telefono: resta valido il §10.
+
 **Linea guida 4.2 (app web racchiuse)**: Apple respinge le app che sono solo un sito. Cosa mostra "valore nativo": voce con riconoscimento nativo, salvataggio/condivisione file, funzionamento offline, icone e schermata di avvio curate. Nelle note per il revisore spiegare che l'app funziona offline e usa microfono e condivisione di file. Rischio medio comunque.
 **Altre cause di respingimento da prevenire:** account di prova per il revisore (email+password già attive, con dati d'esempio) e un server online; informativa privacy raggiungibile; testi dei permessi chiari (già in italiano); funzione di **cancellazione account dentro l'app** (Apple la richiede se si può creare un account: 5.1.1(v) **[DA VERIFICARE]** che esista nell'app); nessun crash all'avvio senza rete.
 
