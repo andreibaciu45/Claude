@@ -58,7 +58,8 @@ describe('upgrade da un DB alla versione N-2', () => {
     for (const t of ['admin_actions', 'ops_state', 'ops_daily', 'ops_errors', 'invite_codes']) expect(up.prepare('SELECT 1 FROM sqlite_master WHERE name=?').get(t), t).toBeTruthy();
     const rep = checkIntegrity(up);
     expect(rep.errors).toEqual([]);
-    expect(rep.warnings).toEqual([]);
+    // Fatture emesse prima della catena fiscale (migrazione 7): solo un avviso finche' la manutenzione/avvio non le aggancia.
+    expect(rep.warnings).toEqual([expect.stringContaining('catena fiscale')]);
     expect(() => up.exec("DELETE FROM documents WHERE id='f1'")).toThrow(/documento_bloccato/);
     expect(() => up.exec("UPDATE audit_log SET action='x'")).toThrow(/append-only/);
     up.exec("INSERT INTO admin_actions(at, actor, action) VALUES (1, 'x', 'prova')");

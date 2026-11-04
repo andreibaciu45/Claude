@@ -13,6 +13,8 @@ process.env.RL_IP_PER_MIN ??= '1000000';
 process.env.RL_TENANT_PER_MIN ??= '1000000';
 process.env.RL_TENANT_WRITES_PER_MIN ??= '1000000';
 process.env.RL_SYNC_OPS_HOUR ??= '1000000';
+process.env.HEALTH_CACHE_MS ??= '0'; // /health/deep: niente cache nei test (quelli sulla cache la impostano esplicitamente)
+process.env.RL_HEALTH_DEEP_PER_MIN ??= '1000000';
 
 export const app = createApp();
 export function freshEnv() {

@@ -1,6 +1,6 @@
 // Provider STT dietro interfaccia. L'audio vive SOLO in memoria; mai su disco, mai nei log.
 import type { Env } from '../billing/common';
-import { safeBaseUrl } from '../net/safe-url';
+import { isDevEnv, safeBaseUrl } from '../net/safe-url';
 
 export interface SttInput { audio: Uint8Array; mime: string; vocabulary?: string[] }
 export interface SttResult { text: string; costUsd?: number }
@@ -41,7 +41,7 @@ export class HttpSttProvider implements SttProvider {
 }
 
 export function sttFromEnv(env: Env, fetchImpl?: typeof fetch): SttProvider | null {
-  if (env.STT_PROVIDER === 'mock' && env.NODE_ENV !== 'production') return new MockSttProvider();
+  if (env.STT_PROVIDER === 'mock' && isDevEnv(env)) return new MockSttProvider();
   const baseUrl = env.STT_PROVIDER === 'http' ? safeBaseUrl(env.STT_BASE_URL, 'stt', env) : null;
   if (env.STT_PROVIDER === 'http' && baseUrl && env.STT_API_KEY) {
     return new HttpSttProvider({ baseUrl, apiKey: env.STT_API_KEY, model: env.STT_MODEL ?? 'gpt-4o-mini-transcribe' }, fetchImpl);

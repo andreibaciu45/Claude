@@ -49,6 +49,10 @@ defineCounter('vp_sdi_jobs_processed_total', 'Job SDI elaborati per esito (done|
 defineCounter('vp_signups_total', 'Nuovi account creati');
 defineCounter('vp_logins_total', 'Accessi riusciti (OTP verificato)');
 defineCounter('vp_otp_requests_total', 'Codici di accesso richiesti');
+defineCounter('vp_otp_verify_failed_total', 'Verifiche OTP sbagliate');
+defineCounter('vp_otp_locked_total', 'Verifiche OTP respinte dal cooldown globale per email');
+defineCounter('vp_otp_cooldowns_total', 'Cooldown globali per email attivati');
+defineCounter('vp_otp_alerts_total', 'Avvisi «tentativi di accesso» inviati ai proprietari');
 defineCounter('vp_rate_limited_total', 'Richieste respinte con 429');
 
 /** Registra una richiesta HTTP completata. `route` = pattern registrato (mai il path reale). */

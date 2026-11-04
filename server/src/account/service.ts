@@ -13,6 +13,7 @@ import { audit } from '../db/audit';
 import { openJson, aadAudit, aadProfile, open } from '../db/seal';
 import { allActiveDocuments } from '../documents/repo';
 import { listAcceptances } from '../auth/terms';
+import { guardForget } from '../auth/guard';
 
 export function buildExport(tenantId: string, userId: string) {
   const u = one<{ email: string; created_at: number; last_login_at: number | null; role: string }>('SELECT email, created_at, last_login_at, role FROM users WHERE id=? AND tenant_id=?', userId, tenantId);
@@ -60,7 +61,7 @@ export function deleteAccount(tenantId: string, userId: string): DeleteResult {
     run('DELETE FROM changes WHERE tenant_id=?', tenantId);
     run('DELETE FROM sync_ops WHERE tenant_id=?', tenantId);
     run('DELETE FROM users WHERE tenant_id=?', tenantId);
-    if (email) run('DELETE FROM otp_codes WHERE email=?', email);
+    if (email) { run('DELETE FROM otp_codes WHERE email=?', email); guardForget(email); } // anche reti fidate e contatori di difesa OTP (HMAC dell'email)
     // L'invito usato resta (stato «usato»), ma non conserva più l'impronta dell'email dell'interessato (sha256 senza sale: ricavabile con un dizionario).
     try { run('UPDATE invite_codes SET email_hash=NULL WHERE used_by_tenant=?', tenantId); } catch { /* modulo inviti non presente */ }
     let mode: DeleteResult['mode'];

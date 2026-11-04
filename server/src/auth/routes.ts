@@ -12,9 +12,11 @@ import { apiError, parseJson } from './http';
 import { getMailer } from './mailer';
 import { requireAuth, type AuthEnv } from './middleware';
 import { consumeOtp, createOtp, normalizeEmail, revokeSession, startSession, userExists, verifyOtp } from './service';
+import { guardCheck, guardFail, guardSuccess, isTrustedNet } from './guard';
 import { clientIp, ipKey } from './ip';
 import { checkInvite, INVITE_MESSAGES, inviteOnly, redeemInvite, type InviteProblem } from './invites';
 import { inc } from '../ops/metrics';
+import { isDevEnv } from '../net/safe-url';
 import { acceptedTermsSchema, requireTerms, TERMS_REQUIRED_MESSAGE, termsIncomplete, termsVersionError } from './terms';
 
 // Niente caratteri di controllo, spazi, virgolette né separatori di lista: l'indirizzo finisce in un comando SMTP (RCPT TO).
@@ -22,7 +24,9 @@ const emailSchema = z.string().trim().min(3).max(254).regex(/^[^\s@<>"',;\x00-\x
 const requestSchema = z.object({ email: emailSchema }) satisfies z.ZodType<AuthRequestBody>;
 const verifySchema = z.object({
   email: emailSchema,
-  code: z.string().regex(/^\d{6}$/, 'il codice ha 6 cifre'),
+  // 6..10 cifre: la lunghezza emessa dipende da OTP_DIGITS (default 8). Un codice di lunghezza diversa da quello emesso non può coincidere: nessun controllo di lunghezza qui,
+  // così un client che manda 6 cifre funziona con OTP_DIGITS=6 e i codici già emessi prima di un cambio di configurazione restano verificabili.
+  code: z.string().regex(/^\d{6,10}$/, 'il codice è numerico (6-10 cifre)'),
   deviceId: z.string().min(1).max(100).regex(/^[\w.:-]+$/, 'deviceId non valido'),
   deviceName: z.string().max(100).optional(),
   acceptedTerms: acceptedTermsSchema.optional(),
@@ -64,9 +68,22 @@ authRoutes.post('/request', async (c) => {
     console.error(JSON.stringify({ request_id: c.get('requestId'), error: 'mail_failed' })); // niente indirizzo né codice
   }
   // Risposta identica per email nuove/esistenti (nessuna enumerazione utenti).
-  if (process.env.AUTH_DEV_RETURN_CODE === '1' && process.env.NODE_ENV !== 'production') return c.json({ devCode: code }, 200);
+  if (process.env.AUTH_DEV_RETURN_CODE === '1' && isDevEnv()) return c.json({ devCode: code }, 200);
   return c.body(null, 204);
 });
+
+/** Avviso al proprietario («qualcuno sta tentando di accedere»): solo per account esistenti (nessuna email a indirizzi inventati), mai bloccante, mai col codice. */
+async function sendAlert(email: string, requestId: string | undefined): Promise<void> {
+  try {
+    if (!userExists(email)) return;
+    const m = getMailer();
+    if (!m.sendSecurityAlert) return;
+    await m.sendSecurityAlert(email);
+    inc('vp_otp_alerts_total');
+  } catch {
+    console.error(JSON.stringify({ request_id: requestId, error: 'alert_mail_failed' }));
+  }
+}
 
 authRoutes.post('/verify', async (c) => {
   const p = await parseJson(c, verifySchema);
@@ -80,10 +97,20 @@ authRoutes.post('/verify', async (c) => {
   const pairKey = `otpver:pair:${h(`${email}|${ip}`)}`;
   const bo = backoffCheck(pairKey);
   if (!bo.ok) return tooMany(bo.retryAfterSec);
-  const emailRes = dbRateLimitStore.hit(`otpver:email:${h(email)}`, num('RL_OTP_VERIFY_EMAIL_10MIN', 15), 10 * 60_000);
-  if (!emailRes.ok) {
-    logOnce('warn', 'otp_verify_email_budget_exhausted', { email_hash: logHash(email) });
-    return tooMany(emailRes.retryAfterSec);
+  // Corsia dei dispositivi noti: una rete da cui questo indirizzo ha già completato un accesso non subisce i freni GLOBALI per email
+  // (cooldown e tetto dei 10 minuti), che un attacco distribuito potrebbe esaurire per chiudere fuori il proprietario. Restano IP, coppia e tetto per codice.
+  const trusted = isTrustedNet(email, ip);
+  if (!trusted) {
+    const g = guardCheck(email);
+    if (!g.ok) {
+      inc('vp_otp_locked_total');
+      return tooMany(g.retryAfterSec);
+    }
+    const emailRes = dbRateLimitStore.hit(`otpver:email:${h(email)}`, num('RL_OTP_VERIFY_EMAIL_10MIN', 15), 10 * 60_000);
+    if (!emailRes.ok) {
+      logOnce('warn', 'otp_verify_email_budget_exhausted', { email_hash: logHash(email) });
+      return tooMany(emailRes.retryAfterSec);
+    }
   }
 
   const terms = p.data.acceptedTerms;
@@ -94,7 +121,7 @@ authRoutes.post('/verify', async (c) => {
 
   const out = transaction(() => {
     const v = verifyOtp(email, p.data.code);
-    if (!v.ok) return { kind: 'invalid' as const };
+    if (!v.ok) return { kind: 'invalid' as const, hadActive: v.hadActive };
     const isNew = !userExists(email);
     // Primo accesso con REQUIRE_TERMS=1: senza Termini+DPA non si crea l'account e il codice NON viene consumato.
     // (Il controllo avviene solo dopo un codice valido: non permette di scoprire se un'email è registrata.)
@@ -111,6 +138,13 @@ authRoutes.post('/verify', async (c) => {
   });
   if (out.kind === 'invalid') {
     backoffFail(pairKey);
+    inc('vp_otp_verify_failed_total');
+    // Fallimento globale per email (solo se esisteva un codice da indovinare, così non si creano righe per email inventate).
+    if (out.hadActive && !trusted) {
+      const f = guardFail(email);
+      if (f.lockedMs > 0) inc('vp_otp_cooldowns_total');
+      if (f.alert) void sendAlert(email, c.get('requestId'));
+    }
     return apiError(c, 401, 'invalid_code', 'Codice non valido o scaduto');
   }
   if (out.kind === 'invite') {
@@ -121,6 +155,7 @@ authRoutes.post('/verify', async (c) => {
   }
   if (out.kind === 'terms_required') return apiError(c, 400, 'terms_required', TERMS_REQUIRED_MESSAGE);
   backoffReset(pairKey);
+  guardSuccess(email, ip);
   inc(out.isNew ? 'vp_signups_total' : 'vp_logins_total');
   return c.json({ token: out.s.token, expiresAt: out.s.expiresAt, tenantId: out.s.tenantId } satisfies AuthVerifyResponse);
 });

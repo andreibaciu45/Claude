@@ -1,7 +1,7 @@
 // Controlli per GET /health/deep: DB scrivibile, migrazioni applicate, spazio su disco, eta' dell'ultimo backup (se BACKUP_DIR e' noto), manutenzione.
 import { readdirSync, statSync, statfsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { all, getDb } from '../db';
+import { all, getDb, one } from '../db';
 import { now } from '../db/clock';
 import { listMigrations } from '../db/migrations';
 import { getState, lastHousekeepingAt, setState } from './stats';
@@ -45,12 +45,22 @@ export function backupAgeSeconds(): number | null {
 }
 export const resetBackupCache = (): void => { backupCache = null; };
 
+/** Sonda di SCRITTURA: solo per chi ha il token metrico (vedi `deepHealth({ write: true })`). */
 function checkDbWrite(): Check {
   try {
     setState('health_probe', String(now()));
     getDb().prepare('SELECT 1').get();
     return { status: 'ok' };
   } catch { return { status: 'fail', detail: { error: 'scrittura non riuscita (disco pieno, DB bloccato o in sola lettura?)' } }; }
+}
+
+/** Sonda di sola LETTURA (nessuna scrittura): per le chiamate senza token. */
+function checkDbRead(): Check {
+  try {
+    getDb().prepare('SELECT 1').get();
+    one('SELECT value FROM ops_state WHERE key = ?', 'health_probe');
+    return { status: 'ok' };
+  } catch { return { status: 'fail', detail: { error: 'lettura non riuscita' } }; }
 }
 
 function checkMigrations(): Check {
@@ -97,13 +107,30 @@ function checkMaintenance(): Check {
 /** Un controllo che lancia non deve mai far cadere l'endpoint: diventa un 'fail'. */
 const guard = (fn: () => Check): Check => { try { return fn(); } catch { return { status: 'fail', detail: { error: 'controllo non eseguibile' } }; } };
 
-export function deepHealth(): DeepHealth {
+/**
+ * Stato approfondito. `write: false` (default, chiamate SENZA token) = nessuna scrittura sul DB: solo letture;
+ * `write: true` (token metrico valido) = in piu' la sonda di scrittura (`db_write`).
+ * Il risultato e' in cache per HEALTH_CACHE_MS (default 5000, 0 = nessuna cache) separatamente per modalita': a una raffica di richieste
+ * corrisponde al piu' una valutazione (e una scrittura) ogni pochi secondi, quindi l'endpoint non e' un vettore di DoS verso il disco.
+ */
+const cache: Partial<Record<'read' | 'write', { at: number; value: DeepHealth }>> = {};
+export const resetHealthCache = (): void => { delete cache.read; delete cache.write; };
+const cacheMs = (): number => { const n = Number(process.env.HEALTH_CACHE_MS); return Number.isFinite(n) && n >= 0 ? n : 5000; };
+
+export function deepHealth(opts: { write?: boolean } = {}): DeepHealth {
+  const mode = opts.write ? 'write' : 'read';
+  const t = now();
+  const hit = cache[mode];
+  if (hit && cacheMs() > 0 && t - hit.at >= 0 && t - hit.at < cacheMs() && !isDraining()) return hit.value;
   const checks: Record<string, Check> = {
-    db_write: guard(checkDbWrite), migrations: guard(checkMigrations), disk: guard(checkDisk), backup: guard(checkBackup), maintenance: guard(checkMaintenance),
+    ...(opts.write ? { db_write: guard(checkDbWrite) } : { db_read: guard(checkDbRead) }),
+    migrations: guard(checkMigrations), disk: guard(checkDisk), backup: guard(checkBackup), maintenance: guard(checkMaintenance),
   };
   if (isDraining()) checks.shutdown = { status: 'fail', detail: { note: 'arresto in corso' } };
   const sts = Object.values(checks).map((c) => c.status);
-  return { status: sts.includes('fail') ? 'fail' : sts.includes('warn') ? 'degraded' : 'ok', checks };
+  const value: DeepHealth = { status: sts.includes('fail') ? 'fail' : sts.includes('warn') ? 'degraded' : 'ok', checks };
+  if (!isDraining()) cache[mode] = { at: t, value };
+  return value;
 }
 
 /** Versione per chi non e' autenticato: solo gli stati, senza numeri ne' percorsi. */

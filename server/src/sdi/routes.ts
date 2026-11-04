@@ -7,6 +7,7 @@ import { HttpSdiProvider, httpConfigFromEnv } from './http-provider';
 import { createJobRunner, PermanentJobError, type JobStore } from './jobs';
 import { SqliteDocumentSink, SqliteDocumentSource, SqliteJobStore, SqliteSdiStore } from './sqlite';
 import { MockProvider } from './mock';
+import { isDevEnv } from '../net/safe-url';
 import { inc } from '../ops/metrics';
 import {
   SdiParseError, type DocumentSource, type DocumentStatusSink, type SdiEvent, type SdiProvider, type SdiStore,
@@ -27,7 +28,7 @@ export interface SdiDeps {
 
 export function providerFromEnv(env: Env, fetchImpl?: typeof fetch): SdiProvider | null {
   if (env.SDI_PROVIDER === 'mock') {
-    if (env.NODE_ENV === 'production') return null; // il mock non parte mai in produzione
+    if (!isDevEnv(env)) return null; // il mock parte solo con NODE_ENV=development|test espliciti (non in produzione, né con NODE_ENV non impostato)
     return new MockProvider({ webhookSecret: env.SDI_WEBHOOK_SECRET, delayMs: Number(env.SDI_MOCK_DELAY_MS ?? 0) || 0 });
   }
   const cfg = httpConfigFromEnv(env);

@@ -13,7 +13,7 @@ describe('auth OTP', () => {
     const r = await call('POST', '/v1/auth/request', { body: { email: 'Mario@Example.com' } });
     expect(r.status).toBe(204);
     expect(sent).toHaveLength(1);
-    expect(sent[0].code).toMatch(/^\d{6}$/);
+    expect(sent[0].code).toMatch(/^\d{8}$/); // OTP_DIGITS default 8
     const v = await verify('mario@example.com', sent[0].code);
     expect(v.status).toBe(200);
     expect(v.json.token.length).toBeGreaterThanOrEqual(43); // 256 bit base64url

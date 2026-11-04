@@ -260,6 +260,7 @@ function printIntegrity(r: IntegrityReport, io: CliIO): number {
   io.out(`Controllo integrita': ${r.checked.integrity === 'ok' ? 'OK' : 'PROBLEMI'} · ${r.checked.issuedInvoices} fatture emesse in ${r.checked.numberingGroups} serie · cifratura: ${r.checked.encryptionSample} righe campionate`);
   for (const e of r.errors) io.out(`ERRORE  ${e}`);
   for (const w of r.warnings) io.out(`AVVISO  ${w}`);
+  if (r.chain) io.out(`Catena fiscale: ${r.chain.rows} emissioni attestate in ${r.chain.tenants} tenant · SIGILLO ${r.chain.digest} (copialo fuori dal server: backup, email a te stesso)`);
   if (!r.errors.length && !r.warnings.length) io.out('Tutto in ordine: nessun errore, nessun buco di numerazione.');
   return r.errors.length ? FAIL : r.warnings.length ? WARN : OK;
 }

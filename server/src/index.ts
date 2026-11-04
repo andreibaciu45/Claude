@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import { createApp } from './app';
 import { closeDb, getDb } from './db';
+import { backfillChain } from './db/chain';
 import { getAuthSecret } from './auth/crypto';
 import { getMailer } from './auth/mailer';
 import { getKeyRing } from './db/seal';
@@ -11,6 +12,7 @@ import { logEvent } from './log';
 import { startSdiWorker } from './sdi/routes';
 
 getDb();          // apre il DB e applica le migrazioni
+try { backfillChain(); } catch { /* la manutenzione oraria riprova */ } // aggancia alla catena fiscale le fatture emesse prima della sua introduzione
 getAuthSecret();  // in produzione fallisce subito se manca AUTH_SECRET
 getMailer();      // in produzione fallisce subito se manca SMTP_URL
 getKeyRing();     // fallisce subito se APP_ENCRYPTION_KEY / OLD_KEYS non sono valide

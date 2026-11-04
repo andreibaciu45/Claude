@@ -2,6 +2,8 @@
 import { run } from './index';
 import { now } from './clock';
 import { purgeBackoff, purgeRateLimits } from './ratelimit';
+import { pruneAudit } from './audit';
+import { backfillChain } from './chain';
 
 const DAY = 24 * 3600_000;
 const BATCH = 2000;      // righe per istruzione: ogni DELETE resta breve (il DB e' condiviso con le richieste)
@@ -40,6 +42,12 @@ export function housekeeping(): Record<string, number> {
   del('ops_errors', 'DELETE FROM ops_errors WHERE at < ?', t - 90 * DAY);
   del('invite_codes', 'DELETE FROM invite_codes WHERE (used_at IS NULL AND expires_at IS NOT NULL AND expires_at < ?) OR (used_at IS NOT NULL AND used_at < ?)', t - 90 * DAY, t - 400 * DAY);
   try { out.ops_daily = Number(run('DELETE FROM ops_daily WHERE day < ?', new Date(t - 400 * DAY).toISOString().slice(0, 10)).changes); } catch { out.ops_daily = -1; }
+  del('otp_guard', 'DELETE FROM otp_guard WHERE updated_at < ? AND locked_until < ?', t - 2 * DAY, t);
+  del('otp_trusted_ips', 'DELETE FROM otp_trusted_ips WHERE last_ok_at < ?', t - 30 * DAY);
+  // Audit: le voci NON fiscali oltre AUDIT_RETENTION_DAYS (o oltre il tetto per tenant) vengono aggregate in audit_daily e potate; le fiscali mai.
+  try { const a = pruneAudit(); out.audit_pruned_age = a.byAge; out.audit_pruned_cap = a.byCap; } catch { out.audit_pruned_age = -1; }
+  // Catena fiscale: aggancia le fatture emesse non ancora presenti (emesse prima dell'introduzione della catena).
+  try { out.fiscal_chain_backfilled = backfillChain(); } catch { out.fiscal_chain_backfilled = -1; }
   purgeRateLimits();
   purgeBackoff();
   return out;

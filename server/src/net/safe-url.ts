@@ -7,6 +7,9 @@ import { isIP } from 'node:net';
 import { isPrivateAddress } from '../auth/ip';
 import { logOnce } from '../log';
 
+/** true solo con NODE_ENV=development|test ESPLICITI: con NODE_ENV non impostato si assume produzione (mock e scorciatoie di sviluppo restano spenti). */
+export const isDevEnv = (env: Record<string, string | undefined> = process.env): boolean => env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
+
 export function safeBaseUrl(raw: string | undefined, label: string, env: Record<string, string | undefined> = process.env): string | null {
   if (!raw) return null;
   const prod = env.NODE_ENV === 'production';

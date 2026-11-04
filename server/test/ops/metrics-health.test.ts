@@ -103,11 +103,12 @@ describe('GET /health/deep', () => {
     const r = await call('GET', '/health/deep');
     expect(r.status).toBe(200);
     expect(r.json.status).toBe('ok');
-    expect(Object.keys(r.json.checks).sort()).toEqual(['backup', 'db_write', 'disk', 'maintenance', 'migrations']);
+    expect(Object.keys(r.json.checks).sort()).toEqual(['backup', 'db_read', 'disk', 'maintenance', 'migrations']); // senza token: sola lettura
     expect(r.json.checks.migrations).toEqual({ status: 'ok' }); // niente dettagli senza token
     process.env.METRICS_TOKEN = TOKEN;
     const d = await call('GET', '/health/deep', { headers: { authorization: `Bearer ${TOKEN}` } });
     expect(d.json.checks.migrations.detail.latest).toBeGreaterThanOrEqual(201);
+    expect(Object.keys(d.json.checks).sort()).toEqual(['backup', 'db_write', 'disk', 'maintenance', 'migrations']); // con token: anche la sonda di scrittura
   });
 
   it('503 se manca una migrazione o il DB non e\' scrivibile', async () => {
@@ -118,6 +119,10 @@ describe('GET /health/deep', () => {
     freshEnv();
     run('DROP TABLE ops_state');
     r = await call('GET', '/health/deep');
+    expect(r.status).toBe(503);
+    expect(r.json.checks.db_read.status).toBe('fail');
+    process.env.METRICS_TOKEN = TOKEN;
+    r = await call('GET', '/health/deep', { headers: { authorization: `Bearer ${TOKEN}` } });
     expect(r.status).toBe(503);
     expect(r.json.checks.db_write.status).toBe('fail');
   });

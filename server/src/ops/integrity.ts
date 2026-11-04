@@ -2,12 +2,14 @@
 //   ERRORI (gravi, uscita 1): integrity_check/foreign_key_check, trigger di immutabilita' mancanti, duplicati, indici incoerenti con i dati, dati non decifrabili.
 //   AVVISI (da guardare, uscita 2): buchi nella numerazione delle fatture emesse (possono essere solo un dispositivo non ancora sincronizzato), job SDI "dead".
 import type { DatabaseSync } from 'node:sqlite';
+import { verifyChain } from '../db/chain';
 import { documentKeyIds, getKeyRing, openDocument, aadProfile, open } from '../db/seal';
 
 export const CORE_TRIGGERS = [
   'trg_audit_no_update', 'trg_audit_no_delete', 'trg_documents_no_delete_locked', 'trg_documents_locked_update',
   'trg_legal_no_update', 'trg_legal_no_delete',
 ];
+export const CHAIN_TRIGGERS = ['trg_fiscal_chain_no_update', 'trg_fiscal_chain_no_delete'];
 export const OPS_TRIGGERS = ['trg_admin_actions_no_update', 'trg_admin_actions_no_delete'];
 
 export interface NumberingGroup { tenant: string; sectional: string; year: number; min: number; max: number; count: number; gaps: number[] }
@@ -16,6 +18,8 @@ export interface IntegrityReport {
   errors: string[];
   warnings: string[];
   numbering: NumberingGroup[]; // tutti i gruppi (tenant abbreviato), con i buchi trovati
+  /** Catena di hash delle emissioni: `digest` e' il sigillo da copiare FUORI dal database (vedi db/chain.ts). */
+  chain?: { rows: number; tenants: number; digest: string; heads: { tenant: string; n: number; hash: string }[] };
   checked: { integrity: string; foreignKeyViolations: number; issuedInvoices: number; numberingGroups: number; encryptionSample: number };
 }
 
@@ -35,7 +39,8 @@ export function checkIntegrity(db: DatabaseSync, opts: { encryptionSample?: numb
   // Trigger di immutabilita' (fatture emesse, audit, accettazioni, azioni admin): senza, le garanzie fiscali cadono.
   const names = new Set(all<{ name: string }>(db, "SELECT name FROM sqlite_master WHERE type='trigger'").map((r) => r.name));
   const hasOps = !!one(db, "SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='admin_actions'");
-  for (const t of [...CORE_TRIGGERS, ...(hasOps ? OPS_TRIGGERS : [])]) if (!names.has(t)) errors.push(`trigger mancante: ${t}`);
+  const hasChain = !!one(db, "SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='fiscal_chain'");
+  for (const t of [...CORE_TRIGGERS, ...(hasOps ? OPS_TRIGGERS : []), ...(hasChain ? CHAIN_TRIGGERS : [])]) if (!names.has(t)) errors.push(`trigger mancante: ${t}`);
 
   // Numerazione: per tenant/sezionale/anno le fatture emesse devono avere seq consecutivi (nessun buco) e nessun duplicato.
   const groups = all<{ tenant_id: string; s: string; y: number; mn: number; mx: number; c: number; d: number }>(db,
@@ -70,6 +75,14 @@ export function checkIntegrity(db: DatabaseSync, opts: { encryptionSample?: numb
     if (dead) warnings.push(`${dead} job SDI falliti definitivamente (dead): controllare e rinviare le fatture`);
   } catch { /* modulo SDI non presente in questo DB */ }
 
+  // Catena di hash delle emissioni (tamper-evidence): cancellazioni/rinumerazioni di fatture emesse a DB spento la rompono.
+  let chain: IntegrityReport['chain'];
+  if (hasChain) {
+    const c = verifyChain(db);
+    errors.push(...c.errors); warnings.push(...c.warnings);
+    chain = { rows: c.rows, tenants: c.tenants, digest: c.digest, heads: c.heads.map((h) => ({ ...h, tenant: short(h.tenant) })) };
+  }
+
   // Cifratura: un campione di righe deve essere leggibile con le chiavi configurate (chiave sbagliata o persa = dati persi).
   const sample = opts.encryptionSample ?? 40;
   let tested = 0;
@@ -92,7 +105,7 @@ export function checkIntegrity(db: DatabaseSync, opts: { encryptionSample?: numb
   }
 
   return {
-    ok: errors.length === 0, errors, warnings, numbering,
+    ok: errors.length === 0, errors, warnings, numbering, ...(chain ? { chain } : {}),
     checked: { integrity, foreignKeyViolations: fk, issuedInvoices: groups.reduce((a, g) => a + g.d, 0), numberingGroups: groups.length, encryptionSample: tested },
   };
 }

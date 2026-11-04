@@ -7,6 +7,10 @@ import type { AuthEnv } from '../auth/middleware';
 import { deepHealth, redactHealth } from './health';
 import { recordHttp, renderMetrics } from './metrics';
 import { isDraining } from './state';
+import { memoryRateLimitStore } from '../db/ratelimit';
+import { ipHash, tooMany } from '../auth/limits';
+
+const envNum = (name: string, def: number) => { const n = Number(process.env[name]); return Number.isFinite(n) && n > 0 ? n : def; };
 
 /** Token per /metrics e per i dettagli di /health/deep. Senza METRICS_TOKEN (o troppo corto) /metrics e' DISABILITATO (404). */
 const metricsToken = (): string | null => { const t = process.env.METRICS_TOKEN; return t && t.length >= 16 ? t : null; };
@@ -53,8 +57,13 @@ opsRoutes.get('/metrics', (c) => {
   return c.body(renderMetrics(), 200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
 });
 
+// /health/deep: SENZA token e' di sola lettura (nessuna scrittura sul DB) e con rate-limit per IP in memoria (nessuna I/O);
+// CON token valido esegue anche la sonda di scrittura, ma al massimo una ogni HEALTH_CACHE_MS (cache) e con un limite piu' ampio per IP.
 opsRoutes.get('/health/deep', (c) => {
-  const h = deepHealth();
-  const body = authorized(c.req.header('authorization')) ? h : redactHealth(h);
-  return c.json(body, h.status === 'fail' ? 503 : 200);
+  const auth = authorized(c.req.header('authorization'));
+  const lim = auth ? envNum('RL_HEALTH_DEEP_AUTH_PER_MIN', 120) : envNum('RL_HEALTH_DEEP_PER_MIN', 30);
+  const r = memoryRateLimitStore.hit(`health:${auth ? 'a' : 'n'}:${ipHash(c)}`, lim, 60_000);
+  if (!r.ok) return tooMany(c, r);
+  const h = deepHealth({ write: auth });
+  return c.json(auth ? h : redactHealth(h), h.status === 'fail' ? 503 : 200);
 });
