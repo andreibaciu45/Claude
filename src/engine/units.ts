@@ -5,7 +5,7 @@ const SQ = new Set(['quadro', 'quadri', 'quadrato', 'quadrati', 'quadra']);
 const CUBE = new Set(['cubo', 'cubi', 'cubico', 'cubici']);
 
 export type UnitRead =
-  | { kind: 'unit'; u: Unit; next: number }
+  | { kind: 'unit'; u: Unit; next: number; /** scritto "ml": metri lineari, ma con una voce a litri sono millilitri */ ml?: true }
   | { kind: 'spec'; next: number }
   /** unità convertibile in una fatturabile: qty_base = qty * factor (es. cm -> m, ml -> l, minuti -> h) */
   | { kind: 'conv'; u: Unit; factor: number; next: number; from: string };
@@ -24,7 +24,7 @@ export function readUnit(R: RawTok[], j: number): UnitRead | null {
     if (n1 && CUBE.has(n1)) return { kind: 'unit', u: 'mc', next: j + 2 };
     if (w === 'emme') return null;
     if (n1 === 'lineare' || n1 === 'lineari') return { kind: 'unit', u: 'm', next: j + 2 };
-    return { kind: 'unit', u: 'm', next: j + 1 };
+    return w === 'ml' ? { kind: 'unit', u: 'm', next: j + 1, ml: true } : { kind: 'unit', u: 'm', next: j + 1 };
   }
   switch (w) {
     case 'mq':
@@ -71,7 +71,6 @@ export function readUnit(R: RawTok[], j: number): UnitRead | null {
     case 'centimetro':
     case 'centimetri':
       return { kind: 'conv', u: 'm', factor: 0.01, next: j + 1, from: 'cm' };
-    case 'ml':
     case 'millilitro':
     case 'millilitri':
       return { kind: 'conv', u: 'l', factor: 0.001, next: j + 1, from: 'ml' };

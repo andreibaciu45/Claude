@@ -80,7 +80,9 @@ export interface CustomerResult {
   rest: RawTok[];
 }
 
-export function extractCustomer(R: RawTok[], isCatalogWord: (w: string) => boolean): CustomerResult {
+const DOC_NOUNS = new Set(['preventivo', 'fattura', 'offerta', 'ordine', 'stima', 'proforma', 'computo']);
+
+export function extractCustomer(R: RawTok[], isCatalogWord: (w: string) => boolean, knownWord: (w: string) => boolean = () => false): CustomerResult {
   for (let i = 0; i < R.length; i++) {
     const t = R[i];
     if (t.kind !== 'word') continue;
@@ -105,7 +107,14 @@ export function extractCustomer(R: RawTok[], isCatalogWord: (w: string) => boole
       }
       q = i + 1; // i titoli vengono riletti sotto (per conservare quelli di tipo "ditta")
       while (R[q] && ARTICLES.has(R[q].w)) q++;
-      if (cond || hasTitle) k = q;
+      // "quattro applique per Giulio Cesare Barbieri": una maiuscola a metà frase dopo "per" indica un nome proprio
+      const proper = !!R[q] && R[q].kind === 'word' && isCap(R[q].raw) && !isNumLike(R[q]) && !isStopWord(R[q]) && !isCatalogWord(R[q].w);
+      if (cond || hasTitle || proper) k = q;
+    }
+    // "fai la fattura a Mario Esposito", "preventivo a Rossi": il nome deve essere riconoscibile (maiuscola o nome proprio noto)
+    else if (w === 'a' && i > 0 && R[i - 1].kind === 'word' && DOC_NOUNS.has(R[i - 1].w) && R[i + 1]?.kind === 'word' && R[i + 1].w !== 'corpo') {
+      const f = R[i + 1];
+      if (isCap(f.raw) || FIRST_NAMES.has(f.w) || knownWord(f.w)) k = i + 1;
     }
     else if (TITLES.has(w) && w !== 'cliente' && (i === 0 || R[i - 1].kind === 'punct' || DOC_WORDS.has(R[i - 1].w))) k = i;
     if (k < 0) continue;
@@ -151,11 +160,20 @@ export function extractCustomer(R: RawTok[], isCatalogWord: (w: string) => boole
         j++;
         break;
       }
+      const lastWord = words[words.length - 1];
       if (caps) {
         if (!isCap(x.raw)) break;
       } else if (isCap(x.raw) && !isStopWord(x) && !isCatalogWord(x.w) && words.length < 5) {
         // una maiuscola a metà frase è quasi sempre parte del nome: "studio associato Valli"
-      } else if (isStopWord(x) || isCatalogWord(x.w)) break;
+      } else if (isCap(lastWord.raw) && !PARTICLES.has(x.w)) {
+        break; // dopo una parola maiuscola, una minuscola chiude il nome ("Condominio Via Garibaldi pulizia finale")
+      } else if (isStopWord(x) || isCatalogWord(x.w)) {
+        // "mario bianchi tre prese": dopo un nome di battesimo un cognome che è anche parola di catalogo (Bianchi/bianca)
+        // vale come cognome se subito dopo c'è un numero o la frase finisce
+        const nx2 = R[j + 1];
+        const endsHere = !nx2 || nx2.kind === 'punct' || isNumLike(nx2) || CONJ.has(nx2.w) || FILLER.has(nx2.w);
+        if (!(firstIsGiven && words.length === 1 && !isStopWord(x) && endsHere)) break;
+      }
       words.push(x);
       j++;
     }

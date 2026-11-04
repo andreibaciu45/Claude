@@ -165,7 +165,8 @@ export function createMatcher(catalog: CatalogItem[]): Matcher {
   const df = new Map<string, number>();
   const vocab = new Set<string>();
   const nums = new Set<number>();
-  const numDocs = new Map<number, Doc[]>();
+  /** numero -> insiemi di stem (nome + alias uniti) delle voci che lo contengono */
+  const numItems = new Map<number, Set<string>[]>();
   const ids = new Map<string, CatalogItem>();
   /** stem (anche concatenazioni di stem adiacenti: "salva"+"vita") -> indici delle voci che lo contengono */
   const postings = new Map<string, number[]>();
@@ -177,15 +178,14 @@ export function createMatcher(catalog: CatalogItem[]): Matcher {
   entries.forEach((e, idx) => {
     if (!ids.has(e.item.id)) ids.set(e.item.id, e.item);
     const seen = new Set<string>();
+    const itemNums = new Set<number>();
     for (const d of e.docs) {
       for (let i = 0; i < d.raw.length; i++) {
         const t = d.raw[i];
         if (isNumTok(t)) {
           const v = parseFloat(t);
           nums.add(v);
-          let l = numDocs.get(v);
-          if (!l) numDocs.set(v, (l = []));
-          l.push(d);
+          itemNums.add(v);
         } else {
           const nx = d.raw[i + 1];
           if (nx !== undefined && !isNumTok(nx)) post(stem(t + nx), idx);
@@ -199,6 +199,11 @@ export function createMatcher(catalog: CatalogItem[]): Matcher {
     for (const s of seen) {
       df.set(s, (df.get(s) ?? 0) + 1);
       vocab.add(s);
+    }
+    for (const v of itemNums) {
+      let l = numItems.get(v);
+      if (!l) numItems.set(v, (l = []));
+      l.push(seen);
     }
   });
 
@@ -329,9 +334,9 @@ export function createMatcher(catalog: CatalogItem[]): Matcher {
 
   function cooccur(words: string[], num: number): boolean {
     const ws = words.map((w) => stem(w));
-    const docs = numDocs.get(num);
-    if (!docs) return false;
-    return docs.some((d) => ws.every((w) => d.stems.includes(w)));
+    const items = numItems.get(num);
+    if (!items) return false;
+    return items.some((st) => ws.every((w) => st.has(w)));
   }
 
   return { best, vocab, nums, cooccur, byId: (id) => ids.get(id), size: entries.length };

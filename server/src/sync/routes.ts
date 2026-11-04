@@ -8,6 +8,7 @@ import { pullPage } from '../db/changes';
 import { generalRateLimitStore } from '../db/ratelimit';
 import { one, run } from '../db';
 import { now } from '../db/clock';
+import { recordSyncPull } from '../ops/metrics';
 import { pushOps } from './service';
 
 const id = z.string().min(1).max(100);
@@ -50,5 +51,6 @@ syncRoutes.get('/pull', (c) => {
       ...(r.payload ? { payload: JSON.parse(r.payload) } : {}),
     })),
   };
+  recordSyncPull(page.length);
   return c.json(body);
 });

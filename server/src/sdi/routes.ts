@@ -6,6 +6,7 @@ import { HttpSdiProvider, httpConfigFromEnv } from './http-provider';
 import { createJobRunner, PermanentJobError, type JobStore } from './jobs';
 import { SqliteDocumentSink, SqliteDocumentSource, SqliteJobStore, SqliteSdiStore } from './sqlite';
 import { MockProvider } from './mock';
+import { inc } from '../ops/metrics';
 import {
   SdiParseError, type DocumentSource, type DocumentStatusSink, type SdiEvent, type SdiProvider, type SdiStore,
 } from './types';
@@ -73,11 +74,23 @@ export function createSdiRunner(deps: SdiDeps) {
 }
 
 /** Avvia l'elaborazione periodica (da chiamare in index.ts di CORE). Ritorna la funzione di stop. */
-export function startSdiWorker(deps: SdiDeps = defaultSdiDeps, intervalMs = 5000): () => void {
+/** Funzione di stop del worker; `drain()` attende l'eventuale elaborazione in corso (arresto ordinato). */
+export type WorkerStop = (() => void) & { drain: () => Promise<void> };
+
+export function startSdiWorker(deps: SdiDeps = defaultSdiDeps, intervalMs = 5000): WorkerStop {
   const runner = createSdiRunner(deps);
-  const t = setInterval(() => { void runner.runOnce().catch(() => undefined); }, intervalMs);
+  let inflight: Promise<unknown> | null = null;
+  let stopped = false;
+  const t = setInterval(() => {
+    if (stopped || inflight) return; // mai due cicli sovrapposti
+    inflight = runner.runOnce().then((r) => {
+      for (const k of ['done', 'retried', 'dead'] as const) if (r[k]) inc('vp_sdi_jobs_processed_total', { result: k }, r[k]);
+    }).catch(() => undefined).finally(() => { inflight = null; });
+  }, intervalMs);
   t.unref?.();
-  return () => clearInterval(t);
+  const stop = (() => { stopped = true; clearInterval(t); }) as WorkerStop;
+  stop.drain = async () => { stopped = true; clearInterval(t); await inflight; };
+  return stop;
 }
 
 export function createSdiRoutes(deps: SdiDeps = defaultSdiDeps) {

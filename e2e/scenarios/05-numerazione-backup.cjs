@@ -115,14 +115,17 @@ run('05-numerazione-backup', async (S) => {
   const n = await issueCurrent(S, page, { tag: 'f-wipe ' });
   S.check('dopo wipe+ripristino il successivo e 5/2026', n === '5/2026', n);
 
-  // il campo "Prossimo n. fattura" del profilo influenza davvero la numerazione?
+  // numero di partenza dal profilo: ultimo usato 49 -> la successiva e 50/2026
   await go(page, '/profilo');
-  await page.getByLabel('Prossimo n. fattura').fill('50');
-  await page.getByRole('button', { name: 'Salva dati azienda' }).click();
-  await page.locator('.toast', { hasText: 'Dati azienda salvati' }).first().waitFor();
+  await page.getByLabel('Ultimo numero già usato per fatture').fill('49');
+  await page.getByRole('button', { name: 'Imposta numero di partenza' }).click();
+  const dlgN = page.getByRole('dialog', { name: 'Conferma il numero di partenza' });
+  await dlgN.getByRole('checkbox').check();
+  await dlgN.getByRole('button', { name: 'Conferma e imposta' }).click();
+  await page.locator('.toast', { hasText: 'Numero di partenza impostato' }).first().waitFor();
   await createInvoiceDraft(S, page, { lines: [{ description: 'Dopo prossimo 50', qty: 1, price: 20 }] });
   const n50 = await issueCurrent(S, page, { tag: 'f-50 ' });
-  S.check('profilo "Prossimo n. fattura" = 50: la fattura successiva prende il 50 (campo effettivo)', n50 === '50/2026', `ottenuto ${n50}`);
+  S.check('numero di partenza 49: la fattura successiva prende il 50', n50 === '50/2026', `ottenuto ${n50}`);
 
   // backup corrotto
   await go(page, '/backup');

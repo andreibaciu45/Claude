@@ -7,12 +7,14 @@ import { backoffCheck, backoffFail, backoffReset, dbRateLimitStore } from '../db
 import { logOnce } from '../log';
 import { billingStatusOf, docsLimitFor, effectivePlan, getDocsThisMonth, getEntitlement } from '../db/entitlements';
 import { monthKey, now } from '../db/clock';
-import { sha256Hex } from './crypto';
+import { logHash, sha256Hex } from './crypto';
 import { apiError, parseJson } from './http';
 import { getMailer } from './mailer';
 import { requireAuth, type AuthEnv } from './middleware';
 import { consumeOtp, createOtp, normalizeEmail, revokeSession, startSession, userExists, verifyOtp } from './service';
 import { clientIp, ipKey } from './ip';
+import { checkInvite, INVITE_MESSAGES, inviteOnly, redeemInvite, type InviteProblem } from './invites';
+import { inc } from '../ops/metrics';
 import { acceptedTermsSchema, requireTerms, TERMS_REQUIRED_MESSAGE, termsIncomplete, termsVersionError } from './terms';
 
 // Niente caratteri di controllo, spazi, virgolette né separatori di lista: l'indirizzo finisce in un comando SMTP (RCPT TO).
@@ -24,6 +26,7 @@ const verifySchema = z.object({
   deviceId: z.string().min(1).max(100).regex(/^[\w.:-]+$/, 'deviceId non valido'),
   deviceName: z.string().max(100).optional(),
   acceptedTerms: acceptedTermsSchema.optional(),
+  inviteCode: z.string().max(40).optional(), // solo con INVITE_ONLY=1, per creare un account (proposta per shared/api.ts: AuthVerifyBody.inviteCode?: string)
 }) satisfies z.ZodType<AuthVerifyBody>;
 
 const num = (name: string, def: number) => Number(process.env[name]) || def;
@@ -54,6 +57,7 @@ authRoutes.post('/request', async (c) => {
     if (!r.ok) return apiError(c, 429, 'rate_limited', 'Troppe richieste, riprova più tardi', { 'Retry-After': String(r.retryAfterSec) });
   }
   const code = createOtp(email);
+  inc('vp_otp_requests_total');
   try {
     await getMailer().sendOtp(email, code);
   } catch {
@@ -78,7 +82,7 @@ authRoutes.post('/verify', async (c) => {
   if (!bo.ok) return tooMany(bo.retryAfterSec);
   const emailRes = dbRateLimitStore.hit(`otpver:email:${h(email)}`, num('RL_OTP_VERIFY_EMAIL_10MIN', 15), 10 * 60_000);
   if (!emailRes.ok) {
-    logOnce('warn', 'otp_verify_email_budget_exhausted', { email_hash: h(email).slice(0, 12) });
+    logOnce('warn', 'otp_verify_email_budget_exhausted', { email_hash: logHash(email) });
     return tooMany(emailRes.retryAfterSec);
   }
 
@@ -91,18 +95,33 @@ authRoutes.post('/verify', async (c) => {
   const out = transaction(() => {
     const v = verifyOtp(email, p.data.code);
     if (!v.ok) return { kind: 'invalid' as const };
+    const isNew = !userExists(email);
     // Primo accesso con REQUIRE_TERMS=1: senza Termini+DPA non si crea l'account e il codice NON viene consumato.
     // (Il controllo avviene solo dopo un codice valido: non permette di scoprire se un'email è registrata.)
-    if (!userExists(email) && requireTerms() && termsIncomplete(terms)) return { kind: 'terms_required' as const };
+    if (isNew && requireTerms() && termsIncomplete(terms)) return { kind: 'terms_required' as const };
+    // Lancio privato (INVITE_ONLY=1): per creare un account serve un codice invito valido; l'OTP non viene consumato (si può riprovare col codice giusto).
+    if (isNew && inviteOnly()) {
+      const inv = checkInvite(p.data.inviteCode, email);
+      if (!inv.ok) return { kind: 'invite' as const, reason: inv.reason };
+    }
     consumeOtp(v.id);
-    return { kind: 'ok' as const, s: startSession(email, p.data.deviceId, p.data.deviceName, terms ? { accepted: terms, ipKey: ip } : undefined) };
+    const s = startSession(email, p.data.deviceId, p.data.deviceName, terms ? { accepted: terms, ipKey: ip } : undefined);
+    if (isNew && inviteOnly() && !redeemInvite(p.data.inviteCode, email, s.tenantId)) throw new Error('invite_race'); // annulla la transazione
+    return { kind: 'ok' as const, s, isNew };
   });
   if (out.kind === 'invalid') {
     backoffFail(pairKey);
     return apiError(c, 401, 'invalid_code', 'Codice non valido o scaduto');
   }
+  if (out.kind === 'invite') {
+    // Tentativi di indovinare codici invito: tetto per IP (un codice ha 60 bit, ma meglio non offrire un oracolo illimitato).
+    const r = dbRateLimitStore.hit(`invite:fail:${h(ip)}`, num('RL_INVITE_FAIL_HOUR', 10), HOUR);
+    if (!r.ok) return tooMany(r.retryAfterSec);
+    return apiError(c, 403, p.data.inviteCode ? 'invite_invalid' : 'invite_required', INVITE_MESSAGES[p.data.inviteCode ? (out.reason as InviteProblem) : 'required']);
+  }
   if (out.kind === 'terms_required') return apiError(c, 400, 'terms_required', TERMS_REQUIRED_MESSAGE);
   backoffReset(pairKey);
+  inc(out.isNew ? 'vp_signups_total' : 'vp_logins_total');
   return c.json({ token: out.s.token, expiresAt: out.s.expiresAt, tenantId: out.s.tenantId } satisfies AuthVerifyResponse);
 });
 

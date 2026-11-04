@@ -4,7 +4,8 @@ import { closeDb, getDb } from './db';
 import { getAuthSecret } from './auth/crypto';
 import { getMailer } from './auth/mailer';
 import { getKeyRing } from './db/seal';
-import { startHousekeeping } from './db/housekeeping';
+import { startMaintenance } from './ops/maintenance';
+import { createShutdown } from './ops/shutdown';
 import { logEvent } from './log';
 import { startSdiWorker } from './sdi/routes';
 
@@ -18,7 +19,9 @@ if (process.env.NODE_ENV === 'production') {
   if (process.env.AUTH_DEV_RETURN_CODE === '1') logEvent('warn', 'auth_dev_return_code_ignored');
   if ((process.env.CORS_ORIGINS ?? '').split(',').map((x) => x.trim()).includes('*')) logEvent('warn', 'cors_wildcard', { hint: 'CORS_ORIGINS=* riflette qualsiasi origine' });
   if (!process.env.APP_ENCRYPTION_KEY) logEvent('warn', 'app_encryption_disabled', { hint: 'APP_ENCRYPTION_KEY non impostata: campi sensibili in chiaro nel DB' });
+  if (process.env.METRICS_TOKEN && process.env.METRICS_TOKEN.length < 16) logEvent('warn', 'metrics_token_too_short', { hint: 'METRICS_TOKEN < 16 caratteri: /metrics resta DISABILITATO' });
 }
+if (process.env.INVITE_ONLY === '1') logEvent('info', 'invite_only_enabled', { hint: 'registrazioni solo con codice invito (admin.ts create-invite-code)' });
 
 const port = Number(process.env.PORT ?? 8787);
 const server = serve({
@@ -33,7 +36,16 @@ srv.keepAliveTimeout = 5_000;
 srv.maxRequestsPerSocket = 1000;
 console.log(`server in ascolto su :${port}`);
 const stopSdiWorker = startSdiWorker();
-const stopHousekeeping = startHousekeeping();
-const stop = () => { stopSdiWorker(); stopHousekeeping(); server.close(); closeDb(); process.exit(0); };
-process.on('SIGTERM', stop);
-process.on('SIGINT', stop);
+const stopMaintenance = startMaintenance();
+// Arresto ordinato entro 10 s (SHUTDOWN_TIMEOUT_MS): drena le richieste, ferma i worker, chiude il DB. Systemd: TimeoutStopSec >= 15.
+const shutdown = createShutdown({
+  server: server as unknown as Parameters<typeof createShutdown>[0]['server'],
+  workers: [stopSdiWorker, stopMaintenance],
+  closeDb,
+  exit: (code) => process.exit(code),
+});
+process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+process.on('SIGINT', () => { void shutdown('SIGINT'); });
+// Errori non gestiti: si registra il NOME (mai il messaggio) e ci si ferma in modo ordinato; systemd riavvia il servizio.
+process.on('uncaughtException', (e) => { logEvent('error', 'uncaught_exception', { name: e?.name ?? 'Error' }); void shutdown('uncaughtException', true); });
+process.on('unhandledRejection', (e) => { logEvent('error', 'unhandled_rejection', { name: e instanceof Error ? e.name : 'Error' }); });

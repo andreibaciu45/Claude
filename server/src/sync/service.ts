@@ -19,6 +19,7 @@ import { appendChange, currentCursor } from '../db/changes';
 import { FREE_DOCS_PER_MONTH, getDocsThisMonth, getPlan, incrementDocsCreated } from '../db/entitlements';
 import { auditSchema, catalogSchema, documentSchema, profileSchema } from '../documents/schema';
 import { findInvoiceNumberOwner, getDocumentRecord, softDeleteDocument, upsertDocument } from '../documents/repo';
+import { recordSyncPush } from '../ops/metrics';
 import { aadAudit, aadProfile, open, openJson, sealJson } from '../db/seal';
 
 export interface PushContext { tenantId: string; userId: string; deviceId: string }
@@ -238,5 +239,6 @@ export function pushOps(ctx: PushContext, ops: Raw[]): SyncPushResponse & { serv
     if (res.ok) accepted.push(op.opId);
     else conflicts.push({ opId: op.opId, reason: res.reason, message: res.message, ...(res.serverVersion !== undefined ? { serverVersion: res.serverVersion } : {}) });
   }
+  recordSyncPush(accepted.length, conflicts); // contatori aggregati (motivi costanti, nessun dato personale)
   return { accepted, conflicts, cursor: String(currentCursor(ctx.tenantId)), serverTime: now() };
 }

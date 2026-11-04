@@ -60,7 +60,7 @@ export const MAX_PRICE = 1e7;
 
 /* ------------------------------------------------------------------ token */
 
-type QtyTok = { k: 'qty'; v: number; u: Unit | null; art: boolean; inferred?: boolean; neg?: boolean; side?: 'before' | 'both'; conv?: { from: string; exact: boolean; orig: number } };
+type QtyTok = { k: 'qty'; v: number; u: Unit | null; art: boolean; inferred?: boolean; neg?: boolean; ml?: boolean; side?: 'before' | 'both'; conv?: { from: string; exact: boolean; orig: number } };
 type WordTok = { k: 'w'; w: string; raw: string; num?: number };
 type Tok =
   | QtyTok
@@ -232,7 +232,7 @@ function toTokens(R: RawTok[], matcher: Matcher): Tok[] {
         q += 0.5;
         nj += 2;
       }
-      out.push({ k: 'qty', v: q, u: un.u, art: nr.art, neg });
+      out.push({ k: 'qty', v: q, u: un.u, art: nr.art, neg, ...(un.ml ? { ml: true } : {}) });
       i = nj;
       continue;
     }
@@ -441,6 +441,8 @@ interface Out {
   converted?: string;
   spokenPrice?: boolean;
   inherited?: boolean;
+  /** misure dette che non coincidono con quelle a catalogo */
+  dims?: string[];
 }
 
 function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext): ParseResultV2 {
@@ -501,7 +503,7 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
   for (const c of ctx.customers ?? []) for (const w of lex(c.name)) if (w.kind === 'word') known.add(w.w);
   const isCatalogWord = (w: string) =>
     !known.has(w) && (matcher.vocab.has(w) || matcher.vocab.has(stem(w)));
-  const { name: customerName, rest } = extractCustomer(mods.rest, isCatalogWord);
+  const { name: customerName, rest } = extractCustomer(mods.rest, isCatalogWord, (w) => known.has(w));
 
   const all = toTokens(rest, matcher);
 
@@ -594,6 +596,11 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
     if (!gp.hasB) {
       const W = gp.pieces[0].toks;
       const start = gp.pieces[0].start;
+      // "ottocento euro a corpo per tinteggiatura ...": il prezzo detto prima della quantità è della riga che segue
+      if (right >= 0 && W.some((t) => t.k === 'price') && meaningful(W).length === 0) {
+        drafts[right].lead.push(...W);
+        continue;
+      }
       if (left >= 0 && right >= 0) {
         let k = W.length;
         if (leadAllowed(right)) {
@@ -659,6 +666,14 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
       if (parts.length > 1) {
         parts.slice(0, -1).forEach((pt, k) => orphans.push({ toks: pt, pos: d.pos - 0.5 + k * 0.01 }));
         d.lead = parts[parts.length - 1];
+      }
+    }
+    // "controparete 14 mq con lana di roccia": la coda introdotta da "con" è un'altra voce se lo è da sola
+    if (d.lead.length + d.trail.length > 0 && d.trail.length > 2 && d.trail.every(isW) && LINK_WORDS.has((d.trail[0] as WordTok).w)) {
+      const rest = d.trail.slice(1).filter((t, i) => !(i === 0 && isW(t) && (t.w === 'di' || t.w === 'd')));
+      if (meaningful(rest).length && scoreText(rest, null, false) >= 0.75 && (d.lead.length > 0 || meaningful(d.trail.slice(0, 1)).length === 0)) {
+        orphans.push({ toks: rest, pos: d.pos + 0.5 });
+        d.trail = [];
       }
     }
     if (d.trail.length > 2 && d.trail.every(isW)) {
@@ -742,6 +757,16 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
       if (lo) outs.push({ pos, leftover: lo });
       return;
     }
+    // misure "100x120" che il catalogo non conosce: non devono pesare sul match, restano come nota
+    const dimNotes: string[] = [];
+    {
+      const kept: string[] = [];
+      for (const t of toks.filter(isW)) {
+        if (/^\d+(\.\d+)?x\d+(\.\d+)?(x\d+(\.\d+)?)*$/.test(t.w) && t.w.split('x').some((x) => !matcher.nums.has(parseFloat(x)))) dimNotes.push(t.w);
+        else kept.push(t.num !== undefined ? String(t.num) : t.w);
+      }
+      if (dimNotes.length) matchText = kept.filter((w) => !UNIT_NOISE.has(w)).join(' ');
+    }
     // riga ellittica "... e uno da trentadue": stessa famiglia della riga precedente, altra specifica
     const mw = meaningful(toks);
     if (anchor && prevCore && mw.length > 0 && mw.every((t) => t.num !== undefined)) {
@@ -793,6 +818,10 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
         qty = r3(anchor.v * 8);
         converted = `${fmtNum(anchor.v)} gg = ${fmtNum(qty)} h (giornata di 8 ore)`;
         unitConv = true;
+      } else if (anchor?.ml && it.unit === 'l') {
+        qty = r3(anchor.v / 1000);
+        converted = `${fmtNum(anchor.v)} ml = ${fmtNum(qty)} l`;
+        unitConv = true;
       } else if (anchor?.conv && anchor.u === it.unit) {
         converted = `${fmtNum(anchor.conv.orig)} ${anchor.conv.from} = ${fmtNum(qty)} ${it.unit}`;
       }
@@ -815,6 +844,7 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
         coats,
         converted,
         spokenPrice: price !== undefined,
+        dims: dimNotes,
         line: {
           id: uid(),
           catalogItemId: it.id,
@@ -896,6 +926,10 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
     const mt: LineMeta = meta.get(l.id) ?? {};
     if (o.coats !== undefined) mt.coats = o.coats;
     if (o.converted) mt.converted = o.converted;
+    if (o.dims?.length) {
+      mt.note = [mt.note, o.dims.join(', ')].filter(Boolean).join(' ');
+      l.needsReview = true;
+    }
     const extra = [mt.note, mt.coats !== undefined ? `${fmtNum(mt.coats)} ${mt.coats === 1 ? 'mano' : 'mani'}` : undefined].filter(Boolean);
     if (extra.length) l.description = `${l.description} (${extra.join(', ')})`;
     if (mt.note || mt.coats !== undefined || mt.converted) meta.set(l.id, mt);
