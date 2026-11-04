@@ -47,7 +47,10 @@ export function verifyOtp(email: string, code: string): { ok: true; id: number }
     return hit === null ? { ok: false as const } : { ok: true as const, id: hit };
   });
 }
-export function consumeOtp(id: number): void { run('UPDATE otp_codes SET consumed_at=? WHERE id=?', now(), id); }
+/** Consuma il codice usato E tutti gli altri ancora attivi della stessa email: il login riuscito chiude la sessione di verifica (un codice precedente non resta spendibile). */
+export function consumeOtp(id: number): void {
+  run('UPDATE otp_codes SET consumed_at=? WHERE consumed_at IS NULL AND email=(SELECT email FROM otp_codes WHERE id=?)', now(), id);
+}
 
 /** true solo se il codice è corretto, non scaduto, non consumato e con tentativi residui. Monouso. */
 export function checkOtp(email: string, code: string): boolean {

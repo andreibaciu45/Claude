@@ -61,6 +61,8 @@ export function deleteAccount(tenantId: string, userId: string): DeleteResult {
     run('DELETE FROM sync_ops WHERE tenant_id=?', tenantId);
     run('DELETE FROM users WHERE tenant_id=?', tenantId);
     if (email) run('DELETE FROM otp_codes WHERE email=?', email);
+    // L'invito usato resta (stato «usato»), ma non conserva più l'impronta dell'email dell'interessato (sha256 senza sale: ricavabile con un dizionario).
+    try { run('UPDATE invite_codes SET email_hash=NULL WHERE used_by_tenant=?', tenantId); } catch { /* modulo inviti non presente */ }
     let mode: DeleteResult['mode'];
     if (retained === 0) {
       try { run('DELETE FROM sdi_submissions WHERE tenant_id=?', tenantId); } catch { /* modulo SDI non caricato */ }
