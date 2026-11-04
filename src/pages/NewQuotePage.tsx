@@ -21,6 +21,9 @@ import { LimitGate } from '../billing/LimitGate';
 import { UsageCounter } from '../billing/UsageCounter';
 import { checkAllowanceNow, useDocumentAllowance } from '../billing/useAllowance';
 import { usePlan } from '../billing/usePlan';
+import { hasVoicePrivacyAck, setVoicePrivacyAck } from '../voice/privacy';
+import { VoicePrivacyDialog } from '../voice/ui/VoicePrivacyDialog';
+import { isNativeSpeechAvailable } from '../voice/provider/native';
 import { recordDocumentCreated } from '../billing/usage';
 import './quote/quote.css';
 import './quote/customerPicker.css';
@@ -201,12 +204,18 @@ export default function NewQuotePage() {
     return () => window.clearTimeout(t);
   }, [speech.listening]);
 
-  const onMic = () => {
-    if (speech.listening) { speech.stop(); return; }
+  // Informativa sul microfono: mostrata una sola volta prima del primo ascolto (come nel widget dei comandi).
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const startListening = () => {
     baseRef.current = text;
     sessionRef.current = true;
     speech.reset();
     speech.start();
+  };
+  const onMic = () => {
+    if (speech.listening) { speech.stop(); return; }
+    if (!hasVoicePrivacyAck()) { setPrivacyOpen(true); return; }
+    startListening();
   };
   const onType = (v: string) => {
     sessionRef.current = false;
@@ -375,6 +384,13 @@ export default function NewQuotePage() {
 
   return (
     <div className="stack">
+      {privacyOpen && (
+        <VoicePrivacyDialog
+          variant={isNativeSpeechAvailable() ? 'native' : 'web'}
+          onAccept={() => { setVoicePrivacyAck(); setPrivacyOpen(false); startListening(); }}
+          onDecline={() => setPrivacyOpen(false)}
+        />
+      )}
       <PageHeader
         title={editing ? (original?.invoice && !original.invoice.legacy ? 'Modifica bozza di fattura' : `Modifica ${TYPE_LABEL[type].toLowerCase()} ${original?.number ?? ''}`) : stage === 'input' ? 'Nuovo preventivo' : type === 'fattura' ? 'Controlla la bozza di fattura' : 'Controlla e genera'}
         subtitle={stage === 'input' && !editing ? (gated ? 'Per questo mese i nuovi documenti gratuiti sono finiti: le bozze restano modificabili.' : 'Detta a voce o scrivi cliente, voci e quantità: preparo io la scheda.') : undefined}
