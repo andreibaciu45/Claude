@@ -1,3 +1,0 @@
-> build PWA in e2e/tmp/dist
-PASS  01-onboarding-preventivo  (25/25, 39s)
-PASS  02-fattura-emissione-xml  (31/31, 16s)

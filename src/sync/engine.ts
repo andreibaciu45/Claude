@@ -6,15 +6,16 @@
  *  - le modifiche remote si applicano allo storage locale SOLO con le sue funzioni pubbliche;
  *    ImmutableDocumentError => la modifica remota viene ignorata e conteggiata.
  */
-import type { MeResponse, SyncConflict, SyncOp } from '../../shared/api';
+import type { MeResponse, SyncConflict, SyncOp, TermsAcceptance } from '../../shared/api';
 import type { AuditEntry, CatalogItem, Profile, QuoteDocument } from '../types';
 import { uid } from '../types';
 import * as storage from '../storage';
 import { ImmutableDocumentError } from '../storage/invoices';
 import {
   api as defaultApi, accountStore as defaultAccountStore, describeError, getDeviceId, tokenStore as defaultTokenStore,
-  ApiClientError, type ApiClient, type StoredAccount,
+  ApiClientError, type ApiClient, type DeleteAccountResult, type StoredAccount,
 } from './api';
+import { termsAcceptanceStore } from './legal';
 import {
   clearSyncState, deleteSynced, enqueueDelete, enqueueUpsert, entityKey, getMeta, getSynced, listConflicts, listOutbox, listPending,
   markAttempt, removeOps, setMeta, setSynced, updateOp, type OutboxRecord,
@@ -53,7 +54,13 @@ export interface SyncStatus {
   /** modifiche remote non applicate (es. documento già emesso e bloccato in locale) nell'ultimo ciclo */
   remoteIgnored: number;
   me: MeResponse | null;
+  /** serverTime - ora locale (ms) all'ultimo push; null = mai misurato. Positivo = telefono indietro. */
+  clockSkewMs: number | null;
 }
+
+/** Oltre questo sfasamento (5 minuti) mostriamo l'avviso sull'orologio. */
+export const CLOCK_SKEW_WARN_MS = 5 * 60_000;
+export const hasClockSkew = (ms: number | null | undefined): boolean => typeof ms === 'number' && Math.abs(ms) > CLOCK_SKEW_WARN_MS;
 
 export interface EngineDeps {
   api: ApiClient;
@@ -99,7 +106,7 @@ export function createSyncEngine(deps: EngineDeps) {
   const { api, store } = deps;
   let status: SyncStatus = {
     signedIn: !!deps.tokenStore.get(), email: deps.accountStore.get()?.email ?? null, phase: 'idle', lastSyncAt: null,
-    pendingOps: 0, conflicts: [], error: null, migration: null, remoteIgnored: 0, me: null,
+    pendingOps: 0, conflicts: [], error: null, migration: null, remoteIgnored: 0, me: null, clockSkewMs: null,
   };
   const subs = new Set<() => void>();
   const set = (patch: Partial<SyncStatus>) => { status = { ...status, ...patch }; subs.forEach((f) => f()); };
@@ -200,7 +207,13 @@ export function createSyncEngine(deps: EngineDeps) {
     for (let guard = 0; guard < 1000; guard++) {
       const batch = (await listPending()).slice(0, PUSH_BATCH);
       if (!batch.length) return;
+      const t0 = deps.now();
       const res = await api.syncPush({ deviceId: getDeviceId(), ops: batch.map(toSyncOp) });
+      if (typeof res.serverTime === 'number' && Number.isFinite(res.serverTime)) {
+        // ora locale a metà della richiesta: compensa la latenza
+        const skew = Math.round(res.serverTime - (t0 + deps.now()) / 2);
+        if (skew !== status.clockSkewMs) set({ clockSkewMs: skew });
+      }
       const accepted = new Set(res.accepted);
       const byId = new Map(batch.map((r) => [r.opId, r]));
       const puts: [string, { hash: string; updatedAt?: number }][] = [];
@@ -283,7 +296,7 @@ export function createSyncEngine(deps: EngineDeps) {
 
   function signedOutState() {
     clearRetry();
-    set({ signedIn: false, email: null, phase: 'idle', error: null, migration: null, me: null, conflicts: [], pendingOps: status.pendingOps });
+    set({ signedIn: false, email: null, phase: 'idle', error: null, migration: null, me: null, conflicts: [], pendingOps: status.pendingOps, clockSkewMs: null });
   }
 
   async function cycle(): Promise<void> {
@@ -352,9 +365,11 @@ export function createSyncEngine(deps: EngineDeps) {
 
   const requestCode = (email: string) => api.authRequest(email.trim().toLowerCase());
 
-  async function verifyCode(email: string, code: string): Promise<void> {
+  /** `acceptedTerms`: versioni di Termini/DPA accettate dall'utente (il server le registra con data/ora). */
+  async function verifyCode(email: string, code: string, acceptedTerms?: TermsAcceptance): Promise<void> {
     const mail = email.trim().toLowerCase();
-    const res = await api.authVerify({ email: mail, code: code.trim(), deviceId: getDeviceId() });
+    const res = await api.authVerify({ email: mail, code: code.trim(), deviceId: getDeviceId(), ...(acceptedTerms ? { acceptedTerms } : {}) });
+    if (acceptedTerms) termsAcceptanceStore.set(acceptedTerms);
     const prev = deps.accountStore.get();
     // un altro account: lo stato di sync (cursor/hash) appartiene al vecchio tenant
     if (prev && (prev.email !== mail || prev.tenantId !== res.tenantId)) await clearSyncState();
@@ -371,6 +386,23 @@ export function createSyncEngine(deps: EngineDeps) {
     deps.accountStore.clear();
     if (debounce) { clearTimeout(debounce); debounce = null; }
     signedOutState();
+  }
+
+  /**
+   * Cancella l'account sul server (DELETE /v1/me), poi esce e azzera SOLO lo stato di sync (coda, cursor, hash).
+   * I dati locali (documenti, catalogo, profilo) restano sul dispositivo. Se il server rifiuta, lancia ApiClientError
+   * (`confirmation_mismatch`, `active_subscription`) e non cambia nulla.
+   */
+  async function deleteAccount(confirmEmail: string, acknowledgeSubscription = false): Promise<DeleteAccountResult> {
+    const res = await api.deleteAccount({ confirmEmail: confirmEmail.trim(), ...(acknowledgeSubscription ? { acknowledgeSubscription: true } : {}) });
+    deps.tokenStore.clear();
+    deps.accountStore.clear();
+    termsAcceptanceStore.clear();
+    if (debounce) { clearTimeout(debounce); debounce = null; }
+    await clearSyncState();
+    signedOutState();
+    set({ pendingOps: 0, lastSyncAt: null, remoteIgnored: 0 });
+    return res;
   }
 
   /** L'utente conferma la prima sincronizzazione: tutti i dati locali vengono caricati sull'account. */
@@ -452,7 +484,7 @@ export function createSyncEngine(deps: EngineDeps) {
 
   return {
     getStatus, subscribe, syncNow, scan, onLocalChange, start,
-    requestCode, verifyCode, signOut, refreshMe, confirmMigration, resolveConflict, refreshCounts,
+    requestCode, verifyCode, signOut, deleteAccount, refreshMe, confirmMigration, resolveConflict, refreshCounts,
   };
 }
 export type SyncEngine = ReturnType<typeof createSyncEngine>;

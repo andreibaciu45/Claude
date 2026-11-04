@@ -9,3 +9,5 @@ server/node_modules
 !.env.example
 *credentials*
 server/data/
+e2e/out/
+e2e/tmp/

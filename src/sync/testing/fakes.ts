@@ -4,7 +4,7 @@ import type {
   SyncPullResponse, SyncPushBody, SyncPushResponse,
 } from '../../../shared/api';
 import type { AuditEntry, CatalogItem, Profile, QuoteDocument } from '../../types';
-import { ApiClientError, type ApiClient } from '../api';
+import { ApiClientError, type ApiClient, type DeleteAccountRequest, type DeleteAccountResult } from '../api';
 import type { LocalStore } from '../snapshot';
 import { defaultProfile } from '../../storage';
 import { ImmutableDocumentError } from '../../storage/invoices';
@@ -26,6 +26,12 @@ export class FakeServer implements ApiClient {
   down = false;       // simula rete assente
   unauthorized = false;
   receivedOps: SyncOp[] = [];
+  /** se impostato, viene restituito come serverTime nel push */
+  serverTime: number | undefined;
+  verifyBodies: AuthVerifyBody[] = [];
+  deleteBodies: DeleteAccountRequest[] = [];
+  deleteError: ApiClientError | null = null;
+  exportBlob = new Blob(['{"account":{}}'], { type: 'application/json' });
 
   private guard() {
     if (this.down) throw new ApiClientError(0, 'network', 'Nessuna connessione al server.');
@@ -97,7 +103,7 @@ export class FakeServer implements ApiClient {
       this.processed.set(op.opId, 'ok');
       accepted.push(op.opId);
     }
-    return { accepted, conflicts, cursor: String(this.seq) };
+    return { accepted, conflicts, cursor: String(this.seq), ...(this.serverTime !== undefined ? { serverTime: this.serverTime } : {}) };
   }
 
   async syncPull(cursor: string): Promise<SyncPullResponse> {
@@ -111,6 +117,7 @@ export class FakeServer implements ApiClient {
 
   async authRequest(_email: string): Promise<void> { this.guard(); }
   async authVerify(body: AuthVerifyBody): Promise<AuthVerifyResponse> {
+    this.verifyBodies.push(body);
     if (body.code !== '123456') throw new ApiClientError(400, 'invalid_code', 'Codice non valido.');
     return { token: `tok-${body.email}`, expiresAt: Date.now() + 1e9, tenantId: `t-${body.email}` };
   }
@@ -120,6 +127,13 @@ export class FakeServer implements ApiClient {
   }
   async checkout(): Promise<CheckoutResponse> { this.guard(); return { url: 'https://pay.example.test/checkout' }; }
   async portal(): Promise<PortalResponse> { this.guard(); return { url: 'https://pay.example.test/portal' }; }
+  async exportData(): Promise<Blob> { this.guard(); return this.exportBlob; }
+  async deleteAccount(body: DeleteAccountRequest): Promise<DeleteAccountResult> {
+    this.guard();
+    this.deleteBodies.push(body);
+    if (this.deleteError) throw this.deleteError;
+    return { deleted: true, mode: 'purged', retainedInvoices: 0 };
+  }
 }
 
 /** Storage locale in memoria con la stessa semantica di immutabilità. */
