@@ -6,7 +6,9 @@ const CUBE = new Set(['cubo', 'cubi', 'cubico', 'cubici']);
 
 export type UnitRead =
   | { kind: 'unit'; u: Unit; next: number }
-  | { kind: 'spec'; next: number };
+  | { kind: 'spec'; next: number }
+  /** unità convertibile in una fatturabile: qty_base = qty * factor (es. cm -> m, ml -> l, minuti -> h) */
+  | { kind: 'conv'; u: Unit; factor: number; next: number; from: string };
 
 /**
  * Legge un'unità di misura subito dopo una quantità.
@@ -66,12 +68,50 @@ export function readUnit(R: RawTok[], j: number): UnitRead | null {
     case 'corpo':
       return { kind: 'unit', u: 'corpo', next: j + 1 };
     case 'cm':
-    case 'mm':
-    case 'mmq':
     case 'centimetro':
     case 'centimetri':
+      return { kind: 'conv', u: 'm', factor: 0.01, next: j + 1, from: 'cm' };
+    case 'ml':
+    case 'millilitro':
+    case 'millilitri':
+      return { kind: 'conv', u: 'l', factor: 0.001, next: j + 1, from: 'ml' };
+    case 'cl':
+    case 'centilitro':
+    case 'centilitri':
+      return { kind: 'conv', u: 'l', factor: 0.01, next: j + 1, from: 'cl' };
+    case 'dl':
+    case 'decilitro':
+    case 'decilitri':
+      return { kind: 'conv', u: 'l', factor: 0.1, next: j + 1, from: 'dl' };
+    case 'hl':
+    case 'ettolitro':
+    case 'ettolitri':
+      return { kind: 'conv', u: 'l', factor: 100, next: j + 1, from: 'hl' };
+    case 'g':
+    case 'gr':
+    case 'grammo':
+    case 'grammi':
+      return { kind: 'conv', u: 'kg', factor: 0.001, next: j + 1, from: 'g' };
+    case 'etto':
+    case 'etti':
+    case 'hg':
+      return { kind: 'conv', u: 'kg', factor: 0.1, next: j + 1, from: 'etti' };
+    case 'quintale':
+    case 'quintali':
+    case 'ql':
+      return { kind: 'conv', u: 'kg', factor: 100, next: j + 1, from: 'q' };
+    case 'tonnellata':
+    case 'tonnellate':
+      return { kind: 'conv', u: 'kg', factor: 1000, next: j + 1, from: 't' };
+    case 'minuto':
+    case 'minuti':
+    case 'min':
+      return { kind: 'conv', u: 'h', factor: 1 / 60, next: j + 1, from: 'min' };
+    case 'mm':
     case 'millimetro':
     case 'millimetri':
+      return { kind: 'conv', u: 'm', factor: 0.001, next: j + 1, from: 'mm' };
+    case 'mmq':
       return { kind: 'spec', next: j + 1 };
     default:
       return null;

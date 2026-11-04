@@ -10,6 +10,8 @@ export interface RawTok {
   /** minuscolo senza accenti (per le parole) */
   w: string;
   kind: RawKind;
+  /** la parola era seguita da un apostrofo attaccato alla successiva (d'Angelo, dell'Orto, l'uno) */
+  apo?: boolean;
 }
 
 export const stripAccents = (s: string): string => s.normalize('NFD').replace(/\p{M}/gu, '');
@@ -27,6 +29,12 @@ export function preprocess(input: string): string {
   s = s.replace(/(?<![\p{L}])m[²2](?![\d\p{L}])/giu, ' mq ');
   s = s.replace(/(?<![\p{L}])m[³3](?![\d\p{L}])/giu, ' mc ');
   s = s.replace(/€/g, ' euro ').replace(/&/g, ' e ');
+  // percentuali: "10%", "10 per cento", "dieci percento" -> "percento" (evita che "cento" diventi 100)
+  s = s.replace(/%/g, ' percento ');
+  s = s.replace(/\bper\s+cento\b/gi, ' percento ');
+  s = s.replace(/\+/g, ' piu ');
+  // apostrofo tra lettere: segnaposto (la parola prima riceve il flag `apo`), così "Dell'Orto" si ricompone
+  s = s.replace(/(\p{L})'(?=\p{L})/gu, `$1${APO}`);
   s = s.replace(/'/g, ' ');
   // separatore migliaia all'italiana: 1.500 -> 1500 (ma non 0.500 e non 2.5)
   s = s.replace(/(?<![\d.,])(\d{1,3})((?:\.\d{3})+)(?!\d)/g, (m, a: string, rest: string) =>
@@ -39,6 +47,7 @@ export function preprocess(input: string): string {
   return s;
 }
 
+const APO = '\uE000';
 const TOKEN_RE = /\d+(?:\.\d+)?(?:x\d+(?:\.\d+)?)*|\p{L}+\d*|[,;:.!?\n]/gu;
 
 export function tokenize(s: string): RawTok[] {
@@ -46,8 +55,9 @@ export function tokenize(s: string): RawTok[] {
   for (const m of s.matchAll(TOKEN_RE)) {
     const raw = m[0];
     const c = raw[0];
+    const apo = s[(m.index ?? 0) + raw.length] === APO;
     if (/\d/.test(c)) out.push({ raw, w: raw, kind: 'digit' });
-    else if (/\p{L}/u.test(c)) out.push({ raw, w: raw.toLowerCase() === 'è' ? 'è' : stripAccents(raw).toLowerCase(), kind: 'word' });
+    else if (/\p{L}/u.test(c)) out.push({ raw, w: raw.toLowerCase() === 'è' ? 'è' : stripAccents(raw).toLowerCase(), kind: 'word', ...(apo ? { apo: true } : {}) });
     else out.push({ raw, w: raw, kind: 'punct' });
   }
   return out;
