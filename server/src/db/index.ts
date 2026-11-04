@@ -22,6 +22,9 @@ export function openDb(path: string): DatabaseSync {
   d.exec('PRAGMA foreign_keys = ON');
   d.exec('PRAGMA busy_timeout = 5000');
   d.exec('PRAGMA synchronous = NORMAL');
+  // Senza recursive_triggers, `INSERT OR REPLACE` cancella la riga in conflitto SENZA far scattare i trigger BEFORE DELETE
+  // (immutabilita' delle fatture emesse e append-only dell'audit): con ON anche quel percorso e' bloccato.
+  d.exec('PRAGMA recursive_triggers = ON');
   d.exec('PRAGMA secure_delete = ON'); // le pagine liberate vengono azzerate (cancellazioni GDPR)
   runMigrations(d);
   if (path !== ':memory:') for (const f of [path, `${path}-wal`, `${path}-shm`]) {

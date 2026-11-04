@@ -13,9 +13,10 @@ CREATE TABLE billing_subscriptions (
 CREATE INDEX idx_billing_customer ON billing_subscriptions(customer_id);
 CREATE TABLE billing_events (event_id TEXT PRIMARY KEY, received_at INTEGER NOT NULL);
 `);
+registerMigration(103, 'extra_billing_cancel_flag', `ALTER TABLE billing_subscriptions ADD COLUMN cancel_at_period_end INTEGER;`);
 registerMigration(102, 'extra_billing_event_order', `ALTER TABLE billing_subscriptions ADD COLUMN last_event_at INTEGER;`);
 
-interface Row { tenant_id: string; customer_id: string | null; subscription_id: string | null; status: string; interval: string | null; current_period_end: number | null; grace_until: number | null; last_event_at: number | null; updated_at: number }
+interface Row { tenant_id: string; customer_id: string | null; subscription_id: string | null; status: string; interval: string | null; current_period_end: number | null; grace_until: number | null; last_event_at: number | null; cancel_at_period_end: number | null; updated_at: number }
 
 export class SqliteBillingStore implements BillingStore {
   async getSubscription(tenantId: string): Promise<SubscriptionRecord | null> {
@@ -24,23 +25,23 @@ export class SqliteBillingStore implements BillingStore {
     return {
       tenantId: r.tenant_id, customerId: r.customer_id ?? undefined, subscriptionId: r.subscription_id ?? undefined,
       status: r.status as SubscriptionRecord['status'], interval: (r.interval as 'month' | 'year' | null) ?? undefined,
-      currentPeriodEnd: r.current_period_end ?? undefined, graceUntil: r.grace_until ?? undefined, lastEventAt: r.last_event_at ?? undefined, updatedAt: r.updated_at,
+      currentPeriodEnd: r.current_period_end ?? undefined, graceUntil: r.grace_until ?? undefined, lastEventAt: r.last_event_at ?? undefined, cancelAtPeriodEnd: r.cancel_at_period_end === 1 ? true : undefined, updatedAt: r.updated_at,
     };
   }
   async saveSubscription(s: SubscriptionRecord): Promise<void> {
     transaction(() => {
-      run(`INSERT INTO billing_subscriptions(tenant_id, customer_id, subscription_id, status, interval, current_period_end, grace_until, last_event_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?)
+      run(`INSERT INTO billing_subscriptions(tenant_id, customer_id, subscription_id, status, interval, current_period_end, grace_until, last_event_at, cancel_at_period_end, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(tenant_id) DO UPDATE SET customer_id=excluded.customer_id, subscription_id=excluded.subscription_id,
              status=excluded.status, interval=excluded.interval, current_period_end=excluded.current_period_end,
-             grace_until=excluded.grace_until, last_event_at=excluded.last_event_at, updated_at=excluded.updated_at`,
+             grace_until=excluded.grace_until, last_event_at=excluded.last_event_at, cancel_at_period_end=excluded.cancel_at_period_end, updated_at=excluded.updated_at`,
         s.tenantId, s.customerId ?? null, s.subscriptionId ?? null, s.status, s.interval ?? null,
-        s.currentPeriodEnd ?? null, s.graceUntil ?? null, s.lastEventAt ?? null, s.updatedAt);
+        s.currentPeriodEnd ?? null, s.graceUntil ?? null, s.lastEventAt ?? null, s.cancelAtPeriodEnd ? 1 : 0, s.updatedAt);
       // Specchio sulla tabella di CORE con lo stato FEDELE (active/past_due/canceled), periodo e grazia:
       // getPlan() di CORE decide il piano effettivo nel tempo (periodo di grazia, currentPeriodEnd).
       setEntitlement(s.tenantId, {
         plan: s.status === 'canceled' ? 'free' : 'pro', status: s.status,
-        currentPeriodEnd: s.currentPeriodEnd ?? null, graceUntil: s.graceUntil ?? null,
+        currentPeriodEnd: s.currentPeriodEnd ?? null, graceUntil: s.graceUntil ?? null, cancelAtPeriodEnd: s.cancelAtPeriodEnd ?? false,
         stripeCustomerId: s.customerId ?? null, stripeSubscriptionId: s.subscriptionId ?? null,
       });
     });

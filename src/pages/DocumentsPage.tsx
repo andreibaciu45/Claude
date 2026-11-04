@@ -136,7 +136,7 @@ export default function DocumentsPage() {
                   <span style={{ width: `${Math.min(100, summary.thr.ratio * 100)}%` }} />
                 </div>
                 {summary.thr.level === 'warn' && (
-                  <p className="iv-note" data-tone="warning" role="alert">Hai incassato il {Math.round(summary.thr.ratio * 100)}% della soglia di {FORFETTARIO_THRESHOLD.toLocaleString('it-IT')} € ({eur(summary.thr.remainingCents / 100)} ancora disponibili): parlane con il tuo commercialista prima di accettare nuovi lavori [DA VERIFICARE].</p>
+                  <p className="iv-note" data-tone="warning" role="alert">Hai incassato il {Math.round(summary.thr.ratio * 100)}% della soglia di {FORFETTARIO_THRESHOLD.toLocaleString('it-IT')} € ({eur(summary.thr.remainingCents / 100)} ancora disponibili): parlane con il tuo commercialista [DA VERIFICARE].</p>
                 )}
                 {summary.thr.level === 'over' && (
                   <p className="iv-note" data-tone="danger" role="alert">Hai raggiunto o superato la soglia di {FORFETTARIO_THRESHOLD.toLocaleString('it-IT')} € nel {summary.ys}: contatta subito il tuo commercialista per capire le conseguenze sul regime forfettario [DA VERIFICARE].</p>

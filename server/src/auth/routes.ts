@@ -5,7 +5,8 @@ import type { AuthRequestBody, AuthVerifyBody, AuthVerifyResponse, MeResponse } 
 import { one, transaction } from '../db';
 import { backoffCheck, backoffFail, backoffReset, dbRateLimitStore } from '../db/ratelimit';
 import { logOnce } from '../log';
-import { docsLimitFor, getDocsThisMonth, getPlan } from '../db/entitlements';
+import { billingStatusOf, docsLimitFor, effectivePlan, getDocsThisMonth, getEntitlement } from '../db/entitlements';
+import { monthKey, now } from '../db/clock';
 import { sha256Hex } from './crypto';
 import { apiError, parseJson } from './http';
 import { getMailer } from './mailer';
@@ -115,6 +116,14 @@ meRoutes.get('/', requireAuth, (c) => {
   const tenantId = c.get('tenantId');
   const u = one<{ email: string }>('SELECT email FROM users WHERE id=? AND tenant_id=?', c.get('userId'), tenantId);
   if (!u) return apiError(c, 401, 'unauthorized', 'Sessione non valida');
-  const plan = getPlan(tenantId);
-  return c.json({ email: u.email, tenantId, plan, quota: { docsThisMonth: getDocsThisMonth(tenantId), docsLimit: docsLimitFor(plan) } } satisfies MeResponse);
+  const e = getEntitlement(tenantId);
+  const plan = effectivePlan(e, now());
+  return c.json({
+    email: u.email, tenantId, plan,
+    quota: { docsThisMonth: getDocsThisMonth(tenantId), docsLimit: docsLimitFor(plan), periodKey: monthKey() },
+    billingStatus: billingStatusOf(e, plan),
+    currentPeriodEnd: e.plan === 'pro' ? e.currentPeriodEnd : null,
+    cancelAtPeriodEnd: plan === 'pro' && e.cancelAtPeriodEnd,
+    graceUntil: e.status === 'past_due' && plan === 'pro' ? e.graceUntil : null,
+  } satisfies MeResponse);
 });

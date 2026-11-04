@@ -88,6 +88,7 @@ async function dispatch(ev: StripeEvent, store: BillingStore, now: number, grace
       if (sid) next.subscriptionId = sid;
       const iv = intervalOf(obj); if (iv) next.interval = iv;
       const pe = periodEndMs(obj); if (pe) next.currentPeriodEnd = pe;
+      if (typeof obj.cancel_at_period_end === 'boolean') next.cancelAtPeriodEnd = obj.cancel_at_period_end;
       if (s === 'active' || s === 'trialing') { next.status = 'active'; delete next.graceUntil; }
       else if (s === 'past_due') {
         next.status = 'past_due';

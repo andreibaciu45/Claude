@@ -128,6 +128,13 @@ export function assertSaveAllowed(existing: QuoteDocument | undefined, incoming:
     }
     return;
   }
+  // Documento sincronizzato da un altro dispositivo dopo "Correggi e rinvia": stessa identità fiscale (numero, data, sezionale,
+  // anno, seq, emissione) e storico XML più lungo = correzione legittima di una fattura scartata, non una manomissione.
+  if (allowLock && existing!.status === 'scartata' && incoming.status === 'scartata' && existing!.invoice && incoming.invoice) {
+    const id = (d: QuoteDocument) => stable({ n: d.number, date: d.date, i: d.invoice && [d.invoice.number, d.invoice.seq, d.invoice.year, d.invoice.sectional, d.invoice.operationDate, d.invoice.issuedAt, d.invoice.lockedAt, d.invoice.tipoDocumento] });
+    const hist = (d: QuoteDocument) => ((d.invoice as InvoiceFiscalExt).xmlHistory ?? []).length;
+    if (id(existing!) === id(incoming) && hist(incoming) > hist(existing!)) return;
+  }
   const strip = (d: QuoteDocument) => {
     const c = clone(d) as QuoteDocument;
     delete (c as Partial<QuoteDocument>).updatedAt;

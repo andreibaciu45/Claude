@@ -9,6 +9,8 @@ export interface Entitlement {
   plan: Plan; status: string; currentPeriodEnd: number | null;
   /** Fine del periodo di grazia dopo un pagamento fallito (status 'past_due'). */
   graceUntil: number | null;
+  /** L'abbonamento è disdetto ma resta attivo fino a currentPeriodEnd (Stripe cancel_at_period_end). */
+  cancelAtPeriodEnd: boolean;
   stripeCustomerId: string | null; stripeSubscriptionId: string | null;
 }
 
@@ -20,10 +22,10 @@ export const periodSlackMs = (): number => {
 };
 
 export function getEntitlement(tenantId: string): Entitlement {
-  const r = one<{ plan: string; status: string; current_period_end: number | null; grace_until: number | null; stripe_customer_id: string | null; stripe_subscription_id: string | null }>(
-    'SELECT plan, status, current_period_end, grace_until, stripe_customer_id, stripe_subscription_id FROM entitlements WHERE tenant_id=?', tenantId);
-  if (!r) return { plan: 'free', status: 'active', currentPeriodEnd: null, graceUntil: null, stripeCustomerId: null, stripeSubscriptionId: null };
-  return { plan: r.plan === 'pro' ? 'pro' : 'free', status: r.status, currentPeriodEnd: r.current_period_end, graceUntil: r.grace_until,
+  const r = one<{ plan: string; status: string; current_period_end: number | null; grace_until: number | null; cancel_at_period_end: number | null; stripe_customer_id: string | null; stripe_subscription_id: string | null }>(
+    'SELECT plan, status, current_period_end, grace_until, cancel_at_period_end, stripe_customer_id, stripe_subscription_id FROM entitlements WHERE tenant_id=?', tenantId);
+  if (!r) return { plan: 'free', status: 'active', currentPeriodEnd: null, graceUntil: null, cancelAtPeriodEnd: false, stripeCustomerId: null, stripeSubscriptionId: null };
+  return { plan: r.plan === 'pro' ? 'pro' : 'free', status: r.status, currentPeriodEnd: r.current_period_end, graceUntil: r.grace_until, cancelAtPeriodEnd: r.cancel_at_period_end === 1,
     stripeCustomerId: r.stripe_customer_id, stripeSubscriptionId: r.stripe_subscription_id };
 }
 
@@ -42,6 +44,13 @@ export function effectivePlan(e: Pick<Entitlement, 'plan' | 'status' | 'currentP
   return 'free';
 }
 
+/** Stato abbonamento per l'interfaccia (MeResponse.billingStatus). */
+export function billingStatusOf(e: Entitlement, effective: Plan): 'active' | 'trialing' | 'past_due' | 'canceled' | 'none' {
+  if (e.plan === 'free' && !e.stripeCustomerId && !e.stripeSubscriptionId) return 'none';
+  if (effective === 'free') return 'canceled'; // disdetto, scaduto o grazia terminata
+  return e.status === 'trialing' ? 'trialing' : e.status === 'past_due' ? 'past_due' : 'active';
+}
+
 /** Piano effettivo del tenant adesso (rispetta periodo di grazia e currentPeriodEnd). */
 export function getPlan(tenantId: string, ts: number = now()): Plan {
   return effectivePlan(getEntitlement(tenantId), ts);
@@ -49,14 +58,14 @@ export function getPlan(tenantId: string, ts: number = now()): Plan {
 
 export function setEntitlement(tenantId: string, p: Partial<Entitlement> & { plan: Plan }): void {
   run(
-    `INSERT INTO entitlements(tenant_id, plan, status, current_period_end, grace_until, stripe_customer_id, stripe_subscription_id, updated_at)
-     VALUES (?,?,?,?,?,?,?,?)
+    `INSERT INTO entitlements(tenant_id, plan, status, current_period_end, grace_until, cancel_at_period_end, stripe_customer_id, stripe_subscription_id, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?)
      ON CONFLICT(tenant_id) DO UPDATE SET plan=excluded.plan, status=excluded.status, current_period_end=excluded.current_period_end,
-       grace_until=excluded.grace_until,
+       grace_until=excluded.grace_until, cancel_at_period_end=excluded.cancel_at_period_end,
        stripe_customer_id=COALESCE(excluded.stripe_customer_id, entitlements.stripe_customer_id),
        stripe_subscription_id=COALESCE(excluded.stripe_subscription_id, entitlements.stripe_subscription_id),
        updated_at=excluded.updated_at`,
-    tenantId, p.plan, p.status ?? 'active', p.currentPeriodEnd ?? null, p.graceUntil ?? null, p.stripeCustomerId ?? null, p.stripeSubscriptionId ?? null, now());
+    tenantId, p.plan, p.status ?? 'active', p.currentPeriodEnd ?? null, p.graceUntil ?? null, p.cancelAtPeriodEnd ? 1 : 0, p.stripeCustomerId ?? null, p.stripeSubscriptionId ?? null, now());
 }
 
 export function getDocsThisMonth(tenantId: string, ts: number = now()): number {

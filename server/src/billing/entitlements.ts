@@ -17,6 +17,8 @@ export interface SubscriptionRecord {
   graceUntil?: number; // epoch ms, valorizzato con past_due
   /** `created` (epoch ms) dell'ultimo evento Stripe applicato: scarta gli eventi arrivati fuori ordine. */
   lastEventAt?: number;
+  /** Disdetto ma attivo fino a currentPeriodEnd. */
+  cancelAtPeriodEnd?: boolean;
   updatedAt: number;
 }
 

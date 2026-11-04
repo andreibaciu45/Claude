@@ -8,7 +8,7 @@
 import type { CatalogItem, DocLine, ParseResult, Unit } from '../types';
 import { uid } from '../types';
 import { CONJ, extractCustomer, FILLER } from './customer';
-import { createMatcher, MATCH_MIN, REVIEW_BELOW, type Matcher } from './match';
+import { getMatcher, MATCH_MIN, REVIEW_BELOW, type Matcher } from './match';
 import { fmtNum, isHalfWord, readNumber } from './numbers';
 import { lex, type RawTok } from './text';
 import { readUnit, UNIT_LABEL } from './units';
@@ -284,7 +284,7 @@ export function parseDictation(transcript: string, catalog: CatalogItem[]): Pars
   const empty: ParseResult = { lines: [], leftovers: [] };
   if (!transcript || !transcript.trim()) return empty;
 
-  const matcher: Matcher = createMatcher(catalog ?? []);
+  const matcher: Matcher = getMatcher(catalog ?? []);
   const R0 = lex(transcript);
   const { name: customerName, rest } = extractCustomer(R0, (w) => {
     return matcher.vocab.has(w) || matcher.vocab.has(w.length >= 4 ? w.replace(/[aeio]$/, '') : w);

@@ -430,6 +430,28 @@ describe('orologi dei client (d) e payload ostili', () => {
   });
 });
 
+describe('quota Free non aggirabile', () => {
+  it('cancellare e ricreare lo stesso id conta come documento nuovo', async () => {
+    const { token } = await login('a@x.it');
+    for (const id of ['a', 'b', 'c']) await push(token, [docOp(quote(id, { updatedAt: 1000 }))]);
+    await push(token, [{ opId: opId(), entity: 'document', entityId: 'a', op: 'delete', clientTs: 2000 }]);
+    const again = await push(token, [docOp(quote('a', { updatedAt: 3000 }))]);
+    expect(again.json.conflicts[0].reason).toBe('quota_exceeded');
+    expect((await call('GET', '/v1/me', { token })).json.quota.docsThisMonth).toBe(3);
+  });
+  it('housekeeping elimina sessioni scadute, OTP vecchi e contatori; non tocca i dati attivi', async () => {
+    let t = 1_800_000_000_000; setClock(() => t);
+    const A = await login('a@x.it');
+    await push(A.token, [docOp(quote('q1'))]);
+    t += 125 * 86_400_000;
+    const { housekeeping } = await import('../../src/db/housekeeping');
+    const r = housekeeping();
+    expect(r.sessions).toBe(1); // scaduta da oltre 30 giorni (90 gg di vita)
+    expect(one<{ n: number }>('SELECT COUNT(*) n FROM documents')!.n).toBe(1);
+    expect(one<{ n: number }>('SELECT COUNT(*) n FROM rate_limits')!.n).toBe(0);
+  });
+});
+
 describe('intestazioni e input', () => {
   it('errori interni non rivelano dettagli e portano X-Request-Id', async () => {
     const r = await call('GET', '/v1/documents/%E0%A4%A', { token: 'x'.repeat(43) });
@@ -449,5 +471,20 @@ describe('intestazioni e input', () => {
     expect((await call('GET', '/v1/documents?limit=1;DROP%20TABLE%20documents&offset=-5', { token })).status).toBe(200);
     expect((await call('GET', "/v1/sync/pull?cursor=0'%20OR%201=1", { token })).status).toBe(400);
     expect(one<{ n: number }>('SELECT COUNT(*) n FROM documents')!.n).toBe(1);
+  });
+});
+
+describe('GET /v1/me: stato abbonamento coerente con getPlan', () => {
+  it('billingStatus / currentPeriodEnd / graceUntil / cancelAtPeriodEnd', async () => {
+    const { token, tenantId } = await login('a@x.it');
+    const t0 = 1_800_000_000_000; setClock(() => t0);
+    const me = async () => (await call('GET', '/v1/me', { token })).json;
+    expect(await me()).toMatchObject({ plan: 'free', billingStatus: 'none', currentPeriodEnd: null, graceUntil: null, cancelAtPeriodEnd: false });
+    setEntitlement(tenantId, { plan: 'pro', status: 'active', currentPeriodEnd: t0 + 5 * 86_400_000, cancelAtPeriodEnd: true, stripeCustomerId: 'cus_1' });
+    expect(await me()).toMatchObject({ plan: 'pro', billingStatus: 'active', currentPeriodEnd: t0 + 5 * 86_400_000, cancelAtPeriodEnd: true, quota: { docsLimit: null } });
+    setEntitlement(tenantId, { plan: 'pro', status: 'past_due', currentPeriodEnd: t0 - 1000, graceUntil: t0 + 86_400_000, stripeCustomerId: 'cus_1' });
+    expect(await me()).toMatchObject({ plan: 'pro', billingStatus: 'past_due', graceUntil: t0 + 86_400_000 });
+    setClock(() => t0 + 2 * 86_400_000);
+    expect(await me()).toMatchObject({ plan: 'free', billingStatus: 'canceled', graceUntil: null, quota: { docsLimit: 3 } });
   });
 });

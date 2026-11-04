@@ -203,7 +203,7 @@ describe('quota Free', () => {
     expect(r.json.accepted).toHaveLength(3);
     expect(r.json.conflicts).toEqual([expect.objectContaining({ reason: 'quota_exceeded' })]);
     expect((await push(token, [docOp(quote('a', { notes: 'x', updatedAt: 2000 }))])).json.accepted).toHaveLength(1);
-    expect((await call('GET', '/v1/me', { token })).json.quota).toEqual({ docsThisMonth: 3, docsLimit: 3 });
+    expect((await call('GET', '/v1/me', { token })).json.quota).toMatchObject({ docsThisMonth: 3, docsLimit: 3 });
     setEntitlement(tenantId, { plan: 'pro' });
     expect((await push(token, [docOp(quote('d'))])).json.accepted).toHaveLength(1);
     const me = (await call('GET', '/v1/me', { token })).json;

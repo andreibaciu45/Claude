@@ -15,6 +15,7 @@ export function housekeeping(): Record<string, number> {
   del('otp_codes', 'DELETE FROM otp_codes WHERE created_at < ?', t - DAY);
   del('billing_events', 'DELETE FROM billing_events WHERE received_at < ?', t - 90 * DAY);
   del('sdi_jobs', "DELETE FROM sdi_jobs WHERE status = 'done' AND created_at < ?", t - 30 * DAY);
+  del('sync_ops', 'DELETE FROM sync_ops WHERE applied_at < ?', t - 400 * DAY); // idempotenza: nessun client riprova dopo oltre un anno
   purgeRateLimits();
   purgeBackoff();
   return out;

@@ -54,7 +54,7 @@ export function CreditNoteSheet({ open, onClose, doc, busy, creditNotes = [], fo
           La fattura n. {displayNumber(doc)} del {fmtDate(doc.invoice?.operationDate ?? doc.date)} non si cancella: si annulla emettendo una nota di credito collegata, che avrà un suo numero e non si può più modificare.
         </p>
         <Field label="Motivo dell’annullamento (obbligatorio)" error={touched && !reasonOk ? 'Scrivi il motivo.' : undefined}>
-          <Textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} onBlur={() => setTouched(true)} placeholder="Es. Importo errato / lavoro non eseguito" aria-invalid={touched && !reasonOk ? true : undefined} data-autofocus />
+          <Textarea rows={3} value={reason} onChange={(e) => { setReason(e.target.value); setTouched(true); }} placeholder="Es. Importo errato / lavoro non eseguito" aria-invalid={touched && !reasonOk ? true : undefined} data-autofocus />
         </Field>
         {hasPrior && <p className="iv-note" data-tone="info">Hai già stornato {fmtNum(res.creditedCents / 100)} € con altre note di credito. Ancora stornabile: <strong>{fmtNum(res.residualCents / 100)} €</strong>.</p>}
         {exhausted && <p className="iv-note" data-tone="danger" role="alert">La fattura è già stata stornata per intero.</p>}

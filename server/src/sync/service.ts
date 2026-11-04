@@ -120,11 +120,13 @@ function applyDocument(ctx: PushContext, op: Raw): Result {
     if (owner && owner !== doc.id) return bad('duplicate_invoice_number', `Numero ${inv.sectional} ${inv.year}/${inv.seq} già utilizzato`);
   }
 
-  if (!existing && getPlan(tenantId) === 'free' && getDocsThisMonth(tenantId) >= FREE_DOCS_PER_MONTH) {
+  // Un id già cancellato (tombstone) e ricreato conta come documento NUOVO: altrimenti basterebbe riusare lo stesso id per aggirare la quota Free.
+  const isNew = !existing || existing.deletedAt !== null;
+  if (isNew && getPlan(tenantId) === 'free' && getDocsThisMonth(tenantId) >= FREE_DOCS_PER_MONTH) {
     return bad('quota_exceeded', `Piano Free: massimo ${FREE_DOCS_PER_MONTH} documenti al mese`);
   }
   upsertDocument(tenantId, doc, doc.updatedAt);
-  if (!existing) incrementDocsCreated(tenantId);
+  if (isNew) incrementDocsCreated(tenantId);
   appendChange(tenantId, op.opId, 'document', doc.id, 'upsert', doc);
   return { ok: true };
 }

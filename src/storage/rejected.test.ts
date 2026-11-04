@@ -5,7 +5,7 @@ import { webcrypto } from 'node:crypto';
 import {
   ImmutableDocumentError, InvalidSdiTransitionError, ResubmitWindowExpiredError, __resetStorageForTests, appendAudit, createCreditNote,
   createResubmissionDraft, deleteDocument, getDocument, getProfile, issueInvoice, listAudit, listDocuments, recordSdiEvent, reopenRejectedInvoice,
-  saveDocument, sha256Hex,
+  saveDocument, saveSyncedDocument, sha256Hex,
 } from './index';
 import type { InvoiceFiscalExt } from './invoices';
 import type { QuoteDocument, SdiEvent } from '../types';
@@ -168,6 +168,22 @@ describe('fattura scartata: correggi e rinvia (stesso numero e data, nuovo progr
     const stale = { ...fixed, invoice: { ...fixed.invoice! } } as QuoteDocument;
     delete (stale.invoice as Partial<InvoiceFiscalExt>).xmlHistory;
     await expect(saveDocument({ ...stale, status: 'inviata' })).resolves.toBeUndefined();
+  });
+
+  it('sync: una correzione fatta su un altro dispositivo (stessa identità fiscale, storico più lungo) si accetta; altre modifiche no', async () => {
+    await rejected('a');
+    const original = (await getDocument('a'))!;
+    const fixed = await reopenRejectedInvoice('a', { notes: 'dal dispositivo A' });
+    // simula il dispositivo B: ha la versione originale e riceve quella corretta
+    await __resetStorageForTests();
+    await deleteDB('vocepreventivo');
+    await seedProfile();
+    await saveSyncedDocument(original);
+    await expect(saveSyncedDocument(fixed)).resolves.toBeUndefined();
+    expect((await getDocument('a'))!.notes).toBe('dal dispositivo A');
+    // stessa identità ma senza storico più lungo (o numero diverso): rifiutato
+    await expect(saveSyncedDocument({ ...fixed, notes: 'manomesso' })).rejects.toBeInstanceOf(ImmutableDocumentError);
+    await expect(saveSyncedDocument({ ...fixed, invoice: { ...fixed.invoice!, number: '77/2026', xmlHistory: [...ext(fixed).xmlHistory!, ...ext(fixed).xmlHistory!] } as never })).rejects.toBeInstanceOf(ImmutableDocumentError);
   });
 
   it('la fattura scartata mantiene il suo numero: la successiva ha il numero seguente (nessun buco, nessun riuso)', async () => {

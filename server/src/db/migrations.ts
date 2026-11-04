@@ -222,6 +222,8 @@ CREATE TABLE auth_backoff (
 );
 `);
 
+registerMigration(3, 'entitlements_cancel_flag', `ALTER TABLE entitlements ADD COLUMN cancel_at_period_end INTEGER;`);
+
 export function runMigrations(db: DatabaseSync): void {
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at INTEGER NOT NULL)');
   const done = new Set((db.prepare('SELECT version FROM schema_migrations').all() as { version: number }[]).map((r) => r.version));

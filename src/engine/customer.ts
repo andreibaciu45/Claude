@@ -65,6 +65,16 @@ const titleCase = (t: RawTok): string => {
   return base;
 };
 
+/** Compone il nome ricostruendo gli apostrofi (D'Angelo, Dell'Orto) e le sigle societarie (SRL). */
+function joinName(toks: RawTok[]): string {
+  let out = '';
+  toks.forEach((x, i) => {
+    const piece = COMPANY.has(x.w) ? x.raw.toUpperCase() : titleCase(x);
+    out += i === 0 ? piece : toks[i - 1].apo ? `'${piece}` : ` ${piece}`;
+  });
+  return out;
+}
+
 export interface CustomerResult {
   name?: string;
   rest: RawTok[];
@@ -99,11 +109,21 @@ export function extractCustomer(R: RawTok[], isCatalogWord: (w: string) => boole
     }
     else if (TITLES.has(w) && w !== 'cliente' && (i === 0 || R[i - 1].kind === 'punct' || DOC_WORDS.has(R[i - 1].w))) k = i;
     if (k < 0) continue;
-    // salta articoli/titoli residui (le forme "ditta/condominio/studio..." restano nel nome)
+    // salta articoli/titoli residui (le forme "ditta/condominio/studio..." restano nel nome,
+    // e un articolo che li segue fa parte del nome: "Condominio Le Magnolie", "Condominio I Girasoli")
     const orgPrefix: RawTok[] = [];
+    let isOrg = false;
+    let prevOrg = false;
     while (R[k] && R[k].kind === 'word' && (ARTICLES.has(R[k].w) || TITLES.has(R[k].w))) {
       if (TITLES.has(R[k].w)) hasTitle = true;
-      if (ORG_TITLES.has(R[k].w)) orgPrefix.push(R[k]);
+      if (ORG_TITLES.has(R[k].w)) {
+        orgPrefix.push(R[k]);
+        isOrg = true;
+        prevOrg = true;
+      } else if (prevOrg && ARTICLES.has(R[k].w) && R[k + 1]?.kind === 'word' && !ARTICLES.has(R[k + 1].w) && !TITLES.has(R[k + 1].w)) {
+        orgPrefix.push(R[k]);
+        prevOrg = false;
+      } else prevOrg = false;
       k++;
     }
     const first = R[k];
@@ -116,7 +136,7 @@ export function extractCustomer(R: RawTok[], isCatalogWord: (w: string) => boole
     let j = k + 1;
     const caps = isCap(first.raw);
     const firstIsGiven = FIRST_NAMES.has(first.w);
-    const maxWords = caps ? 4 : hasTitle && !firstIsGiven ? 1 : 2;
+    const maxWords = caps || isOrg ? 4 : hasTitle && !firstIsGiven ? 1 : 2;
     while (j < R.length && words.length < maxWords) {
       const x = R[j];
       if (x.kind !== 'word' || isNumLike(x)) break;
@@ -133,11 +153,13 @@ export function extractCustomer(R: RawTok[], isCatalogWord: (w: string) => boole
       }
       if (caps) {
         if (!isCap(x.raw)) break;
+      } else if (isCap(x.raw) && !isStopWord(x) && !isCatalogWord(x.w) && words.length < 5) {
+        // una maiuscola a metà frase è quasi sempre parte del nome: "studio associato Valli"
       } else if (isStopWord(x) || isCatalogWord(x.w)) break;
       words.push(x);
       j++;
     }
-    const name = [...orgPrefix, ...words].map((x) => (COMPANY.has(x.w) ? x.raw.toUpperCase() : titleCase(x))).join(' ');
+    const name = joinName([...orgPrefix, ...words]);
     return { name, rest: [...R.slice(0, i), ...R.slice(j)] };
   }
   return { rest: R };

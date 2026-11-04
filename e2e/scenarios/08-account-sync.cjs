@@ -15,6 +15,10 @@ async function login(S, ctx, page, email) {
   await S.shot(page, `${ctx.__label} codice inserito`);
   await page.getByRole('button', { name: 'Accedi' }).click();
   await page.getByText(/Sincronizzazione/).first().waitFor({ timeout: 15000 });
+  // la scheda di prima sincronizzazione compare in modo asincrono: la aspetto prima di decidere
+  const mig = await page.getByText('Prima sincronizzazione').waitFor({ timeout: 4000 }).then(() => true, () => false);
+  if (mig) { await page.getByRole('button', { name: 'Carica e sincronizza' }).click(); await page.getByText('Tutto aggiornato').waitFor({ timeout: 15000 }); }
+  return mig;
 }
 const token = (page) => page.evaluate(() => localStorage.getItem('vp:sync:token'));
 async function serverGet(tok, path) {
@@ -77,12 +81,12 @@ run('08-account-sync', async (S) => {
   const B = await S.page(ctxB, 'tel2');
   await go(B, '/documenti');
   S.check('B: contesto pulito, nessun documento', /Ancora nessun documento/.test(await B.locator('main').innerText()));
-  await login(S, ctxB, B, EMAIL);
+  const migB = await login(S, ctxB, B, EMAIL);
+  S.note('B: scheda prima sincronizzazione mostrata: ' + migB);
   await sleep(1500);
   await S.shot(B, 'B dopo login');
   const txB = await accText(B);
   S.note('B dopo login (account): ' + txB.replace(/\n+/g, ' | ').slice(0, 300));
-  if (/Prima sincronizzazione/.test(txB)) await B.getByRole('button', { name: 'Carica e sincronizza' }).click();
   await syncNow(B);
   await go(B, '/documenti');
   await sleep(500);
@@ -149,16 +153,18 @@ run('08-account-sync', async (S) => {
   await fillProfile(null, D1);
   await createInvoiceDraft(null, D1, { lines: [{ description: 'D1 prima', qty: 1, price: 50 }] });
   await issueCurrent(null, D1);
-  await login(S, ctxD1, D1, EMAIL2);
-  if (/Prima sincronizzazione/.test(await accText(D1))) await D1.getByRole('button', { name: 'Carica e sincronizza' }).click();
+  S.check('D1: login con dati locali propone la prima sincronizzazione', await login(S, ctxD1, D1, EMAIL2));
   await syncNow(D1);
 
   const ctxD2 = await S.context({ mobile: true, label: 'D2' });
   const D2 = await S.page(ctxD2, 'tel2');
   await go(D2, '/documenti');
   await login(S, ctxD2, D2, EMAIL2);
-  if (/Prima sincronizzazione/.test(await accText(D2))) await D2.getByRole('button', { name: 'Carica e sincronizza' }).click();
   await syncNow(D2);
+  await go(D2, '/profilo');
+  S.check('D2: profilo e contatori arrivati dal server', (await D2.locator('[data-field="vatNumber"]').inputValue()) === '01234567897');
+  await go(D2, '/documenti');
+  S.check('D2: fattura emessa da D1 (1/2026) arrivata', (await D2.locator('main').innerText()).includes('1/2026'));
   await S.setOffline(ctxD2, true);
 
   await createInvoiceDraft(S, D1, { lines: [{ description: 'D1 seconda (online)', qty: 1, price: 60 }] });

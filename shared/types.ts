@@ -147,6 +147,11 @@ export interface InvoiceFiscal {
   payments: { date: string; amount: number; method?: string }[];
   /** true = fattura "di cortesia" v1 migrata: NON fiscale */
   legacy?: boolean;
+  /** Storico degli XML sostituiti (es. dopo scarto SDI e rinvio con stesso numero/data). */
+  xmlHistory?: {
+    xml?: string; xmlSha256?: string; fileName?: string; progressivoInvio?: string;
+    archivedAt: number; reason: 'scartata' | 'sostituita'; sdiEvent?: SdiEvent;
+  }[];
 }
 
 /** Registro append-only. Mai modificato né cancellato. */

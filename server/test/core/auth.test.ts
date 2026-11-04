@@ -18,7 +18,8 @@ describe('auth OTP', () => {
     expect(v.status).toBe(200);
     expect(v.json.token.length).toBeGreaterThanOrEqual(43); // 256 bit base64url
     const me = await call('GET', '/v1/me', { token: v.json.token });
-    expect(me.json).toEqual({ email: 'mario@example.com', tenantId: v.json.tenantId, plan: 'free', quota: { docsThisMonth: 0, docsLimit: 3 } });
+    expect(me.json).toEqual({ email: 'mario@example.com', tenantId: v.json.tenantId, plan: 'free', quota: { docsThisMonth: 0, docsLimit: 3, periodKey: new Date().toISOString().slice(0, 7) },
+      billingStatus: 'none', currentPeriodEnd: null, cancelAtPeriodEnd: false, graceUntil: null });
     expect((await call('POST', '/v1/auth/logout', { token: v.json.token })).status).toBe(204);
     expect((await call('GET', '/v1/me', { token: v.json.token })).status).toBe(401);
   });
