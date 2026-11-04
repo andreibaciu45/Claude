@@ -10,6 +10,9 @@ import { issueTarget, previewNumber, splitIssues } from './model';
 export const DISCLAIMER =
   'Strumento di supporto: la responsabilità fiscale resta tua. Verifica i dati con il tuo commercialista.';
 
+/** Avvisi puramente informativi: non c'è nulla da "correggere" cliccando. */
+const NO_LINK = new Set(['stamp_due', 'stamp_recomputed', 'issue_term_exceeded', 'not_chronological', 'year_mismatch', 'vat_ignored']);
+
 export const IssueIssues = ({ issues, docId, onNavigate, returnTo }: { issues: ValidationIssue[]; docId: string; onNavigate?: () => void; returnTo?: string }) => {
   if (!issues.length) return null;
   return (
@@ -21,7 +24,7 @@ export const IssueIssues = ({ issues, docId, onNavigate, returnTo }: { issues: V
             <strong>{i.severity === 'error' ? 'Da correggere' : 'Attenzione'}</strong>
             <span>{i.message}</span>
             {/* returnTo: dal profilo si torna alla stessa fattura; la bozza è già salvata e non si perde */}
-            <Link to={t.to} state={returnTo ? { returnTo } : undefined} onClick={onNavigate}>{t.label}</Link>
+            {(i.severity === 'error' || !NO_LINK.has(i.code)) && <Link to={t.to} state={returnTo ? { returnTo } : undefined} onClick={onNavigate}>{t.label}</Link>}
           </li>
         );
       })}

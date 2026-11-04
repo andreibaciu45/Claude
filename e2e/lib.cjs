@@ -124,6 +124,7 @@ class Scenario {
     const page = await ctx.newPage();
     const tag = `${ctx.__label}${label ? '/' + label : ''}`;
     const push = (kind, text) => {
+      if (this.ignoreConsole && this.ignoreConsole.test(text)) return;
       if (ctx.__offline && /Failed to fetch|ERR_INTERNET_DISCONNECTED|net::ERR|NetworkError|Load failed/i.test(text)) return; // atteso in offline
       this.errors.push(`[${tag}] ${kind}: ${text}`);
     };

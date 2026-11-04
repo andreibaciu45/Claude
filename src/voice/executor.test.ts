@@ -315,8 +315,13 @@ describe('altri comandi', () => {
     const f = emitted(); const q = doc();
     put(f, q);
     const download = vi.fn();
-    await executeCommand({ type: 'download', format: 'xml', ref: { kind: 'id', id: f.id } }, { download });
+    await executeCommand({ type: 'download', format: 'xml', ref: { kind: 'id', id: f.id } }, { download, transcript: 'scarica l\'xml della fattura dodici' });
     expect(download).toHaveBeenCalledWith(expect.any(Blob), 'IT123_00001.xml');
+    // audit: download_xml (con hash) + voice_command, entrambi con la trascrizione
+    const calls = (h.appendAudit.mock.calls as unknown as [{ action: string; voiceTranscript?: string; docId: string }][]).map((c) => c[0]);
+    expect(calls.map((c) => c.action)).toEqual(expect.arrayContaining(['download_xml', 'voice_command']));
+    expect(calls.every((c) => c.docId === f.id)).toBe(true);
+    expect(calls.every((c) => c.voiceTranscript === 'scarica l\'xml della fattura dodici')).toBe(true);
     await executeCommand({ type: 'download', format: 'pdf', ref: { kind: 'id', id: q.id } }, { download });
     expect(download).toHaveBeenLastCalledWith(expect.any(Blob), expect.stringMatching(/\.pdf$/));
     expect((await planCommand({ type: 'download', format: 'xml', ref: { kind: 'id', id: q.id } })).status).toBe('blocked');

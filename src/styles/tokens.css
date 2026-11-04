@@ -90,3 +90,7 @@
     --stack-top: var(--fab-zone);
   }
 }
+/* Schermi bassi (telefono in orizzontale, zoom 200%): barre fisse più compatte per lasciare spazio al contenuto */
+@media (max-height: 500px) and (max-width: 899.98px) {
+  :root { --tabbar-h: 56px; --fab-size: 48px; --fab-gap: 8px; }
+}

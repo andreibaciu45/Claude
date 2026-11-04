@@ -3,3 +3,73 @@ server in ascolto su :8798
 (Use `node --trace-warnings ...` to show where the warning was created)
 {"t":"2026-11-04T21:45:05.070Z","request_id":"24cf7936-8af1-4ad0-9ea5-414c907c1eac","tenant_id":null,"method":"GET","path":"/healthz","status":200,"ms":5}
 {"t":"2026-11-04T21:53:03.975Z","request_id":"3458dba2-ff13-42c4-b5d3-31371ff8f6ad","tenant_id":null,"method":"GET","path":"/healthz","status":200,"ms":2}
+[mail:console] codice di accesso per qa.1793829459974@example.test: 618736
+{"t":"2026-11-04T21:57:47.026Z","request_id":"edfa9e28-7e05-47d9-bd9e-8773b4b5e7a0","tenant_id":null,"method":"POST","path":"/v1/auth/request","status":200,"ms":8}
+{"t":"2026-11-04T21:57:47.110Z","request_id":"b56642f8-7a8a-4649-8970-bd59e02bc77d","tenant_id":null,"method":"POST","path":"/v1/auth/verify","status":401,"ms":3}
+{"t":"2026-11-04T21:57:48.073Z","request_id":"9d8cf362-f1c9-453a-b733-6bd9b749f91b","tenant_id":null,"method":"POST","path":"/v1/auth/verify","status":200,"ms":3}
+{"t":"2026-11-04T21:57:48.087Z","request_id":"1e685896-266b-4521-9a7d-d12275f6b176","tenant_id":"7dc5ca99-5a79-4723-9d8b-55fd4593da9b","method":"GET","path":"/v1/me","status":200,"ms":2}
+{"t":"2026-11-04T21:57:48.089Z","request_id":"7238d3bc-8ef8-47f4-bf13-a264bfcdebb5","tenant_id":"7dc5ca99-5a79-4723-9d8b-55fd4593da9b","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:57:48.375Z","request_id":"03d30972-216e-4659-af83-a01c9f3ab17f","tenant_id":"7dc5ca99-5a79-4723-9d8b-55fd4593da9b","method":"POST","path":"/v1/sync/push","status":200,"ms":13}
+{"t":"2026-11-04T21:57:48.392Z","request_id":"6b969db6-bdb6-4950-96bf-fc6acab77907","tenant_id":"7dc5ca99-5a79-4723-9d8b-55fd4593da9b","method":"GET","path":"/v1/sync/pull","status":200,"ms":3}
+{"t":"2026-11-04T21:57:48.514Z","request_id":"f4781fbf-1325-418b-b4dc-ab020cdf7b67","tenant_id":"7dc5ca99-5a79-4723-9d8b-55fd4593da9b","method":"GET","path":"/v1/me","status":200,"ms":2}
+{"t":"2026-11-04T21:57:48.519Z","request_id":"755bec8b-333f-42af-96f9-bec4cc427c5d","tenant_id":"7dc5ca99-5a79-4723-9d8b-55fd4593da9b","method":"GET","path":"/v1/sync/pull","status":200,"ms":2}
+[mail:console] codice di accesso per qa.1793829459974@example.test: 215622
+{"t":"2026-11-04T21:57:49.275Z","request_id":"c13d5eff-2355-4659-ac49-1fb01cf10ab3","tenant_id":null,"method":"POST","path":"/v1/auth/request","status":200,"ms":2}
+{"t":"2026-11-04T21:57:49.471Z","request_id":"2ec0ca16-c3f3-4dbe-8343-3c96a8b419cd","tenant_id":null,"method":"POST","path":"/v1/auth/verify","status":200,"ms":2}
+{"t":"2026-11-04T21:57:49.482Z","request_id":"a02cc986-772e-47c4-bba8-c3f1647fef52","tenant_id":"7dc5ca99-5a79-4723-9d8b-55fd4593da9b","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:57:49.483Z","request_id":"732ce91c-695d-487e-b2b5-c302ed116150","tenant_id":"7dc5ca99-5a79-4723-9d8b-55fd4593da9b","method":"GET","path":"/v1/me","status":200,"ms":0}
+{"t":"2026-11-04T21:57:49.501Z","request_id":"b9f7dd74-a0fd-4078-bd34-c425e0d6628c","tenant_id":"7dc5ca99-5a79-4723-9d8b-55fd4593da9b","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+{"t":"2026-11-04T21:57:51.166Z","request_id":"ccf02366-27ed-4ddd-a801-30e998b25ffa","tenant_id":"7dc5ca99-5a79-4723-9d8b-55fd4593da9b","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+{"t":"2026-11-04T21:57:51.180Z","request_id":"2973b371-f42f-46da-8c30-d9b930702bbc","tenant_id":"7dc5ca99-5a79-4723-9d8b-55fd4593da9b","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:57:51.526Z","request_id":"64c71a39-8394-45e6-9620-bea215e1a82a","tenant_id":"7dc5ca99-5a79-4723-9d8b-55fd4593da9b","method":"GET","path":"/v1/sync/pull","status":200,"ms":2}
+[mail:console] codice di accesso per qa.1793829523373@example.test: 547582
+{"t":"2026-11-04T21:58:50.418Z","request_id":"d3413235-f5dd-4694-988e-7e0cae194751","tenant_id":null,"method":"POST","path":"/v1/auth/request","status":200,"ms":2}
+{"t":"2026-11-04T21:58:50.523Z","request_id":"606a0fa9-0e66-4225-8bc8-bf2b8f85bd21","tenant_id":null,"method":"POST","path":"/v1/auth/verify","status":401,"ms":2}
+{"t":"2026-11-04T21:58:51.581Z","request_id":"5d47a3a3-0f8f-4846-a316-afd1022ccbb8","tenant_id":null,"method":"POST","path":"/v1/auth/verify","status":200,"ms":2}
+{"t":"2026-11-04T21:58:51.601Z","request_id":"12bc6afc-003f-4a64-a57e-49f4613fd9d0","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":0}
+{"t":"2026-11-04T21:58:51.603Z","request_id":"ab2345bd-658e-4da3-b9aa-de8a1459c93b","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:58:51.964Z","request_id":"cd7e1881-e666-488c-b3e9-ded4869054b4","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"POST","path":"/v1/sync/push","status":200,"ms":3}
+{"t":"2026-11-04T21:58:51.981Z","request_id":"74985eaf-df0c-4f7e-b8d7-d59c2c2e41cf","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:58:51.985Z","request_id":"494ae927-374f-42d1-a21c-f8d36df36a37","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":0}
+{"t":"2026-11-04T21:58:51.995Z","request_id":"0013319b-f541-44c5-a052-239310ae50fe","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+[mail:console] codice di accesso per qa.1793829523373@example.test: 434427
+{"t":"2026-11-04T21:58:52.901Z","request_id":"727d36b5-b062-4ab0-8b15-8780dbc0c0be","tenant_id":null,"method":"POST","path":"/v1/auth/request","status":200,"ms":3}
+{"t":"2026-11-04T21:58:53.151Z","request_id":"61d17315-72c7-4ecb-b15a-717d57a3ec3a","tenant_id":null,"method":"POST","path":"/v1/auth/verify","status":200,"ms":3}
+{"t":"2026-11-04T21:58:53.169Z","request_id":"240558a5-b6b3-4d0b-a83b-c4567c71ce10","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:58:53.170Z","request_id":"8061ae23-ef54-4310-9f12-95f791cc2df8","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":0}
+{"t":"2026-11-04T21:58:53.207Z","request_id":"6caeaeae-97cd-4c90-932e-7616d1bf28c3","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+{"t":"2026-11-04T21:58:54.848Z","request_id":"11adf834-96a0-4eb4-a646-be37c1f5cbd6","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+{"t":"2026-11-04T21:58:54.863Z","request_id":"d4722ea5-7b3c-4261-a524-a0c5924fb389","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:58:55.234Z","request_id":"97f99e07-2eb8-4c80-8117-754984aac036","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+{"t":"2026-11-04T21:58:57.073Z","request_id":"c765b554-9876-45b0-9201-1af52700ac74","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:58:57.402Z","request_id":"a52cadaa-cf84-47bb-bb1b-4d17a89629fd","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:59:03.793Z","request_id":"aa23e657-f2de-4b93-bcb4-79fcfc9455bc","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:59:03.818Z","request_id":"0aabbd3d-ba81-4d2d-96c3-eab6c7d4a501","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"POST","path":"/v1/sync/push","status":200,"ms":3}
+{"t":"2026-11-04T21:59:03.834Z","request_id":"cddc4eaf-5e95-4fb9-8d48-3477799d408d","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+{"t":"2026-11-04T21:59:03.863Z","request_id":"da293b87-a36b-4716-b0d8-a495d8806dcf","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+{"t":"2026-11-04T21:59:04.924Z","request_id":"bec1bb45-3ba3-4701-8769-37a30d4e197c","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+{"t":"2026-11-04T21:59:04.998Z","request_id":"2ee91b77-381e-4ad6-9b9d-05a568046728","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+{"t":"2026-11-04T21:59:05.012Z","request_id":"b308bd64-35b8-439f-afea-a2b45af93355","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:59:06.607Z","request_id":"aa181053-58fc-452c-819c-e3120e8b851f","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+[mail:console] codice di accesso per qa.1793829523373@example.test: 314216
+{"t":"2026-11-04T21:59:07.409Z","request_id":"eb416443-4fad-4140-8775-e059e1dd5296","tenant_id":null,"method":"POST","path":"/v1/auth/request","status":200,"ms":1}
+{"t":"2026-11-04T21:59:07.623Z","request_id":"8d01cd3c-c528-41cc-83fb-198d03e88db9","tenant_id":null,"method":"POST","path":"/v1/auth/verify","status":200,"ms":3}
+{"t":"2026-11-04T21:59:07.641Z","request_id":"dd36dbd9-8410-4260-b0eb-31b849010df0","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:59:07.643Z","request_id":"d2157faa-2c99-4b9c-b282-dc2bf54c1fdd","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":0}
+{"t":"2026-11-04T21:59:07.645Z","request_id":"53a17f50-df77-405e-bf8e-1a87625898c1","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:59:07.647Z","request_id":"08b5f233-b4a9-4209-9ccf-051f03b984f6","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:59:07.686Z","request_id":"0897e379-7a1e-4aff-b74b-9746367c7304","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":2}
+{"t":"2026-11-04T21:59:07.762Z","request_id":"003c1215-9f75-44e0-91b5-c6990a71682b","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+{"t":"2026-11-04T21:59:07.774Z","request_id":"8dd045b9-f518-4323-81d6-5a7a61f135ca","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:59:12.621Z","request_id":"76baeac4-697e-4e15-b411-c19138862c74","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:59:12.654Z","request_id":"ab6ed10f-2ebd-4fcf-b2b7-4590a0e43e57","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"POST","path":"/v1/sync/push","status":200,"ms":5}
+{"t":"2026-11-04T21:59:12.667Z","request_id":"e3f0a65f-d752-4011-9c9d-0e718696c8b1","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+{"t":"2026-11-04T21:59:12.691Z","request_id":"a9e0375b-28a2-48c1-8f92-10058b586bb1","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":5}
+{"t":"2026-11-04T21:59:13.835Z","request_id":"9b805698-7480-4ad3-a4ff-633ba5f9e6e9","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+{"t":"2026-11-04T21:59:13.903Z","request_id":"aecfd148-b4a2-4d9a-a8f8-98954c5f1424","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+{"t":"2026-11-04T21:59:13.917Z","request_id":"278f92ae-f93b-4ddf-baa3-bb3b28a753d4","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/me","status":200,"ms":1}
+{"t":"2026-11-04T21:59:17.192Z","request_id":"7031971d-1f1d-4f48-bad9-8b0757277d9e","tenant_id":"52c1d2a1-0c85-4cfa-ac2a-17dc03cad140","method":"GET","path":"/v1/sync/pull","status":200,"ms":1}
+[mail:console] codice di accesso per qa.1793829616127@example.test: 647023
+{"t":"2026-11-04T22:00:23.361Z","request_id":"3d50db7d-dde1-4661-bb7a-20a482307411","tenant_id":null,"method":"POST","path":"/v1/auth/request","status":200,"ms":2}
+{"t":"2026-11-04T22:00:23.488Z","request_id":"c5297390-2a41-45c4-94c5-ea87181c7049","tenant_id":null,"method":"POST","path":"/v1/auth/verify","status":401,"ms":2}
+{"t":"2026-11-04T22:00:24.503Z","request_id":"aa93f7fb-9b13-4c03-9771-b6880b7d3da4","tenant_id":null,"method":"POST","path":"/v1/auth/verify","status":200,"ms":3}

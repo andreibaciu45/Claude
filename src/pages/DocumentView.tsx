@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import type { AuditEntry, DocLine, DocStatus, Profile, QuoteDocument, QuoteStatus, SdiEvent, ValidationIssue } from '../types';
 import { uid } from '../types';
 import {
@@ -35,6 +35,7 @@ const issuesOf = (e: unknown): ValidationIssue[] | null => {
 export default function DocumentView() {
   const { id } = useParams();
   const nav = useNavigate();
+  const location = useLocation();
   const toast = useToast();
   const [doc, setDoc] = useState<QuoteDocument | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -80,10 +81,22 @@ export default function DocumentView() {
   }, [id, loadExtras]);
   useEffect(() => { setDoc(null); setSheet(null); setServerIssues([]); setAudit(null); void load(); }, [load]);
 
+  // ritorno dal profilo (scheda "Emetti" -> "Correggi nel profilo" -> salva): riapre la scheda di emissione, una sola volta
+  const reopenIssue = (location.state as { reopen?: string } | null)?.reopen === 'issue';
+  useEffect(() => {
+    if (reopenIssue && doc && isDraftInvoice(doc)) {
+      setServerIssues([]); setSheet('issue');
+      nav(location.pathname, { replace: true, state: null });
+    }
+  }, [reopenIssue, doc, nav, location.pathname]);
+
   const totals = useMemo(() => (doc && profile ? documentTotals(doc, profile.regimeForfettario) : null), [doc, profile]);
   const localIssues = useMemo<ValidationIssue[]>(() => {
     if (!doc || !profile || !isDraftInvoice(doc)) return [];
-    try { return validateInvoiceForIssue(doc, profile, related.lastIssued ? { lastIssuedDate: related.lastIssued } : {}); } catch { return []; }
+    try {
+      // "il numero verrà assegnato all'emissione" è normale per una bozza: non è un avviso da mostrare
+      return validateInvoiceForIssue(doc, profile, related.lastIssued ? { lastIssuedDate: related.lastIssued } : {}).filter((i) => i.code !== 'number_missing');
+    } catch { return []; }
   }, [doc, profile, related.lastIssued]);
   const issues = useMemo(() => {
     const seen = new Set(localIssues.map((i) => `${i.field}|${i.code}`));

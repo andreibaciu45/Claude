@@ -84,7 +84,7 @@ export default function ProfilePage() {
       setP(clean);
       setDirty(false);
       toast('Dati azienda salvati');
-      if (returnTo) nav(returnTo); // si torna alla fattura da emettere: la bozza non è stata toccata
+      if (returnTo) nav(returnTo, { state: { reopen: 'issue' } }); // si torna alla fattura da emettere (la scheda si riapre): la bozza non è stata toccata
     } catch { toast('Salvataggio non riuscito'); } finally { setSaving(false); }
   };
 

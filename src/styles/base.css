@@ -18,8 +18,8 @@ img, svg, video { max-width: 100%; }
 table { max-width: 100%; }
 :focus-visible { outline: 3px solid var(--c-focus); outline-offset: 2px; border-radius: 4px; }
 /* Pulsanti con stile inline `all: unset` (listino): l'inline azzera l'outline, qui lo ripristiniamo. */
-button[style*="all: unset"]:focus-visible { outline: 3px solid var(--c-focus) !important; outline-offset: 2px !important; border-radius: var(--r-sm) !important; }
-button[style*="min-width: 28px"] { min-width: 44px !important; min-height: 44px !important; display: inline-grid !important; place-items: center; }
+button[style*="outline: unset"]:focus-visible { outline: 3px solid var(--c-focus) !important; outline-offset: 2px !important; border-radius: var(--r-sm) !important; }
+button[style*="min-width: 28px"] { min-width: 44px !important; min-height: 44px !important; display: inline-grid !important; place-items: center; line-height: 1 !important; margin: -6px -8px -6px 0 !important; }
 /* Griglie a 2 colonne inline: i figli possono restringersi (campi tagliati) e a schermo stretto/zoom vanno in colonna. */
 div[style*="grid-template-columns: 1fr 1fr"] > * { min-width: 0; }
 @media (max-width: 400px) { div[style*="grid-template-columns: 1fr 1fr"] { grid-template-columns: minmax(0, 1fr) !important; } }
@@ -49,3 +49,6 @@ form > div[style*="position: sticky"] { bottom: calc(var(--bottom-ui) + var(--sp
   .spinner, .mic[data-state="processing"]::after { animation-duration: 1.6s !important; animation-iteration-count: infinite !important; }
 }
 div[style*="overflow-x: auto"] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); padding-right: 24px; }
+/* Checkbox/radio nativi senza classe (es. widget vocale): bersaglio grande e colore del tema */
+input[type="checkbox"], input[type="radio"] { width: 24px; height: 24px; accent-color: var(--c-primary); flex: none; }
+label:has(> input[type="checkbox"]) { min-height: var(--touch); }

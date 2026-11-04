@@ -174,3 +174,16 @@ Altre ipotesi da misurare nelle prime settimane (non le conosciamo):
 3. Chiedere 2-3 preventivi a provider SDI **solo se** si decide di inviare le fatture al posto dell'utente (oggi non è previsto).
 4. Fare 5-10 interviste agli artigiani sulla disponibilità a pagare, prima di fissare A, B o C.
 5. Raccogliere i primi dati reali (attivazioni, passaggi a Pro, disdette) e sostituire questo documento con numeri misurati.
+
+## 9. Come funzionano i limiti nell'app
+
+Implementazione in `src/billing/`. Prezzi e limite Free vivono in un'unica costante (`src/billing/pricing.ts`), usata dall'app e dalla pagina Informazioni.
+
+- **Gratis**: 3 documenti **nuovi** al mese (preventivi e fatture), contati sul mese di calendario del dispositivo in base a `createdAt`. Le bozze eliminate **non** rimborsano il conteggio. Le note di credito non contano.
+- **Mai bloccati**: modificare un documento esistente, scaricarlo, consultarlo, esportare il backup. Le fatture emesse restano sempre consultabili e stornabili (nota di credito) anche oltre il limite.
+- **Pro**: documenti illimitati e sincronizzazione. Il piano viene letto da `GET /v1/me` quando c'è un account e tenuto in cache locale; se l'app non riesce a riverificarlo (offline, server non raggiungibile) il Pro resta valido per **14 giorni** dall'ultima verifica riuscita, poi si torna al Free finché non ci si riconnette. Il passaggio a Free deciso dal server è immediato. I dati non vengono mai toccati.
+- **Limite "morbido" senza account**: senza account il conteggio è solo sul dispositivo e chi vuole può aggirarlo (cancellando i dati del browser, usando un altro browser). Non è una protezione e non la presentiamo come tale. L'unico limite **vincolante** è quello del server sui documenti sincronizzati: se supera la quota Free il server risponde `quota_exceeded`, il documento resta intero sul dispositivo e l'app lo segnala in "Da controllare" (con "Passa a Pro" e "Riprova").
+- **Differenza di fuso**: l'app conta il mese del dispositivo, il server il mese UTC; a cavallo del mese le due viste possono differire di qualche ora.
+- **Interfaccia**: contatore discreto "Documenti questo mese: 2/3" (nuovo documento e Account), avviso quando resta 1 documento, schermata gentile al raggiungimento del limite (senza conto alla rovescia né testi colpevolizzanti, con "Continua a consultare i documenti" in evidenza).
+- **App nativa (iOS/Android)**: nessun prezzo e nessun pulsante d'acquisto (regola Apple 3.1.1, `docs/MOBILE.md` §7); compare solo "Gestisci il tuo abbonamento dal sito". La sezione prezzi della pagina Informazioni è nascosta.
+- **Pagamento**: da Account, "Passa a Pro" chiama `/v1/billing/checkout`, "Gestisci abbonamento" chiama `/v1/billing/portal`. Al ritorno (`#/account?checkout=success` o `cancel`) l'app interroga `/me` per qualche secondo finché il webhook ha attivato il Pro; il parametro nell'URL da solo non attiva nulla.

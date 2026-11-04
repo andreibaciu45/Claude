@@ -48,3 +48,6 @@
 .shell-footer a { min-height: 44px; display: inline-flex; align-items: center; }
 /* Gerarchia tipografica: titolo pagina un po' più compatto su schermi stretti */
 @media (max-width: 400px) { h1 { font-size: 1.45rem; } }
+/* Testo grande di sistema/zoom: le etichette della tab bar non crescono oltre 15px (restano leggibili ed entrano nella barra) */
+.nav-link { font-size: min(var(--fs-xs), 15px); }
+@media (max-height: 500px) and (max-width: 899.98px) { .nav-link { flex-direction: row; gap: 6px; } .nav-link svg { width: 22px; height: 22px; } }

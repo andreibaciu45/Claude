@@ -11,7 +11,15 @@ export interface ApiError { error: { code: string; message: string } }
 export interface AuthRequestBody { email: string }                 // POST /v1/auth/request  -> 204
 export interface AuthVerifyBody { email: string; code: string; deviceId: string; deviceName?: string }
 export interface AuthVerifyResponse { token: string; expiresAt: number; tenantId: string }  // POST /v1/auth/verify
-export interface MeResponse { email: string; tenantId: string; plan: 'free' | 'pro'; quota: { docsThisMonth: number; docsLimit: number | null } } // GET /v1/me
+export interface MeResponse {
+  email: string; tenantId: string; plan: 'free' | 'pro';
+  quota: { docsThisMonth: number; docsLimit: number | null; /** mese UTC a cui si riferisce docsThisMonth, 'YYYY-MM' */ periodKey?: string };
+  /** opzionali (retro-compatibili): stato abbonamento per mostrare scadenza/pagamento fallito */
+  billingStatus?: 'active' | 'trialing' | 'past_due' | 'canceled' | 'none';
+  currentPeriodEnd?: number | null;   // epoch ms
+  cancelAtPeriodEnd?: boolean;
+  graceUntil?: number | null;         // epoch ms, periodo di tolleranza dopo pagamento fallito
+} // GET /v1/me
 
 // ---- Sync: coda di operazioni idempotenti (opId) ----
 export type SyncEntity = 'profile' | 'catalog' | 'document' | 'audit';

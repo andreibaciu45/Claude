@@ -1,18 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Badge, Card } from '../ui';
+import { FREE_DOCS_PER_MONTH, PRO_PRICE_MONTH, PRO_PRICE_YEAR, PRO_YEARLY_SAVING, formatEur as eur } from '../billing/pricing';
+import { isNativeApp } from '../billing/platform';
 import './landing/landing.css';
 
-// Prezzi e limiti modificabili qui.
-const FREE_DOCS_PER_MONTH = 3;
-const PRO_PRICE_MONTH = 15;
-const PRO_PRICE_YEAR = 120;
+// Prezzi e limiti: costante condivisa con l'app (src/billing/pricing.ts).
 const BASE = import.meta.env.BASE_URL;
 const LEGAL = (f: string) => `${BASE}legal/${f}.html`;
 const PAGE_TITLE = 'VocePreventivo – Detti il lavoro, il preventivo è pronto';
 const PAGE_DESC =
   'App per artigiani: detti il lavoro a voce, VocePreventivo cerca le voci nel tuo listino e crea preventivi, fatture e note di credito e genera l’XML della fattura elettronica per forfettari. Funziona offline; l’account è facoltativo.';
 
-const eur = (n: number) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
 
 const PHRASE = 'Sostituzione miscelatore bagno, due ore di manodopera e un sifone';
 const ROWS = [
@@ -142,6 +140,7 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {!isNativeApp() && (
         <section className="lp-section" id="prezzi">
           <div className="lp-wrap">
             <h2>Prezzi chiari</h2>
@@ -163,7 +162,7 @@ export default function LandingPage() {
                 <Badge tone="success">Il più scelto</Badge>
                 <h3 style={{ marginTop: 8 }}>Pro</h3>
                 <div className="lp-price">{eur(PRO_PRICE_MONTH)} <small>al mese</small></div>
-                <p className="lp-muted">oppure {eur(PRO_PRICE_YEAR)} all’anno (risparmi {eur(PRO_PRICE_MONTH * 12 - PRO_PRICE_YEAR)} rispetto al mensile).</p>
+                <p className="lp-muted">oppure {eur(PRO_PRICE_YEAR)} all’anno (risparmi {eur(PRO_YEARLY_SAVING)} rispetto al mensile).</p>
                 <ul>
                   <li>Documenti illimitati</li>
                   <li>Tutto quello che c’è nel Gratis</li>
@@ -176,6 +175,7 @@ export default function LandingPage() {
             <p className="lp-note">Prezzi indicativi, IVA da definire prima del lancio. Il piano Pro si paga con carta tramite Stripe. L’app è uno strumento di supporto: la responsabilità fiscale resta tua, verifica con il tuo commercialista.</p>
           </div>
         </section>
+        )}
 
         <section className="lp-section lp-section--alt" id="installa">
           <div className="lp-wrap lp-install">

@@ -6,6 +6,12 @@ import { useSyncStatus } from '../../sync/useSyncStatus';
 import { ConflictList } from './ConflictList';
 import { a, PRIVACY_NOTICE } from './styles';
 import { badgeView, relativeTime } from './format';
+import { UsageCounter } from '../../billing/UsageCounter';
+import { useDocumentAllowance } from '../../billing/useAllowance';
+import { useCheckoutReturn } from '../../billing/useCheckoutReturn';
+import { usePlan } from '../../billing/usePlan';
+import { isNativeApp } from '../../billing/platform';
+import { PRO_PRICE_MONTH, PRO_PRICE_YEAR, PRO_YEARLY_SAVING, formatEur } from '../../billing/pricing';
 
 /** Apre solo URL https (checkout/portale restituiti dal server). */
 function openUrl(url: string): void {
@@ -23,13 +29,16 @@ export function AccountView({ engine, api }: { engine: SyncEngine; api: { checko
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const me = st.me;
+  const planInfo = usePlan();
+  const { allowance } = useDocumentAllowance();
+  const checkout = useCheckoutReturn(engine, st.signedIn);
+  const native = isNativeApp();
+  const isPro = planInfo.plan === 'pro';
 
   const go = async (kind: 'checkout' | 'portal') => {
     setBusy(kind); setError('');
     try { openUrl((kind === 'checkout' ? await api.checkout(plan) : await api.portal()).url); } catch (e) { setError(describeError(e)); setBusy(''); }
   };
-  const quota = me?.quota;
-  const pct = quota?.docsLimit ? (quota.docsThisMonth / quota.docsLimit) * 100 : 0;
   const view = badgeView(st);
 
   return (
@@ -41,28 +50,38 @@ export function AccountView({ engine, api }: { engine: SyncEngine; api: { checko
               <h2 style={a.h2}>{st.email ?? me?.email ?? 'Account'}</h2>
               <p style={a.muted}>Ultimo aggiornamento: {relativeTime(st.lastSyncAt)}</p>
             </div>
-            {me && <Badge tone={me.plan === 'pro' ? 'success' : 'neutral'}>{me.plan === 'pro' ? 'Piano Pro' : 'Piano Free'}</Badge>}
+            <Badge tone={isPro ? 'success' : 'neutral'}>{isPro ? 'Piano Pro' : 'Piano Free'}</Badge>
           </div>
-          {quota && (
-            <div style={a.stack}>
-              <p style={a.muted} id="quota-label">
-                {quota.docsLimit === null ? `Documenti questo mese: ${quota.docsThisMonth} (illimitati)` : `Documenti questo mese: ${quota.docsThisMonth} su ${quota.docsLimit}`}
-              </p>
-              {quota.docsLimit !== null && (
-                <div style={a.bar} role="progressbar" aria-labelledby="quota-label" aria-valuemin={0} aria-valuemax={quota.docsLimit} aria-valuenow={Math.min(quota.docsThisMonth, quota.docsLimit)}>
-                  <div style={a.barFill(pct, pct >= 100)} />
-                </div>
-              )}
+          {checkout === 'verifying' && <p style={a.muted} role="status"><Spinner /> Pagamento ricevuto, sto attivando il Pro…</p>}
+          {checkout === 'active' && <p style={a.notice} role="status">Il piano Pro è attivo. Grazie! Ora i documenti sono illimitati.</p>}
+          {checkout === 'pending' && <p style={a.notice} role="status">Il pagamento risulta completato, ma l’attivazione non è ancora arrivata. Di solito basta qualche minuto: riapri questa pagina più tardi. Se il Pro non compare, scrivici.</p>}
+          {checkout === 'cancelled' && <p style={a.muted} role="status">Pagamento annullato: non ti è stato addebitato nulla.</p>}
+          {isPro
+            ? <p style={a.muted}>Documenti questo mese: {me?.quota?.docsThisMonth ?? allowance?.used ?? 0} (illimitati)</p>
+            : <><UsageCounter allowance={allowance} />{allowance?.remaining === 0 && <p style={a.muted}>Hai usato i documenti gratuiti di questo mese: consultare, modificare e scaricare resta sempre possibile.</p>}</>}
+          {allowance && allowance.limit !== null && (
+            <div style={a.bar} role="progressbar" aria-label="Documenti usati questo mese" aria-valuemin={0} aria-valuemax={allowance.limit} aria-valuenow={Math.min(allowance.used, allowance.limit)}>
+              <div style={a.barFill((allowance.used / allowance.limit) * 100, allowance.used >= allowance.limit)} />
             </div>
           )}
-          {!me && <p style={a.muted}>Dati del piano non disponibili (sei offline?).</p>}
-          {me?.plan === 'free' && (
+          {planInfo.reason === 'cache-pro' && planInfo.proValidUntil && (
+            <p style={a.muted}>Non riesco a verificare l’abbonamento da un po’: il Pro resta attivo fino al {new Date(planInfo.proValidUntil).toLocaleDateString('it-IT')}. Connettiti a internet per rinnovare la verifica.</p>
+          )}
+          {planInfo.reason === 'expired' && (
+            <p style={a.error} role="alert">Non riesco a verificare l’abbonamento da oltre 14 giorni: per ora usi il piano Free. Connettiti a internet per ripristinare il Pro. I tuoi dati sono intatti.</p>
+          )}
+          {planInfo.reason === 'unverified' && <p style={a.muted}>Dati del piano non disponibili (sei offline?).</p>}
+          {native ? (
+            <p style={a.muted}>Gestisci il tuo abbonamento dal sito.</p>
+          ) : !isPro && planInfo.reason !== 'unverified' ? (
             <div style={a.stack}>
-              <Segmented ariaLabel="Durata del piano Pro" value={plan} onChange={setPlan} options={[{ value: 'month', label: 'Mensile' }, { value: 'year', label: 'Annuale' }]} />
+              <p style={a.muted}>
+                Pro: documenti illimitati e sincronizzazione su più dispositivi. {formatEur(PRO_PRICE_MONTH)} al mese oppure {formatEur(PRO_PRICE_YEAR)} all’anno (risparmi {formatEur(PRO_YEARLY_SAVING)}). Disdici quando vuoi.
+              </p>
+              <Segmented ariaLabel="Durata del piano Pro" value={plan} onChange={setPlan} options={[{ value: 'month', label: `Mensile · ${formatEur(PRO_PRICE_MONTH)}` }, { value: 'year', label: `Annuale · ${formatEur(PRO_PRICE_YEAR)}` }]} />
               <Button disabled={!!busy} onClick={() => void go('checkout')}>{busy === 'checkout' ? 'Apro…' : 'Passa a Pro'}</Button>
             </div>
-          )}
-          {me?.plan === 'pro' && <Button variant="secondary" disabled={!!busy} onClick={() => void go('portal')}>{busy === 'portal' ? 'Apro…' : 'Gestisci abbonamento'}</Button>}
+          ) : isPro ? <Button variant="secondary" disabled={!!busy} onClick={() => void go('portal')}>{busy === 'portal' ? 'Apro…' : 'Gestisci abbonamento'}</Button> : null}
           {error && <p style={a.error} role="alert">{error}</p>}
         </div>
       </Card>

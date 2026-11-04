@@ -107,14 +107,14 @@ export function backoffCheck(key: string): { ok: boolean; retryAfterSec: number 
   if (r && r.blocked_until > t) return { ok: false, retryAfterSec: Math.max(1, Math.ceil((r.blocked_until - t) / 1000)) };
   return { ok: true, retryAfterSec: 0 };
 }
-/** Registra un fallimento: dopo `freeAttempts` errori il blocco raddoppia a ogni errore (base, 2*base, ...) fino a maxMs. */
+/** Registra un fallimento: all'`freeAttempts`-esimo errore scatta il blocco (base), poi raddoppia a ogni errore (base, 2*base, ...) fino a maxMs. */
 export function backoffFail(key: string, o: BackoffOpts = OTP_BACKOFF): void {
   const t = now();
   const r = one<{ fails: number; updated_at: number }>('SELECT fails, updated_at FROM auth_backoff WHERE key=?', key);
   // Un lungo periodo senza errori azzera il contatore (un utente onesto non accumula debiti).
   const prev = r && t - r.updated_at < 6 * 3600_000 ? r.fails : 0;
   const fails = prev + 1;
-  const over = fails - o.freeAttempts;
+  const over = fails - o.freeAttempts + 1; // dal `freeAttempts`-esimo errore in poi scatta il blocco
   const blockedUntil = over > 0 ? t + Math.min(o.maxMs, o.baseMs * 2 ** Math.min(over - 1, 20)) : 0;
   run(`INSERT INTO auth_backoff(key, fails, blocked_until, updated_at) VALUES (?,?,?,?)
        ON CONFLICT(key) DO UPDATE SET fails=excluded.fails, blocked_until=excluded.blocked_until, updated_at=excluded.updated_at`, key, fails, blockedUntil, t);
