@@ -1,3 +1,5 @@
+Ultimo allineamento al codice: 04/11/2026
+
 # Revisione indipendente del codice client consegnato
 
 Revisore: indipendente (non ha scritto il codice). Ambito: `src/sync/**`, `src/pages/account/**`, `src/billing/**`, `src/voice/**` (`src/voice/ui` solo in lettura), `src/hooks/**`.
@@ -56,13 +58,19 @@ Correzione: `LocalStore.saveRemoteDocument` opzionale (agganciato a `storage.sav
 
 ### Aperti (Medi)
 
+> **Aggiornamento 04/11/2026 (verifica sul codice):** S7 e S8 risultano **CHIUSI** (dettagli nei paragrafi "Stato" qui sotto). I titoli "aperto" sono conservati per storia.
+
 **S7 (Media, aperto – decisione di prodotto) – Last-write-wins silenzioso sulle bozze.** ARCHITECTURE §2.3 dice che su conflitto di una bozza si avvisa e si conserva la copia locale come nuova bozza ("nessuna perdita silenziosa"); il motore (`handleConflict`, `stale`) ritenta con la base aggiornata e sovrascrive la versione dell'altro dispositivo senza avviso. È coerente con l'intestazione di `engine.ts` (LWW) ma non con il documento. Suggerimento: su `stale` per un documento, offrire "Tieni entrambe" (la UI esiste già) invece del retry automatico, oppure aggiornare ARCHITECTURE-V2.
 
 **Stato: CORRETTO (SYNC-3).** Su `stale` di una bozza (e quando il pull porta una versione più recente di una bozza con modifiche locali non inviate) il motore non sovrascrive più: crea un conflitto con le due versioni e un confronto leggibile (cliente, righe, totale, note, data, stato) in «Da controllare». Scelte: «Usa quella del server», «Tieni la mia» (sostituisce il server solo per scelta esplicita), «Tieni entrambe» (la copia locale diventa una nuova bozza «copia in conflitto», nuovo id, senza numero fiscale). Bozza eliminata qui e modificata altrove: «Usa quella del server» / «Elimina comunque». Profilo e catalogo restano last-write-wins ma ogni sovrascrittura è annotata nel «Registro di sincronizzazione» (`status.log`). Codice: `src/sync/engine.ts` (`handleConflict`, `noteDirtyRemote`, `resolveConflict`), `src/sync/conflictDiff.ts`, `src/pages/account/ConflictList.tsx`. Test: `src/sync/conflicts.test.ts`, `src/pages/account/invite.ui.test.tsx`.
 
+> **CHIUSO il 04/11/2026 (S7).** Verificato in `src/sync/engine.ts` (`handleConflict`, `noteDirtyRemote`, `resolveConflict`), `src/sync/conflictDiff.ts` e `src/pages/account/ConflictList.tsx`. Test `src/sync/conflicts.test.ts`: verde alla verifica del 04/11/2026. Profilo e catalogo restano last-write-wins, con registro delle sovrascritture.
+
 **S8 (Media, aperto – design) – Cambio account su dispositivo condiviso.** Dopo il cambio account i dati locali dell'utente precedente vengono offerti per il caricamento sul nuovo account (con anteprima e conferma). Non si può cancellare lo storage da questo modulo. Suggerimento: alla conferma di cambio account mostrare un avviso esplicito ("questi dati appartengono a un altro account") ed eventualmente offrire "Svuota i dati locali" (richiede una funzione in `src/storage`).
 
 **Stato: CORRETTO lato sync/UI (SYNC-3), cablato su `clearLocalData` dello storage.** Dopo il cambio account lo stato `foreignData` (persistito in `meta`) fa mostrare nella scheda «Prima sincronizzazione» l'avviso «questi dati appartengono a un altro account» e il pulsante «Svuota i dati locali» (con conferma; scarica la copia di sicurezza restituita dallo storage). Interfaccia `StorageHooks` (`src/sync/storageHooks.ts`): senza la funzione di storage il pulsante non compare e `discardLocalData()` rifiuta senza toccare nulla.
+
+> **CHIUSO il 04/11/2026 (S8).** Il wiring esiste: `clearLocalData` in `src/storage/index.ts` (esportato come `storageHooks`), `foreignData` e `discardLocalData` in `src/sync/engine.ts`. Il pulsante «Svuota i dati locali» dipende dalla disponibilità della funzione, come descritto sopra.
 
 ## Difetti BASSI
 

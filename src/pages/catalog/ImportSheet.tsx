@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Badge, Button, Field, Select, Sheet, Textarea } from '../../ui';
 import type { CatalogItem } from '../../types';
+import { MAX_CSV_BYTES, decodeCsvBytes } from '../../storage/csvDecode';
 import { buildItems, CSV_FIELDS, guessMapping, parseCsv } from './csv';
 import type { CsvField } from './csv';
 import './catalog.css';
@@ -30,9 +31,12 @@ export default function ImportSheet({ open, defaultVat, onClose, onImport }: Pro
     else { setHasHeader(false); setMapping({ name: 0, price: 1, unit: 2, vat: 3, category: 4, kind: 5, stock: 6 }); }
   };
 
+  const [fileError, setFileError] = useState('');
   const onFile = async (f?: File) => {
     if (!f) return;
-    load(await f.text());
+    setFileError('');
+    if (f.size > MAX_CSV_BYTES) { setFileError('Il file è troppo grande per essere un listino (massimo 5 MB).'); return; }
+    try { load(decodeCsvBytes(await f.arrayBuffer())); } catch { setFileError('Non riesco a leggere il file.'); }
   };
 
   const results = useMemo(
@@ -62,6 +66,7 @@ export default function ImportSheet({ open, defaultVat, onClose, onImport }: Pro
           <input ref={fileRef} type="file" accept=".csv,text/csv,text/plain" hidden onChange={(e) => { void onFile(e.target.files?.[0]); e.target.value = ''; }} />
           <Button type="button" variant="secondary" onClick={() => fileRef.current?.click()}>Scegli file CSV</Button>
         </div>
+        {fileError && <p className="cat-error" role="alert">{fileError}</p>}
         <Field label="Oppure incolla qui">
           <Textarea rows={5} value={text} onChange={(e) => load(e.target.value)} placeholder={'nome;prezzo;unita;iva\nTubo rame 16;9,50;m;22'} spellCheck={false} />
         </Field>

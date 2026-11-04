@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Badge, Button, Card, Chip, EmptyState, Input, Money, PageHeader, Segmented, Sheet, Skeleton, useToast } from '../ui';
-import { deleteCatalogItem, getProfile, listCatalog, saveCatalogItem } from '../storage';
+import { deleteCatalogItem, getProfile, listCatalog, saveCatalogItem, saveCatalogItems } from '../storage';
 import type { CatalogItem, ItemKind } from '../types';
 import ItemSheet, { KIND_LABEL } from './catalog/ItemSheet';
 import ImportSheet from './catalog/ImportSheet';
@@ -81,7 +81,7 @@ export default function CatalogPage() {
 
   const importItems = async (list: CatalogItem[]) => {
     try {
-      for (const i of list) await saveCatalogItem(i);
+      await saveCatalogItems(list);
       toast(`Importate ${list.length} voci`);
       setImportOpen(false);
       await reload();

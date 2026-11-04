@@ -1,6 +1,8 @@
 import type { Customer } from '../../types';
 import { uid } from '../../types';
 import { parseCsv } from '../catalog/csv';
+import { neutralizeCsvText, restoreCsvText } from '../../storage/csvDecode';
+export { MAX_CSV_BYTES, decodeCsvBytes } from '../../storage/csvDecode';
 
 type K = 'name' | 'vatNumber' | 'fiscalCode' | 'address' | 'zip' | 'city' | 'province' | 'country' | 'codiceDestinatario' | 'pec' | 'email' | 'phone';
 export const CUSTOMER_CSV_COLUMNS: { key: K; label: string; syn: string[] }[] = [
@@ -19,9 +21,10 @@ export const CUSTOMER_CSV_COLUMNS: { key: K; label: string; syn: string[] }[] = 
 ];
 
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^a-z0-9.]/g, '');
-// protezione "CSV injection": le celle che iniziano con = + - @ vengono precedute da apostrofo (rimosso in importazione)
-const safe = (v: string) => (/^[=+\-@\t\r]/.test(v) ? `'${v}` : v);
-const unsafe = (v: string) => v.replace(/^'(?=[=+\-@\t\r])/, '');
+// protezione "CSV injection": le celle che iniziano con = + - @ vengono precedute da apostrofo (rimosso in importazione);
+// \r, \n e \t diventano spazi (un \r isolato rompe la riga in Excel)
+const safe = neutralizeCsvText;
+const unsafe = restoreCsvText;
 const q = (v: string) => (/[;"\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
 /** CSV (separatore ;, UTF-8 con BOM: si apre in Excel italiano). */
@@ -53,18 +56,4 @@ export function parseCustomersCsv(text: string): CsvImport {
     customers.push(c);
   }
   return { customers, ignored };
-}
-
-/** Oltre questa dimensione un file non è una rubrica clienti: si rifiuta prima di leggerlo (evita di bloccare la scheda). */
-export const MAX_CSV_BYTES = 5 * 1024 * 1024;
-
-/**
- * Testo di un file CSV da byte grezzi (REV2-C3). Excel italiano salva "CSV (delimitato dal separatore di elenco)" in Windows-1252, non
- * in UTF-8: `File.text()` lo leggeva sempre come UTF-8 e ogni lettera accentata diventava U+FFFD («Caff�», «Societ�») nella
- * rubrica. Si prova UTF-8 rigoroso e, se i byte non lo sono, Windows-1252.
- */
-export function decodeCsvBytes(buf: ArrayBuffer | Uint8Array): string {
-  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
-  catch { return new TextDecoder('windows-1252').decode(bytes); }
 }

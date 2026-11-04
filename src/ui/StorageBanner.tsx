@@ -3,7 +3,7 @@
  * role="alert", testo in italiano, azioni "Riprova" e "Scarica backup di emergenza".
  */
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { ensureStorageStarted, exportBackup, getStorageStatus, retryStorage, subscribeStorageStatus, type StorageStatus } from '../storage';
+import { dismissStorageNotice, ensureStorageStarted, exportBackup, getStorageStatus, retryStorage, subscribeStorageStatus, type StorageStatus } from '../storage';
 import { Button } from './index';
 import './StorageBanner.css';
 
@@ -48,7 +48,7 @@ export function StorageBanner() {
   return (
     <div className="sb" role="alert" data-health={st.health} data-reason={st.reason}>
       <div className="sb-inner">
-        <strong className="sb-title">{TITLE[st.health]}</strong>
+        <strong className="sb-title">{st.reason === 'memory-recovered' ? 'Dati recuperati' : st.reason === 'recovery-failed' ? 'Recupero dei dati non riuscito' : TITLE[st.health]}</strong>
         <p className="sb-msg">{st.message}</p>
         {st.memoryOnly && <p className="sb-msg">Puoi continuare con bozze e preventivi, ma <strong>non verranno salvati</strong> e l'emissione delle fatture è bloccata finché l'archivio non è disponibile.</p>}
         {!st.memoryOnly && !st.persistent && <p className="sb-msg">Emissione di fatture, note di credito, incassi ed esiti SDI sono bloccati finché l'archivio non torna disponibile. Non è stato registrato nulla di quanto tentato.</p>}
@@ -61,7 +61,9 @@ export function StorageBanner() {
           </ul>
         </details>
         <div className="sb-actions">
-          <Button size="sm" onClick={() => void retry()} disabled={busy}>Riprova</Button>
+          {st.reason === 'memory-recovered'
+            ? <Button size="sm" onClick={() => dismissStorageNotice()}>Ho capito</Button>
+            : <Button size="sm" onClick={() => void retry()} disabled={busy}>Riprova</Button>}
           <Button size="sm" variant="secondary" onClick={() => void backup()} disabled={busy}>Scarica backup di emergenza</Button>
         </div>
         {note && <p className="sb-note" role="status">{note}</p>}

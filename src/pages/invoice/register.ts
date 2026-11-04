@@ -8,6 +8,7 @@
 import type { QuoteDocument } from '../../types';
 import { documentTotals } from '../../pdf/totals';
 import { toCents as sharedToCents } from '../../../shared/fiscal/money';
+import { neutralizeCsvText } from '../../storage/csvDecode';
 import { SDI_INFO, isCreditNote, isFiscalInvoice } from './model';
 
 /** Soglia dei ricavi del regime forfettario [DA VERIFICARE]. */
@@ -68,10 +69,9 @@ const num = (cents: number): string => {
   return `${neg ? '-' : ''}${Math.floor(a / 100)},${String(a % 100).padStart(2, '0')}`;
 };
 const itDate = (iso: string): string => (/^(\d{4})-(\d{2})-(\d{2})/.exec(iso) ? iso.replace(/^(\d{4})-(\d{2})-(\d{2}).*/, '$3/$2/$1') : iso);
-/** Cella di testo: protezione da formule (=, +, -, @) e virgolette. */
+/** Cella di testo: protezione da formule (=, +, -, @), `\r`/`\n`/`\t` (all'inizio e dentro il campo) normalizzati a spazio, virgolette. */
 export const csvText = (v: string): string => {
-  let s = String(v ?? '').replace(/\r?\n/g, ' ');
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  const s = neutralizeCsvText(v);
   return /[;"]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
@@ -113,7 +113,7 @@ export function invoiceRegisterCsv(docs: QuoteDocument[], forfettario: boolean, 
       csvText(d.invoice!.number ?? d.number),
       itDate(docDateIso(d)),
       String(docYear(d)),
-      d.invoice!.sectional,
+      csvText(d.invoice!.sectional),
       nc ? 'Nota di credito' : 'Fattura',
       csvText(d.customer.name || ''),
       num((nc ? -1 : 1) * toCents(t.net)),

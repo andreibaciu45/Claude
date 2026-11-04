@@ -9,7 +9,8 @@
 import { openDB, type IDBPDatabase, type IDBPTransaction } from 'idb';
 import type { AuditEntry, CatalogItem, InvoiceFiscal, Profile, QuoteDocument } from '../types';
 import { uid } from '../types';
-import { seedCustomersFromDocuments } from './customerModel';
+import { seedCustomersFromDocuments, type StoredCustomer } from './customerModel';
+import { isFiscalRecord, planRecovery, snapshotSize, type MemorySnapshot } from './memoryRecovery';
 import { LOW_SPACE_BYTES, StorageUnavailableError, __patchStorageState, __resetStorageHealthForTests, getStorageStatus, type StorageReason } from './health';
 export { StorageUnavailableError } from './health';
 
@@ -288,6 +289,69 @@ function onOpened(nd: IDBPDatabase): void {
   __patchStorageState({ persistent: true, memoryOnly: false, retrying: false, lostReason: undefined, writeFailure: undefined });
   void requestPersistence();
   void refreshSpace(true);
+  // REV2-A1: l'archivio era stato inutilizzabile e l'app ha lavorato in memoria: ora si trasferisce quel lavoro nell'archivio vero
+  if (memory) void recoverMemoryData();
+}
+
+const readSnapshot = (t: Tx): Promise<MemorySnapshot> =>
+  Promise.all([t.all<CatalogItem>('catalog'), t.all<StoredCustomer>('customers'), t.all<QuoteDocument>('documents'), t.all<AuditEntry>('audit')])
+    .then(([catalog, customers, documents, audit]) => ({ catalog, customers, documents, audit }));
+
+/** Contenuto attuale dell'archivio in memoria (null = nessun ripiego in memoria avvenuto). Serve al backup di emergenza. */
+export async function readMemorySnapshot(): Promise<MemorySnapshot | null> {
+  if (!memory) return null;
+  return memory.transact('readonly', readSnapshot);
+}
+
+let recovering: Promise<boolean> | null = null;
+
+/**
+ * Trasferisce nell'archivio persistente i dati NON fiscali scritti in memoria (preventivi, bozze, rubrica, listino): id preservati,
+ * nessuna sovrascrittura (in caso di conflitto restano entrambi), fatture emesse MAI trasferite. Un'unica transazione: o tutto o niente.
+ * Solo a trasferimento riuscito la memoria viene svuotata; se fallisce resta intatta e lo stato avvisa (e il backup di emergenza la include).
+ */
+export function recoverMemoryData(): Promise<boolean> {
+  if (recovering) return recovering;
+  const m = memory;
+  if (!m) return Promise.resolve(true);
+  const run = (async (): Promise<boolean> => {
+    let total = 1;
+    try {
+      const snap = await m.transact('readonly', readSnapshot);
+      total = Math.max(1, snapshotSize({ ...snap, documents: snap.documents.filter((d) => !isFiscalRecord(d)) }));
+      if (snapshotSize(snap) === 0) return true;
+      const plan = await persistentTransact('readwrite', async (t) => {
+        const pl = planRecovery(snap, await readSnapshot(t));
+        for (const x of pl.documents) await t.put('documents', x);
+        for (const x of pl.customers) await t.put('customers', x);
+        for (const x of pl.catalog) await t.put('catalog', x);
+        for (const x of pl.audit) await t.put('audit', x);
+        return pl;
+      });
+      await m.transact('readwrite', async (t) => {
+        for (const id of plan.taken.documents) await t.del('documents', id);
+        for (const id of plan.taken.customers) await t.del('customers', id);
+        for (const id of plan.taken.catalog) await t.del('catalog', id);
+        for (const id of plan.taken.audit) await t.del('audit', id);
+      });
+      if (plan.itemCount > 0) __patchStorageState({ recovery: { kind: 'recovered', documents: plan.documentCount, items: plan.itemCount } });
+      else if (getStorageStatus().reason === 'recovery-failed') __patchStorageState({ recovery: undefined });
+      return true;
+    } catch (e) {
+      console.warn('[storage] trasferimento dei dati creati in memoria fallito (restano in memoria):', e);
+      __patchStorageState({ recovery: { kind: 'failed', documents: 0, items: total } });
+      return false;
+    }
+  })();
+  recovering = run;
+  const clear = (): void => { if (recovering === run) recovering = null; };
+  run.then(clear, clear);
+  return run;
+}
+
+/** Chiude l'avviso informativo sul recupero (l'utente lo ha letto). Non tocca un recupero fallito. */
+export function dismissStorageNotice(): void {
+  if (getStorageStatus().reason === 'memory-recovered') __patchStorageState({ recovery: undefined });
 }
 
 /** Connessione persa dopo un'apertura riuscita: niente memoria, si riapre con backoff. */
@@ -469,13 +533,18 @@ export function ensureStorageStarted(): void { getBackend(); }
 
 /**
  * "Riprova": riapre subito l'archivio. Dopo un'apertura iniziale fallita passa dalla memoria all'archivio persistente
- * (i dati scritti in memoria nel frattempo NON vengono trasferiti: erano solo bozze temporanee).
+ * (i dati non fiscali scritti in memoria nel frattempo vengono trasferiti nell'archivio, vedi `recoverMemoryData`).
  */
 export async function retryStorage(): Promise<boolean> {
   getBackend();
   if (typeof indexedDB === 'undefined') return false;
   if (initialOpen) await initialOpen;
-  if (getStorageStatus().persistent && connected) { void refreshSpace(true); return true; }
+  if (getStorageStatus().persistent && connected) {
+    void refreshSpace(true);
+    dismissStorageNotice();
+    if (getStorageStatus().reason === 'recovery-failed') return recoverMemoryData();
+    return true;
+  }
   try { await reopenNow(); return true; } catch { return false; }
 }
 
@@ -509,6 +578,6 @@ export async function __resetStorageForTests(): Promise<void> {
   try { db?.close(); } catch { /* ignore */ }
   if (timer) { clearTimeout(timer); timer = null; }
   initialOpen = null; initialPending = false; reopening = null; db = null; connected = false; everOpened = false; memoryActive = false;
-  attempts = 0; persistAsked = false; lastEstimateAt = 0; memory = null; backend = null; backoffBase = 500;
+  attempts = 0; persistAsked = false; lastEstimateAt = 0; memory = null; recovering = null; backend = null; backoffBase = 500;
   __resetStorageHealthForTests();
 }

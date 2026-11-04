@@ -112,9 +112,9 @@ const listeners = new Set<() => void>();
 function derive(s: Internal): StorageStatus {
   const base = { persistent: s.persistent, memoryOnly: s.memoryOnly, retrying: s.retrying, lowSpace: s.lowSpace, freeBytes: s.freeBytes, persisted: s.persisted, since: s.since };
   if (!s.persistent && s.lostReason) return { ...base, health: 'unavailable', reason: s.lostReason, message: reasonMessage(s.lostReason) };
+  if (s.recovery?.kind === 'failed') return { ...base, health: 'degraded', reason: 'recovery-failed', message: reasonMessage('recovery-failed'), unrecoveredItems: s.recovery.items };
   if (s.writeFailure) return { ...base, health: 'degraded', reason: s.writeFailure, message: reasonMessage(s.writeFailure) };
   if (s.lowSpace) return { ...base, health: 'degraded', reason: 'low-space', message: reasonMessage('low-space') };
-  if (s.recovery?.kind === 'failed') return { ...base, health: 'degraded', reason: 'recovery-failed', message: reasonMessage('recovery-failed'), unrecoveredItems: s.recovery.items };
   if (s.recovery?.kind === 'recovered') {
     const n = s.recovery.documents;
     const msg = n > 0

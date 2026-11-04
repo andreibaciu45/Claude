@@ -1,3 +1,5 @@
+Ultimo allineamento al codice: 04/11/2026
+
 # Revisione indipendente del server (CODE-REVIEW-SERVER)
 
 Revisore: agente indipendente (non ha scritto il codice). Ambito: `server/src/**`, `server/scripts/**`, test esistenti. Punto di partenza: `docs/SECURITY-REVIEW.md` (quanto già controllato dall'autore, **non ripetuto**), CONTRACT-V2, ARCHITECTURE-V2 §1-2 e §6, OPERAZIONI, `server/README.md`.
@@ -120,6 +122,17 @@ Interventi minori sui test esistenti (solo `server/test/**`): `ops/grants.test.t
 **Migrazioni**: ciascuna in `BEGIN IMMEDIATE…COMMIT` (DDL transazionale) con rollback; ordine per versione indipendente dall'ordine di registrazione; `schema_migrations` controllata da `/health/deep`.
 
 ## Rischi residui (non risolti, con motivazione)
+
+> **Aggiornamento 04/11/2026 (verifica sul codice attuale).** Il testo originale dei rischi 1-9 è conservato sotto. Stato riverificato:
+> 1. **OTP distribuito: CHIUSO come mitigazione.** `server/src/auth/guard.ts`: cooldown crescente per email e per tutti gli IP dopo le prime 10 verifiche sbagliate (`OTP_GUARD_FREE_FAILS`), corsia dei dispositivi noti, avviso al proprietario. Codice a 8 cifre di default (`OTP_DIGITS`, `server/src/auth/service.ts`). Test `server/test/fix/otp-distributed.test.ts`: verde. Il calcolo dello 0,24 %/giorno non è stato rifatto con i nuovi parametri: da riverificare.
+> 2. **Audit senza retention: CHIUSO per la retention.** `server/src/db/audit.ts`: voci non fiscali aggregate in `audit_daily` dopo `AUDIT_RETENTION_DAYS` (default 365) e tetto `AUDIT_MAX_ROWS_PER_TENANT`; voci fiscali mai potate. Test `server/test/fix/audit-retention.test.ts`: verde. Crypto-shredding per tenant: non verificato, da riverificare.
+> 3. **Fatti fiscali dichiarati dal client: APERTO (parziale).** `server/src/db/chain.ts` aggiunge una catena di hash per tenant sulle emissioni: rende evidente la manomissione a posteriori (sigillo esterno con `integrity-check --json`), ma non verifica la veridicità dei fatti. Test `server/test/fix/fiscal-chain.test.ts`: verde.
+> 4. **`/health/deep` con scrittura: CHIUSO.** `server/src/ops/routes.ts`: senza token è di sola lettura (`deepHealth({ write: false })`) con risposta ridotta (`redactHealth`); la sonda di scrittura richiede il token metrico. Test `server/test/fix/health-deep.test.ts`: verde.
+> 5. **`SMTP_REQUIRE_TLS`: CHIUSO.** `server/.env.example` riga 24: `SMTP_REQUIRE_TLS=1`. Test `server/test/fix/config-defaults.test.ts`: verde.
+> 6-9: non riverificati in questo aggiornamento. Il punto 6 (mock e `NODE_ENV` non impostato) va ricontrollato: `server/src/index.ts` emette solo un avviso (`node_env_unset`).
+
+Testo originale:
+
 1. **OTP distribuito**: con 6 cifre, 10 tentativi per codice e al massimo 10 richieste/ora per email, un attaccante con molti IP e pazienza ha ≈ 10×(10 richieste/ora ×24)/10⁶ ≈ **0,24 % al giorno** di indovinare un codice (≈ 7 % in un mese di attacco continuo; la vittima riceve ~240 email al giorno). L'autore lo classifica come DoS; è anche un rischio di presa di controllo a bassa probabilità. Mitigazioni suggerite (cambiano il comportamento, quindi non applicate): `RL_OTP_REQUEST_EMAIL_HOUR=4`, `OTP_MAX_ATTEMPTS=5`, notifica «nuovo accesso» via email, passkey.
 2. **Audit senza retention**: anche con #1 il registro cresce per sempre (resta dopo la cancellazione dell'account). Servono una politica di archiviazione (es. export annuale + prune con trigger sospeso, come già previsto per le fatture) e crypto-shredding per tenant.
 3. **Fatti fiscali dichiarati dal client**: il server non può sapere se una fattura `emessa` senza `lockedAt` (o con `invoice.legacy`) sia davvero tale; un client che non invia `lockedAt` mantiene il documento modificabile. Stessa cosa per gli esiti SDI registrati a mano (#5, limite noto). Numerazione senza buchi: solo controllo a posteriori (`integrity-check`).

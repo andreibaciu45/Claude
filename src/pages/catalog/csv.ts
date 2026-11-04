@@ -1,4 +1,5 @@
 import { UNITS, uid } from '../../types';
+import { neutralizeCsvText, restoreCsvText } from '../../storage/csvDecode';
 import type { CatalogItem, ItemKind, Unit } from '../../types';
 
 /** Parser CSV minimale (virgolette, separatore , ; o tab, righe vuote ignorate). */
@@ -112,7 +113,7 @@ export function buildItems(rows: string[][], mapping: Partial<Record<CsvField, n
     const r = rows[i];
     const errors: string[] = [];
     const warnings: string[] = [];
-    const name = cell(r, 'name');
+    const name = restoreCsvText(cell(r, 'name'));
     if (!name) errors.push('nome mancante');
     const price = parseNumber(cell(r, 'price'));
     if (price === null || price < 0) errors.push('prezzo non valido');
@@ -128,13 +129,13 @@ export function buildItems(rows: string[][], mapping: Partial<Record<CsvField, n
     const sRaw = cell(r, 'stock');
     let stock: number | undefined;
     if (sRaw) { const ps = parseNumber(sRaw); if (ps !== null) stock = ps; else warnings.push(`giacenza "${sRaw}" non valida`); }
-    const aliases = cell(r, 'aliases').split(/[|]/).map((a) => a.trim()).filter(Boolean);
+    const aliases = restoreCsvText(cell(r, 'aliases')).split(/[|]/).map((a) => a.trim()).filter(Boolean);
     const now = Date.now();
     out.push({
       line: i + 1, errors, warnings,
       item: errors.length ? undefined : {
         id: uid(), name, aliases, unit, price: price!, vat, kind,
-        category: cell(r, 'category') || undefined, stock, createdAt: now, updatedAt: now,
+        category: restoreCsvText(cell(r, 'category')) || undefined, stock, createdAt: now, updatedAt: now,
       },
     });
   }
@@ -143,15 +144,16 @@ export function buildItems(rows: string[][], mapping: Partial<Record<CsvField, n
 
 const esc = (v: string | number | undefined) => {
   const s = v === undefined ? '' : String(v);
-  return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  return /[;"]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
 /** CSV con separatore ; e decimali con virgola (apribile direttamente in Excel italiano). */
 export function itemsToCsv(items: CatalogItem[]): string {
   const head = ['nome', 'prezzo', 'unita', 'iva', 'categoria', 'tipo', 'giacenza', 'sinonimi'];
+  const t = neutralizeCsvText;
   const lines = items.map((i) => [
-    i.name, String(i.price).replace('.', ','), i.unit, i.vat, i.category, i.kind,
-    i.stock === undefined ? '' : String(i.stock).replace('.', ','), i.aliases.join('|'),
+    t(i.name), String(i.price).replace('.', ','), t(i.unit), i.vat, t(i.category ?? ''), t(i.kind),
+    i.stock === undefined ? '' : String(i.stock).replace('.', ','), t(i.aliases.join('|')),
   ].map(esc).join(';'));
   return '﻿' + [head.join(';'), ...lines].join('\r\n');
 }

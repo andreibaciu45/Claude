@@ -1,3 +1,5 @@
+Ultimo allineamento al codice: 04/11/2026
+
 # Revisione indipendente del cuore fiscale (fatture) — 2026-11-04
 
 Revisore: agente indipendente (non ha scritto il codice). Perimetro modificabile: `shared/fatturapa/**`, `shared/fiscal/**`, `src/pdf/**`, `src/pages/invoice/**`, `src/storage/{invoices,invoiceTotals,creditResidual}.ts`. Il resto è solo letto e segnalato.
@@ -14,9 +16,13 @@ Test di regressione: `shared/fatturapa/review.test.ts`, `src/storage/review.test
 
 I 4 difetti del QA (BUG-03, 05, 06, 08) sono inclusi e corretti (ultime righe della tabella Bassa).
 
+> **Aggiornamento 04/11/2026 (verifica sul codice attuale).** Il testo originale e la tabella sopra non sono stati cancellati. Le voci marcate **CHIUSO il 04/11/2026** sono state riverificate leggendo il codice e rieseguendo i test di regressione citati. Stato aggiornato: Alta aperti 0 (era 1: REV-DB1); Media aperti 0 (era 1: REV-IMP1); Bassa: "Da incassare" e IVA sulle righe libere chiusi (vedi sotto).
+
 ## Alta
 
 **REV-DB1 — APERTO (db.ts, fuori perimetro).** `getBackend().transact` ripiega silenziosamente su un archivio **in memoria vuoto** per qualunque errore IndexedDB che non venga dalla funzione di dominio (quota piena al commit, `tx.done` rifiutato, connessione chiusa da un upgrade in un'altra scheda). Da quel momento `broken=true` per sempre: la scheda mostra l'archivio vuoto e un'emissione riesce con numero `1/2026` e contatori azzerati, ma esiste solo in memoria. Rischio: numerazione duplicata e fatture "emesse" che spariscono alla ricarica. Correzione proposta: il ripiego su memoria solo se l'**apertura** del DB fallisce (mai dopo che ha funzionato); gli altri errori vanno rilanciati e mostrati ("spazio esaurito, libera memoria"). Non ho potuto testarlo senza toccare `db.ts`.
+
+> **CHIUSO il 04/11/2026.** `src/storage/db.ts` non ripiega più in memoria dopo un'apertura riuscita: ogni altro errore viene rilanciato come `StorageUnavailableError` (motivi in `src/storage/health.ts`), la connessione si riapre con backoff e lo stato è mostrato dal banner `src/ui/StorageBanner.tsx`, montato in `src/App.tsx`. Il ripiego in memoria resta solo se l'apertura iniziale fallisce. Test: `src/storage/health.test.ts` (verde alla verifica del 04/11/2026); `src/storage/review2.test.ts` (REV2-DB1, REV2-DB2) esiste ma non è stato rieseguito in questo aggiornamento.
 
 **REV-S1 — corretto.** `saveDocument` accettava una "fattura" non bloccata con `status` `emessa`/`inviata`/`stornata` o con `seq`/`number`/`xml` già valorizzati: restava modificabile, contava nei contatori (`maxIssued`) e nei registri, non era più emettibile né eliminabile. Ora `assertSaveAllowed` ammette per una fattura fiscale non bloccata solo bozza senza dati d'emissione. Test: `review.test.ts` (REV-S1).
 
@@ -33,11 +39,15 @@ I 4 difetti del QA (BUG-03, 05, 06, 08) sono inclusi e corretti (ultime righe de
 - **REV-S5 — corretto.** `invoice.stampDuty/stampAmount/stampDutyChargedToCustomer` congelati erano quelli della bozza, non quelli dell'XML (ricalcolato): registri e promemoria bolli potevano divergere. Ora normalizzati all'emissione.
 - **REV-IMP1 — APERTO (index.ts, fuori perimetro).** `importBackup`/`parseBackup` non verifica che `xmlSha256` corrisponda all'XML né che un documento con status `emessa`+ abbia `lockedAt`: un backup modificato può sostituire fatture emesse o reintrodurre fatture "emesse" modificabili. `integrity.ts` lo rileva a posteriori, ma l'import non lo blocca. Proposta: in `parseBackup` rifiutare (o avvisare) hash non coerenti e status non-bozza senza `lockedAt`.
 
+> **CHIUSO il 04/11/2026.** `src/storage/backupValidation.ts` (`validateBackupDocuments`, chiamato da `importBackupImpl` in `src/storage/index.ts`) controlla l'SHA-256 dell'XML, anche dello storico XML, e `lockedAt` per le fatture non in bozza; `BackupValidationError` per gli errori. Test: `src/storage/importValidation.test.ts` (verde oggi).
+
 ## Bassa
 
 REV-X3 descrizione vuota dopo la pulizia (solo caratteri di controllo) → `<Descrizione/>` vuota: ora errore. REV-X4 quantità/prezzo oltre 8 decimali e Nome/Cognome oltre 60 caratteri arrotondati/troncati senza avviso: ora avvisi `precision_rounded`/`too_long`. REV-F2 nome cliente lungo troncato alla prima riga nel PDF. REV-S3 contatore/progressivo corrotto (NaN, stringa) → `NaN/2026` o progressivo `00NAN` (il `try/catch` in `progressivo()` mascherava il RangeError). REV-D2 soglia: a 85.000,00 esatti risultava "oltre"; ora oltre solo da 85.000,01. REV-D1 `cashCollectedCents` usava `Math.round(n*100)` invece di `toCents`. REV-H1 `xmlSha256` non protetto nel CSV del registro attività (arriva da backup/sync): possibile iniezione di formule. REV-H2 ZIP: lettere di unità (`C:`) nei nomi. REV-G2 data incasso non validata (`2026-13-45`) o nel futuro. REV-E1 esiti SDI nel futuro o precedenti all'evento già registrato. REV-S4/BUG-08 in forfettario l'IVA di riga viene congelata a 0 all'emissione (niente più "IVA 22% ignorata" nell'audit). BUG-03 filigrana BOZZA fuori viewport (`overflow:hidden`). BUG-05 casella "Storna riga" 44×44 px. BUG-06 la bozza "Rifai con un nuovo numero" mostra il link alla scartata.
 
 **APERTO (fuori perimetro, bassa):** `DocumentsPage` "Da incassare" = totale − incassi senza sottrarre le note di credito parziali (con REV-G4 lo stato è giusto, la somma in testata no). **QuoteEditor** crea righe libere con `vat = defaultVat`: con REV-S4 non sporca più l'audit, ma l'avviso "IVA ignorata" compare ancora nell'anteprima di emissione; meglio che in forfettario le righe nascano con vat 0.
+
+> **CHIUSO il 04/11/2026 (entrambe le voci).** "Da incassare": `DocumentsPage` (`src/pages/DocumentsPage.tsx`, etichetta "Ancora da incassare") calcola il residuo con `invoiceDueCents` di `src/storage/creditResidual.ts`, che sottrae le note di credito efficaci. Righe libere: `newLine` in `src/pages/quote/QuoteEditor.tsx` nasce in forfettario con vat 0 e natura N2.2 (test `src/pages/quote/newLine.test.ts`, verde oggi). Da riverificare: l'avviso `vat_ignored` di `shared/fatturapa/validate.ts` resta attivo per le righe con aliquota diversa da zero (per esempio bozze create prima della correzione); il suo comportamento nell'anteprima UI non è stato ricontrollato.
 
 Nota test: `src/voice/executor.test.ts` (2 test: attesi 202,00 e 72,00 con "bollo") e `src/sync` (1 test termini) falliscono nel perimetro di altri agenti; i primi due attendono un bollo incluso nel totale anche se non addebitato, contro la regola E11 già implementata in `documentTotals`. Non toccati.
 

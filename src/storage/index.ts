@@ -6,7 +6,8 @@
  */
 import { UNITS } from '../types';
 import type { AuditEntry, CatalogItem, DocType, ItemKind, Profile, QuoteDocument, Unit } from '../types';
-import { __resetStorageForTests, defaultProfile, getBackend, migrateDocumentV1, newAuditId, withDefaults } from './db';
+import { __resetStorageForTests, defaultProfile, getBackend, migrateDocumentV1, newAuditId, readMemorySnapshot, withDefaults } from './db';
+import { planRecovery } from './memoryRecovery';
 import { ImmutableDocumentError, assertSaveAllowed, __addAudit } from './invoices';
 import { BackupValidationError, validateBackupDocuments } from './backupValidation';
 import { normalizeCustomerRecord, seedCustomersFromDocuments, type StoredCustomer } from './customerModel';
@@ -22,7 +23,7 @@ export const BACKUP_VERSION = 3;
 const collator = new Intl.Collator('it', { sensitivity: 'base' });
 const byName = (a: { name: string }, b: { name: string }): number => collator.compare(a.name, b.name);
 export { defaultProfile, __resetStorageForTests };
-export { retryStorage, ensureStorageStarted, requirePersistentStorage } from './db';
+export { retryStorage, ensureStorageStarted, requirePersistentStorage, dismissStorageNotice } from './db';
 export * from './health';
 export { invoiceDueCents } from './creditResidual';
 
@@ -60,6 +61,11 @@ export const listCatalog = async (): Promise<CatalogItem[]> => {
 
 export const saveCatalogItem = async (i: CatalogItem): Promise<void> => {
   await getBackend().transact('readwrite', (t) => t.put('catalog', i));
+};
+
+/** Salva molte voci di listino in UNA transazione (importazione CSV: 5.000 transazioni separate erano lentissime). */
+export const saveCatalogItems = async (list: CatalogItem[]): Promise<void> => {
+  await getBackend().transact('readwrite', async (t) => { for (const i of list) await t.put('catalog', i); });
 };
 
 export const deleteCatalogItem = async (id: string): Promise<void> => {
@@ -147,7 +153,7 @@ export const nextDocumentNumber = async (type: DocType): Promise<string> =>
 // ---------------------------------------------------------------- backup
 
 /** Serializza l'intero archivio leggendolo dalla transazione data (lo stesso JSON di `exportBackup`). */
-async function backupJson(t: Tx): Promise<string> {
+async function backupJson(t: Tx, extra?: Awaited<ReturnType<typeof readMemorySnapshot>>): Promise<string> {
   const profile = withDefaults(await t.getProfile());
   const catalog = await t.all<CatalogItem>('catalog');
   const customers = await t.all<StoredCustomer>('customers');
@@ -157,11 +163,17 @@ async function backupJson(t: Tx): Promise<string> {
   documents.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt));
   audit.sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
   customers.sort(byName);
+  if (extra) {
+    // backup di emergenza dopo un recupero fallito: include anche i dati non fiscali ancora SOLO in memoria (stessa logica del recupero)
+    const plan = planRecovery(extra, { catalog, customers, documents, audit });
+    catalog.push(...plan.catalog); customers.push(...plan.customers); documents.push(...plan.documents); audit.push(...plan.audit);
+  }
   return JSON.stringify({ version: BACKUP_VERSION, exportedAt: new Date().toISOString(), profile, catalog, customers, documents, audit }, null, 2);
 }
 
 export async function exportBackup(): Promise<string> {
-  return getBackend().transact('readonly', (t) => backupJson(t));
+  const extra = await readMemorySnapshot();
+  return getBackend().transact('readonly', (t) => backupJson(t, extra));
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
