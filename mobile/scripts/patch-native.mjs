@@ -2,6 +2,7 @@
 // permessi microfono/riconoscimento vocale con testi in italiano, lingua, crittografia export, backup.
 // Si lancia dopo `cap add` (o dopo aver rigenerato android/ios):  npm run patch:native
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { injectCsp } from './csp.mjs';
 
 const manifest = 'android/app/src/main/AndroidManifest.xml';
 if (existsSync(manifest)) {
@@ -31,4 +32,26 @@ if (existsSync(plist)) {
   x = x.replace(/(<key>CFBundleDevelopmentRegion<\/key>\s*<string>)en(<\/string>)/, '$1it$2');
   writeFileSync(plist, x);
   console.log('iOS: Info.plist aggiornato');
+}
+
+// CSP nel index.html copiato da `cap sync` (le WebView native non ricevono gli header di Caddy).
+// Richiede l'URL ASSOLUTO dell'API: variabile VITE_API_URL oppure `--api-url=https://[DOMINIO]/v1`.
+// Lanciare DOPO `cap sync` (che ricopia dist e sovrascrive l'index.html); se non esiste ancora nessun index.html nativo, salta.
+const indexes = ['android/app/src/main/assets/public/index.html', 'ios/App/App/public/index.html'].filter(existsSync);
+if (indexes.length) {
+  const arg = process.argv.find((a) => a.startsWith('--api-url='));
+  const apiUrl = arg ? arg.slice('--api-url='.length) : process.env.VITE_API_URL;
+  try {
+    for (const f of indexes) {
+      const before = readFileSync(f, 'utf8');
+      const after = injectCsp(before, apiUrl);
+      if (after !== before) writeFileSync(f, after);
+      console.log(`CSP: ${f} ${after === before ? 'gia\' aggiornato' : 'aggiornato'}`);
+    }
+  } catch (e) {
+    console.error(`CSP non applicata: ${e.message}`);
+    process.exit(1);
+  }
+} else {
+  console.log('CSP: nessun index.html nativo (esegui prima `npx cap sync`), saltato');
 }
