@@ -18,9 +18,10 @@ import { audit } from '../db/audit';
 import { appendChange, currentCursor } from '../db/changes';
 import { FREE_DOCS_PER_MONTH, getDocsThisMonth, getPlan, incrementDocsCreated } from '../db/entitlements';
 import { auditSchema, catalogSchema, documentSchema, profileSchema } from '../documents/schema';
-import { findInvoiceNumberOwner, getDocumentRecord, softDeleteDocument, upsertDocument } from '../documents/repo';
+import { findInvoiceNumberOwner, findInvoiceNumberTextOwner, getDocumentRecord, softDeleteDocument, upsertDocument } from '../documents/repo';
+import { dbRateLimitStore } from '../db/ratelimit';
 import { recordSyncPush } from '../ops/metrics';
-import { aadAudit, aadProfile, open, openJson, sealJson } from '../db/seal';
+import { aadAudit, aadProfile, isSealed, openJson, sealJson } from '../db/seal';
 
 export interface PushContext { tenantId: string; userId: string; deviceId: string }
 type Raw = Omit<SyncOp, 'payload'> & { payload?: unknown };
@@ -59,6 +60,8 @@ const strip = (d: any) => {
   if (c.invoice) { delete c.invoice.sdiEvents; delete c.invoice.payments; delete c.invoice.paymentStatus; }
   return c;
 };
+/** Stati finali dai quali una fattura non può passare a 'scartata' (esito SDI già positivo o documento chiuso). */
+const NOT_REJECTABLE = new Set(['consegnata', 'stornata', 'pagato']);
 const canon = (v: unknown): string => JSON.stringify(v, (_k, x) =>
   x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x);
 
@@ -81,6 +84,9 @@ function applyDocument(ctx: PushContext, op: Raw): Result {
   if (!parsed.success) return bad('invalid', issues(parsed.error));
   const doc = parsed.data as unknown as QuoteDocument;
   if (JSON.stringify(doc).length > maxDocBytes()) return bad('invalid', 'Documento troppo grande');
+  // Un testo che inizia con il prefisso dei valori cifrati ("enc:v1:") verrebbe scambiato per un campo già cifrato: non sarebbe cifrato a riposo
+  // e farebbe fallire per sempre la lettura del documento (GET, export GDPR, rotazione chiave) con un 500.
+  if ([doc.notes, doc.transcript, doc.invoice?.xml].some((v) => isSealed(v))) return bad('invalid', 'Testo non ammesso (prefisso riservato)');
   doc.updatedAt = clampTs(doc.updatedAt);
   if (doc.id !== op.entityId) return bad('invalid', 'entityId e payload.id non coincidono');
   if (existing && existing.type !== doc.type) return bad('invalid', 'Il tipo di documento non può cambiare');
@@ -102,6 +108,11 @@ function applyDocument(ctx: PushContext, op: Raw): Result {
     }
     if (doc.status === 'bozza' || !doc.invoice?.lockedAt || canon(strip(cur)) !== canon(strip(doc))) {
       return bad('locked_document', 'Documento emesso: immutabile', existing.data);
+    }
+    // 'scartata' è l'unico stato che riapre il contenuto (rinvio corretto): non si raggiunge da una fattura già consegnata/stornata/pagata,
+    // altrimenti basterebbe dichiararla scartata per poterla riscrivere.
+    if (doc.status === 'scartata' && existing.status !== 'scartata' && NOT_REJECTABLE.has(existing.status)) {
+      return bad('locked_document', 'Fattura già consegnata o chiusa: non può risultare scartata', existing.data);
     }
     if (doc.updatedAt < existing.updatedAt || (doc.invoice.sdiEvents ?? []).length < (cur.invoice?.sdiEvents ?? []).length) {
       return bad('stale', 'Il server ha una versione più recente', existing.data);
@@ -131,6 +142,10 @@ function applyDocument(ctx: PushContext, op: Raw): Result {
     }
     const owner = findInvoiceNumberOwner(tenantId, inv.sectional, inv.year, inv.seq);
     if (owner && owner !== doc.id) return bad('duplicate_invoice_number', `Numero ${inv.sectional} ${inv.year}/${inv.seq} già utilizzato`);
+    // Il numero mostrato in fattura (testo) non può comparire due volte tra le emesse dello stesso tenant, anche se sezionale/seq differiscono
+    // solo per maiuscole o formattazione: l'indice UNIQUE guarda solo (sezionale, anno, seq).
+    const textOwner = findInvoiceNumberTextOwner(tenantId, [doc.number, inv.number], doc.id);
+    if (textOwner) return bad('duplicate_invoice_number', `Il numero ${inv.number} è già utilizzato da un'altra fattura emessa`);
   }
 
   // Un id già cancellato (tombstone) e ricreato conta come documento NUOVO: altrimenti basterebbe riusare lo stesso id per aggirare la quota Free.
@@ -189,17 +204,27 @@ function applyProfile(ctx: PushContext, op: Raw): Result {
   return { ok: true };
 }
 
+/** Tetto giornaliero di voci di audit del client per tenant (il registro è append-only: niente purge, quindi va limitato all'ingresso). */
+const auditPerDay = () => envInt('RL_AUDIT_PER_DAY', 10_000);
+const MAX_AUDIT_BYTES = 6_000;
+
 function applyAudit(ctx: PushContext, op: Raw): Result {
   if (op.op !== 'upsert') return bad('invalid', 'Il registro audit è append-only');
   if (tooComplex(op.payload)) return bad('invalid', 'Payload troppo complesso');
   const p = auditSchema.safeParse(op.payload);
   if (!p.success) return bad('invalid', issues(p.error));
   if (p.data.id !== op.entityId) return bad('invalid', 'entityId e payload.id non coincidono');
-  if (JSON.stringify(p.data).length > 20_000) return bad('invalid', 'Voce di audit troppo grande');
+  // Solo i campi noti (i campi extra del looseObject sarebbero un modo gratuito per riempire il disco con dati non cancellabili).
+  const a = p.data as Record<string, unknown>;
+  const clean: Record<string, unknown> = {};
+  for (const k of ['id', 'at', 'docId', 'action', 'actor', 'detail', 'xmlSha256', 'voiceTranscript']) if (a[k] !== undefined) clean[k] = a[k];
+  if (JSON.stringify(clean).length > MAX_AUDIT_BYTES) return bad('invalid', 'Voce di audit troppo grande');
+  const lim = dbRateLimitStore.hit(`audit:${ctx.tenantId}`, auditPerDay(), 24 * 3600_000);
+  if (!lim.ok) return bad('invalid', 'Troppe voci di audit oggi: riprova domani');
   const r = run(
     'INSERT OR IGNORE INTO audit_log(tenant_id, user_id, at, action, entity, entity_id, ref_id, payload) VALUES (?,?,?,?,?,?,?,?)',
-    ctx.tenantId, ctx.userId, p.data.at, `client.${p.data.action}`, 'audit', p.data.docId, p.data.id, sealJson(p.data, aadAudit(ctx.tenantId, p.data.id)));
-  if (Number(r.changes) > 0) appendChange(ctx.tenantId, op.opId, 'audit', p.data.id, 'upsert', p.data);
+    ctx.tenantId, ctx.userId, p.data.at, `client.${p.data.action}`, 'audit', p.data.docId, p.data.id, sealJson(clean, aadAudit(ctx.tenantId, p.data.id)));
+  if (Number(r.changes) > 0) appendChange(ctx.tenantId, op.opId, 'audit', p.data.id, 'upsert', clean);
   return { ok: true };
 }
 
@@ -217,11 +242,12 @@ export function pushOps(ctx: PushContext, ops: Raw[]): SyncPushResponse & { serv
   const accepted: string[] = [];
   const conflicts: SyncConflict[] = [];
   for (const op of ops) {
-    const seen = one('SELECT 1 AS x FROM sync_ops WHERE tenant_id=? AND op_id=?', ctx.tenantId, op.opId);
-    if (seen) { accepted.push(op.opId); continue; }
     let res: Result;
     try {
       res = transaction(() => {
+        // Idempotenza DENTRO la transazione (BEGIN IMMEDIATE = lock di scrittura): con più processi sullo stesso DB due richieste con lo stesso opId
+        // (retry dopo timeout) potevano superare entrambe un controllo fatto fuori e la seconda falliva con un 500 sulla chiave primaria di sync_ops.
+        if (one('SELECT 1 AS x FROM sync_ops WHERE tenant_id=? AND op_id=?', ctx.tenantId, op.opId)) return { ok: true } as Result;
         const r = applyOp(ctx, op);
         if (r.ok) {
           run('INSERT INTO sync_ops(tenant_id, op_id, device_id, applied_at) VALUES (?,?,?,?)', ctx.tenantId, op.opId, ctx.deviceId, now());

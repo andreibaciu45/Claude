@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { deleteDB } from 'idb';
+import { deleteDB, openDB } from 'idb';
 import { webcrypto } from 'node:crypto';
 import {
   __resetStorageForTests, clearLocalData, exportBackup, getStorageSummary, importAuditEntries, importBackup, listCatalog, listDocuments, parseBackup, verifyStorageIntegrity,
@@ -135,5 +135,29 @@ describe(`prestazioni storage: ${N_DOCS} documenti, ${N_CAT} voci di catalogo`, 
     expect(parseBackup(c.backupJson!).documents).toHaveLength(N_DOCS);
     expect(await listDocuments()).toHaveLength(0);
     expect(times.clearLocalData).toBeLessThan(10_000);
+  });
+
+  it('migrazione REALE di un database v1 con 5.000 documenti e 2.000 voci all\'apertura (upgrade a v3)', async () => {
+    await __resetStorageForTests();
+    await deleteDB(DB_NAME);
+    const old = await openDB(DB_NAME, 1, { upgrade(db) { db.createObjectStore('profile'); db.createObjectStore('catalog', { keyPath: 'id' }); db.createObjectStore('documents', { keyPath: 'id' }); } });
+    const tx = old.transaction(['catalog', 'documents'], 'readwrite');
+    for (let i = 0; i < N_CAT; i++) tx.objectStore('catalog').put(catalogItem(i));
+    for (let i = 0; i < N_DOCS; i++) {
+      tx.objectStore('documents').put({
+        id: `v${i}`, type: i % 2 ? 'fattura' : 'preventivo', number: `N${i}`, date: '2025-05-05', customer: { id: `c${i % 200}`, name: `Cliente ${i % 200} Srl` },
+        lines: [lineData('a', 10)], status: i % 3 ? 'pagato' : 'bozza', createdAt: i, updatedAt: i,
+      });
+    }
+    await tx.done;
+    old.close();
+    const docs = await timed('migrazioneReale', listDocuments); // la prima lettura apre il DB e fa l'upgrade
+    expect(docs).toHaveLength(N_DOCS);
+    expect(times.migrazioneReale).toBeLessThan(30_000);
+    const invoices = docs.filter((d) => d.type === 'fattura');
+    expect(invoices.every((d) => d.invoice?.legacy === true && d.status === 'bozza')).toBe(true);
+    expect(docs.some((d) => (d.status as string) === 'pagato')).toBe(false);
+    const sum = await getStorageSummary();
+    expect(sum).toMatchObject({ documents: N_DOCS, catalog: N_CAT, customers: 200, invoicesIssued: 0 });
   });
 });

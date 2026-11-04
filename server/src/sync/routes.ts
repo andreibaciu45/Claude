@@ -10,6 +10,7 @@ import { one, run } from '../db';
 import { now } from '../db/clock';
 import { recordSyncPull } from '../ops/metrics';
 import { pushOps } from './service';
+import { intParam } from '../auth/http';
 
 const id = z.string().min(1).max(100);
 const pushSchema = z.object({
@@ -40,7 +41,7 @@ syncRoutes.post('/push', async (c) => {
 syncRoutes.get('/pull', (c) => {
   const raw = c.req.query('cursor') ?? '0';
   if (!/^\d{1,15}$/.test(raw)) return apiError(c, 400, 'invalid_cursor', 'Cursore non valido');
-  const limit = Math.min(Math.max(Number(c.req.query('limit')) || 200, 1), 500);
+  const limit = intParam(c.req.query('limit'), 200, 1, 500);
   const cursor = Number(raw);
   const { rows: page, hasMore } = pullPage(c.get('tenantId'), cursor, limit);
   const body: SyncPullResponse = {

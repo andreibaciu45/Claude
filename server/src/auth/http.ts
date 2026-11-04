@@ -21,3 +21,10 @@ export async function parseJson<T>(c: Context, schema: ZodType<T>): Promise<{ da
   }
   return { data: r.data };
 }
+
+/** Parametro numerico di query come intero in [min, max]. Valori assenti/non numerici => `def`; frazioni/Infinity non devono mai arrivare a SQLite (LIMIT 1.5 => 500). */
+export function intParam(raw: string | undefined, def: number, min: number, max: number): number {
+  const n = Number(raw);
+  if (raw === undefined || raw === '' || !Number.isFinite(n)) return def;
+  return Math.min(Math.max(Math.trunc(n), min), max);
+}

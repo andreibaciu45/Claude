@@ -19,9 +19,11 @@ export function openDb(path: string): DatabaseSync {
   // Cartella dati 0700 e file 0600: il DB contiene dati personali e fiscali.
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const d = new DatabaseSync(path);
+  // busy_timeout PRIMA di journal_mode: cambiare modalità richiede un lock; con due processi che partono insieme (deploy, CLI mentre il server
+  // si avvia) senza timeout il secondo fallirebbe subito con SQLITE_BUSY invece di attendere.
+  d.exec('PRAGMA busy_timeout = 5000');
   if (path !== ':memory:') d.exec('PRAGMA journal_mode = WAL'); // richiesto da Litestream (vedi server/README.md)
   d.exec('PRAGMA foreign_keys = ON');
-  d.exec('PRAGMA busy_timeout = 5000');
   d.exec('PRAGMA synchronous = NORMAL');
   // Senza recursive_triggers, `INSERT OR REPLACE` cancella la riga in conflitto SENZA far scattare i trigger BEFORE DELETE
   // (immutabilita' delle fatture emesse e append-only dell'audit): con ON anche quel percorso e' bloccato.
@@ -57,16 +59,25 @@ export function transaction<T>(fn: () => T): T {
   const sp = `sp${depth}`;
   d.exec(outer ? 'BEGIN IMMEDIATE' : `SAVEPOINT ${sp}`);
   depth++;
+  const undo = () => { d.exec(outer ? 'ROLLBACK' : `ROLLBACK TO ${sp}; RELEASE ${sp}`); };
+  let r: T;
   try {
-    const r = fn();
-    depth--;
-    d.exec(outer ? 'COMMIT' : `RELEASE ${sp}`);
-    return r;
+    r = fn();
   } catch (e) {
     depth--;
-    d.exec(outer ? 'ROLLBACK' : `ROLLBACK TO ${sp}; RELEASE ${sp}`);
+    undo();
     throw e;
   }
+  // COMMIT/RELEASE possono fallire (vincoli FK differiti, disco pieno, I/O): `depth` va decrementato UNA sola volta, altrimenti resta
+  // negativo e ogni transazione successiva usa un SAVEPOINT con nome non valido (server rotto fino al riavvio, anche a disco liberato).
+  depth--;
+  try {
+    d.exec(outer ? 'COMMIT' : `RELEASE ${sp}`);
+  } catch (e) {
+    try { undo(); } catch { /* transazione già chiusa dal motore */ }
+    throw e;
+  }
+  return r;
 }
 
 export const one = <T>(sql: string, ...p: SQLInputValue[]): T | undefined =>

@@ -15,6 +15,10 @@ import {
 import type { Tx } from './db';
 
 export const BACKUP_VERSION = 3;
+
+/** Un solo collator (costruirne uno per confronto rallenta l'ordinamento di migliaia di voci). Stesso risultato di localeCompare('it', base). */
+const collator = new Intl.Collator('it', { sensitivity: 'base' });
+const byName = (a: { name: string }, b: { name: string }): number => collator.compare(a.name, b.name);
 export { defaultProfile, __resetStorageForTests };
 
 // ---------------------------------------------------------------- API
@@ -46,7 +50,7 @@ export const saveProfile = async (p: Profile): Promise<void> => {
 
 export const listCatalog = async (): Promise<CatalogItem[]> => {
   const items = await getBackend().transact('readonly', (t) => t.all<CatalogItem>('catalog'));
-  return items.sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
+  return items.sort(byName);
 };
 
 export const saveCatalogItem = async (i: CatalogItem): Promise<void> => {
@@ -144,10 +148,10 @@ async function backupJson(t: Tx): Promise<string> {
   const customers = await t.all<StoredCustomer>('customers');
   const documents = await t.all<QuoteDocument>('documents');
   const audit = await t.all<AuditEntry>('audit');
-  catalog.sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
+  catalog.sort(byName);
   documents.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt));
   audit.sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
-  customers.sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
+  customers.sort(byName);
   return JSON.stringify({ version: BACKUP_VERSION, exportedAt: new Date().toISOString(), profile, catalog, customers, documents, audit }, null, 2);
 }
 

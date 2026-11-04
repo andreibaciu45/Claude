@@ -270,6 +270,9 @@ export function runMigrations(db: DatabaseSync, upTo = Infinity): void {
     if (done.has(m.version) || m.version > upTo) continue;
     db.exec('BEGIN IMMEDIATE');
     try {
+      // Un altro processo (deploy con due istanze, CLI mentre il server parte) può aver applicato la migrazione tra la lettura di `done`
+      // e questo lock: rieseguirla fallirebbe ("table already exists") e il servizio non partirebbe.
+      if (db.prepare('SELECT 1 AS x FROM schema_migrations WHERE version = ?').get(m.version)) { db.exec('COMMIT'); continue; }
       db.exec(m.sql);
       db.prepare('INSERT INTO schema_migrations(version, name, applied_at) VALUES (?,?,?)').run(m.version, m.name, Date.now());
       db.exec('COMMIT');

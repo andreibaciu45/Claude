@@ -3,7 +3,7 @@
  * Per ogni documento si controlla che XML, PDF e totali siano coerenti tra loro e con i vincoli dello schema FatturaPA
  * (secondo la nostra lettura [DA VERIFICARE sull'XSD]: ordine/obbligatori, pattern numerici, lunghezze, caratteri ammessi).
  */
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import type { Customer, DocLine, QuoteDocument } from '../types';
 import { generateFatturaPA, validateInvoiceForIssue } from '../../shared/fatturapa';
 import { find, parseXml, textOf, validateStructure, type XmlNode } from '../../shared/fatturapa/__tests__/xmlTools';
@@ -64,6 +64,7 @@ function randomDoc(i: number): { doc: QuoteDocument; profileOver: Record<string,
 }
 
 const N = 160;
+const skipped: Record<string, number> = {};
 // XSD (secondo la nostra lettura): Amount2 = -?\d{1,11}\.\d{2}; Quantita/PrezzoUnitario/PrezzoTotale = -?\d{1,11}\.\d{2,8}
 const AMOUNT2 = /^-?\d{1,11}\.\d{2}$/;
 const DEC28 = /^-?\d{1,11}\.\d{2,8}$/;
@@ -77,13 +78,14 @@ const textsOf = (n: XmlNode, out: { name: string; text: string }[] = []): { name
 const c2 = (s: string | undefined): number => toCents(Number(s ?? 'NaN'));
 
 describe(`fuzzer fatture: ${N} documenti casuali`, () => {
+  afterAll(() => { console.log('FUZZ-SKIPPED', JSON.stringify(skipped)); });
   for (let i = 0; i < N; i++) {
     it(`doc #${i}: XML, PDF e totali coerenti`, () => {
       const { doc, profileOver } = randomDoc(i);
       const profile = makeProfile(profileOver);
       const issues = validateInvoiceForIssue(doc, profile, { now: new Date(2026, 9, 20, 12) });
       const errors = issues.filter((x) => x.severity === 'error');
-      if (errors.length) return; // documenti non emettibili: la validazione li ferma, nulla da generare
+      if (errors.length) { for (const e of errors) skipped[e.code] = (skipped[e.code] ?? 0) + 1; return; }
       const { xml, fileName } = generateFatturaPA(doc, profile, 'ABC12', { now: new Date(2026, 9, 20, 12) });
 
       // (c) buona formazione, ordine, obbligatori, BOM, caratteri
