@@ -5,7 +5,7 @@ Questo documento descrive, campo per campo, come i dati inseriti nell'app divent
 - `esempio-A-TD01-consumatore-bollo.xml`: fattura n. 12/2026 del 15/10/2026 di Mario Rossi (idraulico, forfettario) a una consumatrice, con bollo addebitato.
 - `esempio-B-TD04-parziale.xml`: nota di credito NC1/2026 del 20/10/2026 a un'azienda, che storna parzialmente la fattura 12/2026 (reso di un rubinetto da 36 €).
 
-Tutti i dati sono **fittizi**. Gli esempi sono stati preparati a mano in fase di ricerca e il generatore del programma, nei test automatici, produce un file con la stessa struttura. Due differenze volute rispetto a come li produce il programma: nell'esempio compare l'attributo `xsi:schemaLocation` (l'indirizzo non è verificato e il programma non lo scrive) e nell'esempio B l'elemento facoltativo `RiferimentoNumeroLinea`, che il programma non scrive. **Gli esempi non sono stati validati contro lo schema XSD ufficiale.**
+Tutti i dati sono **fittizi**. Gli esempi sono stati preparati a mano in fase di ricerca e il generatore del programma, nei test automatici, produce un file con la stessa struttura (il confronto è ripetuto a ogni esecuzione dei test). **Aggiornato il 4 novembre 2026**: l'esempio A è stato riallineato all'output attuale del programma, che ora scrive nella `Causale` anche la dicitura del bollo (seconda `Causale`), identica a quella del PDF. Due differenze volute rispetto a come li produce il programma: nell'esempio compare l'attributo `xsi:schemaLocation` (l'indirizzo non è verificato e il programma non lo scrive) e nell'esempio B l'elemento facoltativo `RiferimentoNumeroLinea`, che il programma non scrive. **Gli esempi non sono stati validati contro lo schema XSD ufficiale.**
 
 Nota di lettura: i nomi in corsivo tra parentesi sono i nomi dei campi nell'app, per chi li cerca nello schermo.
 
@@ -56,8 +56,9 @@ Nome file: `IT` + partita IVA + `_` + progressivo + `.xml`, per esempio `IT01234
 | `DatiBollo/BolloVirtuale` | `SI` | assente | Presente se l'imponibile supera 77,47 € (checklist D1). Nell'esempio B (36 €) non c'è bollo |
 | `DatiBollo/ImportoBollo` | `2.00` | assente | |
 | `ImportoTotaleDocumento` | `372.00` | `36.00` | Somma delle righe + eventuale rimborso bollo. Il bollo a carico dell'artigiano **non** si somma |
-| `Causale` (prima) | Dicitura forfettario | "Storno parziale della fattura n. 12/2026 del 15/10/2026: reso rubinetto miscelatore." | Fattura: dicitura forfettario. Nota di credito: motivo dello storno scritto dall'utente (l'app antepone "Storno della fattura n. ... del ..." se il motivo non cita già il numero) |
-| `Causale` (seconda) | Dicitura "compenso non assoggettato a ritenuta..." | Dicitura forfettario | La dicitura sulla ritenuta compare solo sulle fatture. Testi lunghi vengono divisi in blocchi da 200 caratteri |
+| `Causale` (prima) | Dicitura forfettario | "Storno parziale della fattura n. 12/2026 del 15/10/2026: reso rubinetto miscelatore." | Fattura: dicitura forfettario (testo unico, checklist E3). Nota di credito: motivo dello storno scritto dall'utente (l'app antepone "Storno della fattura n. ... del ..." se il motivo non cita già il numero) |
+| `Causale` (seconda) | "Imposta di bollo assolta in modo virtuale (DPR 642/72)." | Dicitura forfettario | Il testo del bollo compare solo se il bollo è dovuto (checklist D9), in fattura e in nota di credito. Nell'esempio B (nessun bollo) la seconda `Causale` è la dicitura forfettario, che nella nota di credito segue il motivo |
+| `Causale` (terza) | Dicitura "compenso non assoggettato a ritenuta..." | assente | La dicitura sulla ritenuta compare solo sulle fatture (checklist E4). Testi lunghi vengono divisi in blocchi da 200 caratteri |
 | `DatiFattureCollegate/IdDocumento` | assente | `12/2026` | Solo nota di credito: numero della fattura originale |
 | `DatiFattureCollegate/Data` | assente | `2026-10-15` | Solo nota di credito: data della fattura originale |
 | `DatiFattureCollegate/RiferimentoNumeroLinea` | assente | `3` | **Solo nell'esempio**: facoltativo, il programma non lo scrive |

@@ -252,6 +252,7 @@ let connected = false;
 let everOpened = false;
 let memoryActive = false;
 let initialOpen: Promise<IDBPDatabase | null> | null = null;
+let initialPending = false;
 let reopening: Promise<IDBPDatabase> | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let attempts = 0;
@@ -275,6 +276,9 @@ function openConnection(): Promise<IDBPDatabase> {
 }
 
 function onOpened(nd: IDBPDatabase): void {
+  // REV2-DB1: mai lasciare aperta una connessione sostituita (due aperture in parallelo): resterebbe orfana e un futuro
+  // aggiornamento/eliminazione del database da un'altra scheda resterebbe bloccato per sempre (`blocking` chiude solo `db`).
+  if (db && db !== nd) { try { db.close(); } catch { /* già chiusa */ } }
   db = nd;
   connected = true;
   everOpened = true;
@@ -307,6 +311,11 @@ function reopenNow(): Promise<IDBPDatabase> {
   if (reopening) return reopening;
   if (timer) { clearTimeout(timer); timer = null; }
   if (typeof indexedDB === 'undefined') return Promise.reject(new StorageUnavailableError('no-indexeddb'));
+  // REV2-DB1: l'apertura iniziale è ancora in corso (es. bloccata da un'altra scheda alla versione precedente): si attende
+  // quella, senza lanciarne una seconda in parallelo.
+  if (initialPending && initialOpen) {
+    return initialOpen.then((d) => d ?? Promise.reject(new StorageUnavailableError('open-failed')));
+  }
   __patchStorageState({ retrying: true });
   const attempt = (async () => {
     await Promise.resolve(); // mai sincrona: `reopening` è assegnato prima di poter essere azzerato
@@ -432,9 +441,11 @@ export function getBackend(): Backend {
     memoryActive = true;
     __patchStorageState({ persistent: false, memoryOnly: true, lostReason: 'no-indexeddb', retrying: false });
   } else {
+    initialPending = true;
     initialOpen = openConnection().then(
-      (nd) => { onOpened(nd); return nd; },
+      (nd) => { initialPending = false; onOpened(nd); return nd; },
       (e) => {
+        initialPending = false;
         // ripiego ammesso SOLO qui: l'archivio persistente non è mai stato aperto (es. navigazione privata di alcuni browser)
         console.warn('[storage] apertura IndexedDB fallita, uso la memoria (dati non salvati):', e);
         memoryActive = true;
@@ -490,7 +501,7 @@ export async function __resetStorageForTests(): Promise<void> {
   try { (await initialOpen)?.close(); } catch { /* ignore */ }
   try { db?.close(); } catch { /* ignore */ }
   if (timer) { clearTimeout(timer); timer = null; }
-  initialOpen = null; reopening = null; db = null; connected = false; everOpened = false; memoryActive = false;
+  initialOpen = null; initialPending = false; reopening = null; db = null; connected = false; everOpened = false; memoryActive = false;
   attempts = 0; persistAsked = false; lastEstimateAt = 0; memory = null; backend = null; backoffBase = 500;
   __resetStorageHealthForTests();
 }
