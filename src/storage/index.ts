@@ -14,6 +14,7 @@ import {
   CLEAR_LOCAL_DATA_CONFIRM, type ClearLocalDataOptions, type ClearLocalDataResult, type ImportAuditResult, type StorageHooks,
 } from './hooks';
 import type { Tx } from './db';
+import { withBusy } from '../pwa/busy';
 
 export const BACKUP_VERSION = 3;
 
@@ -313,7 +314,7 @@ export interface ImportBackupOptions {
   skipInvalidDocuments?: boolean;
 }
 
-export async function importBackup(json: string, opts: ImportBackupOptions = {}): Promise<{ warnings: string[]; rejected: { docId: string; number: string; message: string }[] }> {
+async function importBackupImpl(json: string, opts: ImportBackupOptions = {}): Promise<{ warnings: string[]; rejected: { docId: string; number: string; message: string }[] }> {
   const parsed = parseBackup(json);
   const validation = await validateBackupDocuments(parsed.documents, parsed.audit);
   if (validation.issues.length && !opts.skipInvalidDocuments) throw new BackupValidationError(validation.issues);
@@ -526,3 +527,6 @@ export * from './customers';
 export * from './integrity';
 export * from './backupSummary';
 export { BackupValidationError, validateBackupDocuments, type BackupIssue, type BackupValidation } from './backupValidation';
+
+/** Importazione backup: segnata come lavoro in corso (nessun aggiornamento dell'app durante). */
+export const importBackup = (json: string, opts: ImportBackupOptions = {}): ReturnType<typeof importBackupImpl> => withBusy('backup-import', () => importBackupImpl(json, opts));

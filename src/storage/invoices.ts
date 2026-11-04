@@ -17,6 +17,7 @@ import { lineTotalCents, toCents } from '../../shared/fiscal/money';
 import * as fatturapa from '../../shared/fatturapa';
 import { generateFatturaPA, validateInvoiceForIssue } from '../../shared/fatturapa';
 import { getBackend, newAuditId, withDefaults, type Tx, requirePersistentStorage } from './db';
+import { withBusy } from '../pwa/busy';
 
 // ---------------------------------------------------------------- errori
 
@@ -543,7 +544,8 @@ async function emit(
  * Emette e restituisce anche gli avvisi non bloccanti (es. data anteriore all'ultima fattura emessa).
  * `issueInvoice` è la stessa operazione con la firma del contratto (ritorna solo il documento).
  */
-export async function issueInvoiceWithWarnings(docId: string): Promise<IssueResult> {
+export const issueInvoiceWithWarnings = (docId: string): Promise<IssueResult> => withBusy('invoice-issue', () => issueInvoiceWithWarningsImpl(docId));
+async function issueInvoiceWithWarningsImpl(docId: string): Promise<IssueResult> {
   return emit(
     async (t) => {
       const d = await t.get<QuoteDocument>('documents', docId);
@@ -625,7 +627,7 @@ async function reconcileOriginal(t: Tx, originalId: string, now: number, why: st
  *  - con `lines` = storno parziale: più note parziali sono ammesse finché la somma non supera l'imponibile della fattura;
  *  - la fattura diventa 'stornata' solo quando le note efficaci la coprono per intero.
  */
-export const createCreditNote = async (
+const createCreditNoteImpl = async (
   invoiceId: string,
   opts: { reason: string; lines?: DocLine[] },
 ): Promise<QuoteDocument> => {
@@ -1037,3 +1039,6 @@ export async function createResubmissionDraft(docId: string): Promise<QuoteDocum
     return draft;
   });
 }
+
+/** Emissione della nota di credito: segnata come lavoro in corso (nessun aggiornamento dell'app durante). */
+export const createCreditNote = (...a: Parameters<typeof createCreditNoteImpl>): ReturnType<typeof createCreditNoteImpl> => withBusy('invoice-issue', () => createCreditNoteImpl(...a));

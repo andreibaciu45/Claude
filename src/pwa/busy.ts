@@ -51,3 +51,9 @@ export const registerBusy = (key: string): void => busy.register(key);
 export const unregisterBusy = (key: string): void => busy.unregister(key);
 export const isBusy = (): boolean => busy.isBusy();
 export const subscribeBusy = (l: Listener): (() => void) => busy.subscribe(l);
+
+/** Esegue `fn` segnando il lavoro come in corso (registra e rilascia sempre, anche in caso di errore). */
+export async function withBusy<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  registerBusy(key);
+  try { return await fn(); } finally { unregisterBusy(key); }
+}
