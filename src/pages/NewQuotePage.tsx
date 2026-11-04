@@ -51,6 +51,7 @@ export default function NewQuotePage() {
   const textRef = useRef('');
   textRef.current = text;
   const wasListening = useRef(false);
+  const skipAuto = useRef(false);
   const interpretRef = useRef<(t: string) => void>(() => {});
   const errorRef = useRef<string | null>(null);
   errorRef.current = speech.error;
@@ -139,6 +140,7 @@ export default function NewQuotePage() {
     sessionRef.current = true; // lascia aggiornare il testo con gli ultimi risultati
     const t = window.setTimeout(() => {
       sessionRef.current = false;
+      if (skipAuto.current) { skipAuto.current = false; return; }
       if (!errorRef.current) interpretRef.current(textRef.current);
     }, 700);
     return () => window.clearTimeout(t);
@@ -154,7 +156,7 @@ export default function NewQuotePage() {
   const onType = (v: string) => {
     sessionRef.current = false;
     baseRef.current = v;
-    if (speech.listening) speech.stop();
+    if (speech.listening) { skipAuto.current = true; speech.stop(); }
     speech.reset();
     setText(v);
   };

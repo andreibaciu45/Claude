@@ -154,7 +154,7 @@ export function QuoteEditor(p: Props) {
         ))}
 
         <div className="qe-add">
-          <Button type="button" variant="secondary" onClick={() => onLines([...lines, newLine(p.defaultVat)])}>+ Riga manuale</Button>
+          <Button type="button" variant="secondary" onClick={() => onLines([...lines, newLine(p.defaultVat)])}>+ Riga libera</Button>
           <Button type="button" variant="secondary" onClick={() => setPickFor('new')}>+ Dal catalogo</Button>
         </div>
         {catalog.length === 0 && <p className="muted qe-note">Il catalogo è vuoto: <a href="#/catalogo">aggiungi le tue voci</a> per averle pronte quando detti.</p>}

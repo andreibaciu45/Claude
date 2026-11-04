@@ -39,11 +39,13 @@
 .qe-actions-info { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--c-text-2); }
 .qe-actions-info strong { font-size: var(--fs-lg); color: var(--c-text); }
 .qe-actions-btns { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
-.qe-actions-btns .btn { padding: 0 var(--sp-2); }
+.qe-actions-btns .btn { padding: 0 var(--sp-2); font-size: var(--fs-sm); white-space: nowrap; }
+.qe-add .btn { padding: 0 var(--sp-2); font-size: var(--fs-sm); white-space: nowrap; }
 
 /* home / dettatura */
 .qe-mic-card { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); padding: var(--sp-4) var(--sp-3); }
-.qe-live { width: 100%; min-height: 56px; text-align: center; font-size: var(--fs-md); color: var(--c-text-2); }
+.qe-live { width: 100%; min-height: 0; text-align: center; font-size: var(--fs-md); color: var(--c-text-2); }
+.qe-live:empty { display: none; }
 .qe-live em { font-style: normal; color: var(--c-text-2); opacity: .75; }
 .qe-live strong { color: var(--c-text); font-weight: 600; }
 .qe-error { width: 100%; background: var(--c-danger-soft); color: var(--c-danger); border-radius: var(--r-md); padding: var(--sp-3); font-weight: 600; font-size: var(--fs-sm); }
