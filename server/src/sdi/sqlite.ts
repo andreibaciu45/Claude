@@ -19,6 +19,11 @@ CREATE TABLE sdi_submissions (
 );
 `);
 
+registerMigration(104, 'extra_sdi_claimed_at', `ALTER TABLE sdi_jobs ADD COLUMN claimed_at INTEGER;`);
+
+/** Un job 'running' da più di questo tempo è orfano (processo morto/riavviato a metà): torna in coda o, se ha esaurito i tentativi, in dead. */
+const staleMs = () => { const n = Number(process.env.SDI_JOB_STALE_MS); return Number.isFinite(n) && n > 0 ? n : 15 * 60_000; };
+
 interface JRow { id: number; kind: string; payload: string; dedupe_key: string | null; attempts: number; max_attempts: number; run_at: number; status: string; last_error: string | null; created_at: number }
 const toJob = (r: JRow): Job => ({
   id: String(r.id), kind: r.kind, payload: JSON.parse(r.payload), dedupeKey: r.dedupe_key ?? undefined, attempts: r.attempts,
@@ -29,6 +34,11 @@ export class SqliteJobStore implements JobStore {
   async enqueue(j: NewJob, now: number) {
     const r = run(`INSERT OR IGNORE INTO sdi_jobs(kind, payload, dedupe_key, max_attempts, run_at, created_at) VALUES (?,?,?,?,?,?)`,
       j.kind, JSON.stringify(j.payload), j.dedupeKey ?? null, j.maxAttempts ?? 5, j.runAt ?? now, now);
+    if (Number(r.changes) !== 1 && j.dedupeKey) {
+      // Un job «dead» (tentativi esauriti) non deve bloccare per sempre un nuovo invio/una nuova notifica con la stessa chiave: lo si riattiva.
+      run(`UPDATE sdi_jobs SET status='queued', attempts=0, run_at=?, last_error=NULL, claimed_at=NULL, payload=? WHERE dedupe_key=? AND status='dead'`,
+        j.runAt ?? now, JSON.stringify(j.payload), j.dedupeKey);
+    }
     const row = Number(r.changes) === 1
       ? one<JRow>('SELECT * FROM sdi_jobs WHERE id=?', Number(r.lastInsertRowid))!
       : one<JRow>('SELECT * FROM sdi_jobs WHERE dedupe_key=?', j.dedupeKey ?? '')!;
@@ -36,8 +46,11 @@ export class SqliteJobStore implements JobStore {
   }
   async claimDue(now: number, limit: number) {
     return transaction(() => {
+      const cut = now - staleMs();
+      run(`UPDATE sdi_jobs SET status='dead', last_error=COALESCE(last_error, 'interrotto durante l''elaborazione') WHERE status='running' AND (claimed_at IS NULL OR claimed_at < ?) AND attempts >= max_attempts`, cut);
+      run(`UPDATE sdi_jobs SET status='queued', run_at=? WHERE status='running' AND (claimed_at IS NULL OR claimed_at < ?)`, now, cut);
       const rows = all<JRow>(`SELECT * FROM sdi_jobs WHERE status='queued' AND run_at<=? ORDER BY run_at LIMIT ?`, now, limit);
-      for (const r of rows) run(`UPDATE sdi_jobs SET status='running', attempts=attempts+1 WHERE id=?`, r.id);
+      for (const r of rows) run(`UPDATE sdi_jobs SET status='running', attempts=attempts+1, claimed_at=? WHERE id=?`, now, r.id);
       return rows.map((r) => toJob({ ...r, status: 'running', attempts: r.attempts + 1 }));
     });
   }
@@ -88,7 +101,9 @@ export class SqliteDocumentSink implements DocumentStatusSink {
       if (events.some((e) => e.type === event.type && e.at === event.at)) return;
       // Una fattura già 'stornata' non regredisce; 'INVIO' non sovrascrive un esito già ricevuto.
       const terminal = new Set(['consegnata', 'mancata_consegna', 'scartata', 'stornata']);
-      const status = r.status === 'stornata' || (event.type === 'INVIO' && terminal.has(r.status)) ? r.status : STATUS_BY_EVENT[event.type];
+      // Idem per un NS (scarto) tardivo/duplicato su una fattura già consegnata: l'evento si registra, ma non riapre un documento accettato dallo SDI.
+      const status = r.status === 'stornata' || (event.type === 'INVIO' && terminal.has(r.status)) || (event.type === 'NS' && r.status === 'consegnata')
+        ? r.status : STATUS_BY_EVENT[event.type];
       const now = Math.max(Date.now(), (doc.updatedAt ?? 0) + 1); // mai all'indietro rispetto alla versione che il client ha già visto
       doc.invoice = { ...(doc.invoice ?? {}), sdiEvents: [...events, event] };
       doc.status = status;

@@ -35,7 +35,11 @@ export class InMemoryJobStore implements JobStore {
   async enqueue(j: NewJob, now: number) {
     if (j.dedupeKey) {
       const ex = this.keys.get(j.dedupeKey);
-      if (ex) return { ...this.jobs.get(ex)! };
+      if (ex) {
+        const old = this.jobs.get(ex)!;
+        if (old.status === 'dead') Object.assign(old, { status: 'queued', attempts: 0, runAt: j.runAt ?? now, lastError: undefined, payload: j.payload });
+        return { ...old };
+      }
     }
     const job: Job = {
       id: `job_${++this.seq}`, kind: j.kind, payload: j.payload, dedupeKey: j.dedupeKey,

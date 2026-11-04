@@ -75,7 +75,7 @@ export const defaultVoiceDeps: VoiceDeps = {
   interpretLimiter: dbLimiter('voice:int', { limit: DEFAULTS.interpretPerDay, windowMs: 86_400_000 }),
   usage: {
     getMs: (t) => getCoreUsage(t).sttSeconds * 1000,
-    addMs: (t, ms) => addCoreUsage(t, { sttSeconds: Math.ceil(ms / 1000) }),
+    addMs: (t, ms) => addCoreUsage(t, { sttSeconds: ms >= 0 ? Math.ceil(ms / 1000) : -Math.ceil(-ms / 1000) }),
   },
 };
 
@@ -125,19 +125,23 @@ export function createVoiceRoutes(deps: VoiceDeps = defaultVoiceDeps) {
       const limitMs = (plan === 'pro' ? num(env.VOICE_MINUTES_PRO, DEFAULTS.minutesPro) : num(env.VOICE_MINUTES_FREE, DEFAULTS.minutesFree)) * 60_000;
       const used = deps.usage.getMs(tenantId, deps.clock.now());
       if (used + durationMs > limitMs) return c.json(apiError('quota_exceeded', 'Quota di trascrizione mensile esaurita'), 429);
+      // PRENOTAZIONE immediata (nessun await tra controllo e addebito): addebitando solo a trascrizione finita, N richieste in parallelo
+      // passavano tutte il controllo con lo stesso consumo e la quota mensile veniva superata di N volte la durata massima.
+      deps.usage.addMs(tenantId, durationMs, deps.clock.now());
 
-      let buf: Uint8Array | null = new Uint8Array(await file.arrayBuffer());
+      let buf: Uint8Array | null = null;
       try {
+        buf = new Uint8Array(await file.arrayBuffer());
         const vocab = typeof form.get('vocabulary') === 'string'
           ? String(form.get('vocabulary')).split(',').map((s) => s.trim()).filter(Boolean).slice(0, 60) : undefined;
         const res = await stt.transcribe({ audio: buf, mime, vocabulary: vocab });
-        deps.usage.addMs(tenantId, durationMs, deps.clock.now());
         deps.metric({ name: 'voice.transcribe', tenantId, costUsd: res.costUsd ?? 0, units: durationMs, unit: 'ms' });
         return c.json({ text: res.text });
       } catch {
+        try { deps.usage.addMs(tenantId, -durationMs, deps.clock.now()); } catch { /* la prenotazione resta: meglio addebitare che regalare quota */ } // trascrizione fallita: nessun addebito
         return c.json(apiError('stt_failed', 'Trascrizione non riuscita'), 502); // nessun dettaglio/audio
       } finally {
-        buf.fill(0); // cancellazione best-effort dalla memoria
+        buf?.fill(0); // cancellazione best-effort dalla memoria
         buf = null;
       }
     },

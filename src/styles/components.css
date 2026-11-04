@@ -97,7 +97,7 @@ a.card, button.card { display: block; text-decoration: none; color: inherit; wid
 body:has(.vc-undo, .qe-undo) .toast-region { bottom: calc(var(--stack-top) + 64px); }
 body:has(.vc-undo):has(.qe-undo) .toast-region { bottom: calc(var(--stack-top) + 128px); }
 body:has(.sheet-overlay) .toast-region { bottom: auto; top: calc(var(--sat) + var(--sp-3)); }
-.toast { pointer-events: auto; width: fit-content; max-width: min(480px, 100%); overflow-wrap: anywhere; background: var(--c-text); color: var(--c-bg); padding: 12px var(--sp-4); border-radius: var(--r-md); box-shadow: var(--shadow-2); font-weight: 600; animation: slideup .2s ease; }
+.toast { pointer-events: none; width: fit-content; max-width: min(480px, 100%); overflow-wrap: anywhere; background: var(--c-text); color: var(--c-bg); padding: 12px var(--sp-4); border-radius: var(--r-md); box-shadow: var(--shadow-2); font-weight: 600; animation: slideup .2s ease; }
 .toast[data-tone="error"] { background: var(--c-danger); color: var(--c-on-danger); }
 .toast[data-tone="success"] { background: var(--c-success); color: var(--c-bg); }
 

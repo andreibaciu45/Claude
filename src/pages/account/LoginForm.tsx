@@ -86,7 +86,7 @@ export function LoginForm({ engine, reacceptEmail, onDone }: { engine: SyncEngin
         {step === 'email' ? (
           <form onSubmit={send} style={a.stack} noValidate>
             <Field label="Email" error={error || undefined}>
-              <Input type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-invalid={!!error} readOnly={!!reacceptEmail} required />
+              <Input type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => { setEmail(e.target.value); setError(''); }} aria-invalid={!!error} readOnly={!!reacceptEmail} required />
             </Field>
             {inviteField}
             <TermsCheckbox checked={accepted} onChange={(v) => { setAccepted(v); if (v) setTermsError(''); }} error={termsError} />
@@ -98,7 +98,7 @@ export function LoginForm({ engine, reacceptEmail, onDone }: { engine: SyncEngin
             <Field label="Codice a 6 cifre" error={error || undefined}>
               <Input
                 style={a.code} inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}"
-                value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} aria-invalid={!!error} data-autofocus autoFocus
+                value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }} aria-invalid={!!error} data-autofocus autoFocus
               />
             </Field>
             {inviteField}

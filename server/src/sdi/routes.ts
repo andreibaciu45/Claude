@@ -1,4 +1,5 @@
 // Router SDI (montato da app.ts su /v1/sdi). Provider assente => 'unsupported' + ripiego manuale.
+import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { apiError, authGate, systemClock, type AppEnv, type Clock, type Env } from '../billing/common';
@@ -130,9 +131,13 @@ export function createSdiRoutes(deps: SdiDeps = defaultSdiDeps) {
       throw e;
     }
     const now = deps.clock.now();
+    // Se il provider non indica l'istante dell'evento, `at` è l'ora di ricezione (diversa a ogni consegna): la chiave usa l'impronta del corpo,
+    // altrimenti un retry del provider produrrebbe eventi duplicati nella cronologia della fattura.
+    const hasAt = !!payload && typeof payload === 'object' && (payload as Record<string, unknown>).at !== undefined;
+    const when = hasAt ? String(n.event.at) : `h${createHash('sha256').update(raw).digest('hex').slice(0, 32)}`;
     await deps.jobs.enqueue({
       kind: 'sdi.apply_event', payload: n,
-      dedupeKey: `evt:${provider.id}:${n.providerId}:${n.event.type}:${n.event.at}`, maxAttempts: 8,
+      dedupeKey: `evt:${provider.id}:${n.providerId}:${n.event.type}:${when}`, maxAttempts: 8,
     }, now);
     return c.json({ accepted: true }, 202);
   });

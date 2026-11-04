@@ -55,6 +55,10 @@ function intervalOf(obj: Record<string, unknown>): 'month' | 'year' | undefined 
   return iv === 'month' || iv === 'year' ? iv : undefined;
 }
 
+/** true se l'evento riguarda una sottoscrizione diversa da quella attiva registrata (es. la vecchia, disdetta prima di riabbonarsi). */
+const isStaleSubscription = (prev: SubscriptionRecord | null, sid: string | undefined): boolean =>
+  !!sid && !!prev?.subscriptionId && sid !== prev.subscriptionId && (prev.status === 'active' || prev.status === 'past_due');
+
 async function dispatch(ev: StripeEvent, store: BillingStore, now: number, graceDays: number): Promise<HandleResult> {
   const obj = ev.data.object;
   const tenantId = await resolveTenant(obj, store);
@@ -77,14 +81,23 @@ async function dispatch(ev: StripeEvent, store: BillingStore, now: number, grace
       next.status = 'active';
       delete next.graceUntil;
       const sub = str(obj.subscription);
+      // Nuovo abbonamento dopo una disdetta (o diverso da quello registrato): fine periodo e flag di disdetta del precedente NON valgono più,
+      // altrimenti chi si riabbona resterebbe Free (periodo scaduto) e vedrebbe «disdetto» finché non arriva un evento di aggiornamento.
+      if (prev?.status === 'canceled' || (sub && prev?.subscriptionId && sub !== prev.subscriptionId)) {
+        delete next.currentPeriodEnd;
+        next.cancelAtPeriodEnd = false;
+      }
       if (sub) next.subscriptionId = sub;
       const plan = str(rec(obj.metadata).plan);
       if (plan === 'month' || plan === 'year') next.interval = plan;
       break;
     }
+    case 'customer.subscription.created':
     case 'customer.subscription.updated': {
       const s = str(obj.status);
       const sid = str(obj.id);
+      // Evento di una sottoscrizione VECCHIA (già sostituita da una attiva): non deve né disdire né riconfigurare quella corrente.
+      if (isStaleSubscription(prev, sid) && s !== 'active' && s !== 'trialing') return { handled: false, tenantId, note: 'sottoscrizione precedente' };
       if (sid) next.subscriptionId = sid;
       const iv = intervalOf(obj); if (iv) next.interval = iv;
       const pe = periodEndMs(obj); if (pe) next.currentPeriodEnd = pe;
@@ -98,6 +111,7 @@ async function dispatch(ev: StripeEvent, store: BillingStore, now: number, grace
       break;
     }
     case 'customer.subscription.deleted':
+      if (isStaleSubscription(prev, str(obj.id))) return { handled: false, tenantId, note: 'sottoscrizione precedente' };
       next.status = 'canceled';
       delete next.graceUntil;
       break;

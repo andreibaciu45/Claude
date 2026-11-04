@@ -1,6 +1,6 @@
 // Adattatore HTTP GENERICO (scheletro, es. API stile Openapi/A-Cube). DISATTIVATO di default:
 // nessun provider SDI è stato scelto e non esistono credenziali. Endpoint/campi configurabili da env.
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { safeEqual, type Env } from '../billing/common';
 import { safeBaseUrl } from '../net/safe-url';
 import { SdiParseError, type SdiEvent, type SdiNotification, type SdiProvider, type SdiSubmitMeta } from './types';
@@ -50,7 +50,9 @@ export class HttpSdiProvider implements SdiProvider {
       headers: {
         Authorization: `Bearer ${this.cfg.apiKey}`,
         'Content-Type': 'application/xml',
-        'Idempotency-Key': `${meta.tenantId}:${meta.docId}`,
+        // Il contenuto fa parte della chiave: il rinvio di una fattura scartata e CORRETTA (stesso documento, XML diverso) non deve essere
+        // scambiato dal provider per un duplicato del primo invio; un retry dello stesso XML resta idempotente.
+        'Idempotency-Key': `${meta.tenantId}:${meta.docId}:${createHash('sha256').update(xml).digest('hex').slice(0, 16)}`,
         ...(meta.fileName ? { 'X-File-Name': meta.fileName } : {}),
       },
       body: xml,

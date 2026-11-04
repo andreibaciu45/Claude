@@ -4,6 +4,7 @@ import { closeDb, getDb } from './db';
 import { getAuthSecret } from './auth/crypto';
 import { getMailer } from './auth/mailer';
 import { getKeyRing } from './db/seal';
+import { encryptionConfigProblem } from './db/seal-check';
 import { startMaintenance } from './ops/maintenance';
 import { createShutdown } from './ops/shutdown';
 import { logEvent } from './log';
@@ -13,6 +14,7 @@ getDb();          // apre il DB e applica le migrazioni
 getAuthSecret();  // in produzione fallisce subito se manca AUTH_SECRET
 getMailer();      // in produzione fallisce subito se manca SMTP_URL
 getKeyRing();     // fallisce subito se APP_ENCRYPTION_KEY / OLD_KEYS non sono valide
+{ const p = encryptionConfigProblem(getDb()); if (p) throw new Error(p); } // ...o non coprono i dati cifrati già presenti nel DB
 
 if (!process.env.NODE_ENV) logEvent('warn', 'node_env_unset', { hint: 'NODE_ENV non impostato: i controlli di produzione (AUTH_SECRET, SMTP_URL, mock vietati) NON sono attivi. In produzione imposta NODE_ENV=production.' });
 if (process.env.NODE_ENV === 'production') {

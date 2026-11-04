@@ -16,6 +16,7 @@ import {
 import { computeTotals, matchCustomer, parseDictation } from '../engine';
 import { listCustomers } from '../storage/customers';
 import { generateDocumentPdf } from '../pdf';
+import { documentTotals } from '../pdf/totals';
 import type { AuditEntry, Customer, DocLine, InvoiceFiscal, Profile, QuoteDocument } from '../types';
 import { roundMoney, uid } from '../types';
 import { consumeConfirmation, riskOf, type Confirmation, type ConfirmSummary, type TargetInfo } from './policy';
@@ -63,7 +64,8 @@ const ISSUED = new Set(['emessa', 'inviata', 'consegnata', 'mancata_consegna']);
 const isIssued = (d: QuoteDocument) => d.type === 'fattura' && (!!d.invoice?.lockedAt || ISSUED.has(String(d.status)) || d.status === 'stornata');
 const pin = (c: Command, id: string): Command => ('ref' in c ? ({ ...c, ref: { kind: 'id', id } as DocRef } as Command) : c);
 
-const totalsOf = (d: QuoteDocument, p: Profile) => computeTotals(d.lines, { forfettario: !!p.regimeForfettario, type: d.type });
+/** Stessi totali del documento (scheda, PDF, XML): nessun calcolo parallelo. */
+const totalsOf = (d: QuoteDocument, p: Profile) => documentTotals(d, !!p.regimeForfettario);
 
 function paidSoFar(d: QuoteDocument): number {
   return roundMoney((d.invoice?.payments ?? []).reduce((s, x) => s + (Number.isFinite(x.amount) ? x.amount : 0), 0));
@@ -238,7 +240,11 @@ export async function planCommand(command: Command, ctx: ExecContext = {}): Prom
       if (d.lines.some((l) => !(l.unitPrice > 0))) issues.push('Ci sono righe senza prezzo.');
       if (issues.length) return blocked('Non posso emettere: la bozza ha dei problemi.', 'Correggi la bozza e riprova.', issues);
       const warnings: string[] = [];
-      if (t.stamp > 0) warnings.push(`Include marca da bollo di ${fmtEur(t.stamp)}.`);
+      if (t.stampDue > 0) {
+        warnings.push(t.stamp > 0
+          ? `Marca da bollo di ${fmtEur(t.stampDue)} a carico del cliente: è inclusa nell’importo.`
+          : `Marca da bollo di ${fmtEur(t.stampDue)} a tuo carico (emittente): non è inclusa nell’importo.`);
+      }
       return ready({
         headline: 'Emettere questa fattura?',
         fields: [...baseFields(d, profile), field('Numero', 'assegnato al momento dell’emissione')],

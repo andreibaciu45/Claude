@@ -107,7 +107,7 @@ export default function CustomersPage() {
 
   if (!list) return <div className="cat-page"><PageHeader title="Clienti" /><Skeleton blocks={2} lines={3} /></div>;
 
-  const stats = open && profile ? customerStats(open, docs, profile.regimeForfettario) : null;
+  const stats = open && profile ? customerStats(open, docs, profile.regimeForfettario, { book: list }) : null;
   const openErrors = open ? validateCustomer(open) : {};
 
   return (
@@ -187,7 +187,7 @@ export default function CustomersPage() {
               <>
                 <div className="cu-stats">
                   <div className="cu-stat"><small>Fatturato</small><strong><Money value={stats.invoiced} /></strong></div>
-                  <div className="cu-stat"><small>Fatture emesse</small><strong>{stats.invoices}</strong></div>
+                  <div className="cu-stat"><small>Documenti fiscali (fatture e note di credito)</small><strong>{stats.invoices}</strong></div>
                   <div className="cu-stat"><small>Preventivi</small><strong>{stats.quotes}</strong></div>
                 </div>
                 <p className="cu-note">Fatturato = fatture emesse meno note di credito, importi lordi. Calcolato dai documenti, sola lettura.</p>

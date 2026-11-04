@@ -94,6 +94,8 @@ export default function NewQuotePage() {
     let alive = true;
     setLoading(true);
     setLoadError(null);
+    setLockedDoc(null);
+    setOriginal(null);
     (async () => {
       try {
         const [p, c, b] = await Promise.all([getProfile(), listCatalog(), listCustomers().catch(() => [] as StoredCustomer[])]);

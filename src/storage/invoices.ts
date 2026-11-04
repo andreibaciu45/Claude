@@ -13,7 +13,7 @@ import { uid } from '../types';
 import { invoiceTotalsCents, CREDIT_NOTE_STAMP_NOTE } from './invoiceTotals';
 export { CREDIT_NOTE_STAMP_NOTE };
 import { creditResidual, effectiveCreditNotes, lineKey } from './creditResidual';
-import { lineTotalCents } from '../../shared/fiscal/money';
+import { lineTotalCents, toCents } from '../../shared/fiscal/money';
 import * as fatturapa from '../../shared/fatturapa';
 import { generateFatturaPA, validateInvoiceForIssue } from '../../shared/fatturapa';
 import { getBackend, newAuditId, withDefaults, type Tx } from './db';
@@ -72,12 +72,10 @@ export async function sha256Hex(text: string): Promise<string> {
 
 /** Progressivo invio (5 caratteri base-36). Usa quello di shared/fatturapa se esportato. */
 function progressivo(n: number): string {
-  try {
-    const f = (fatturapa as unknown as Record<string, unknown>).formatProgressivoInvio;
-    if (typeof f === 'function') return (f as (n: number) => string)(n);
-  } catch { /* export assente: fallback locale */ }
-  return n.toString(36).toUpperCase().padStart(5, '0');
+  // REV-S3: nessun fallback silenzioso (con n non valido produceva "00NAN"): formatProgressivoInvio lancia RangeError
+  return fatturapa.formatProgressivoInvio(n);
 }
+const safeInt = (v: unknown, min: number): number => (typeof v === 'number' && Number.isFinite(v) ? Math.max(min, Math.floor(v)) : min);
 
 /** Versione precedente dell'XML di una fattura scartata e corretta (conservata, mai cancellata). */
 export interface XmlVersion {
@@ -122,6 +120,16 @@ export const RESUBMIT_DAYS = 5;
  */
 export function assertSaveAllowed(existing: QuoteDocument | undefined, incoming: QuoteDocument, allowLock = false): void {
   const lockedNow = !!existing?.invoice?.lockedAt;
+  // REV-S1: una fattura fiscale non bloccata può essere solo BOZZA e senza dati assegnati dall'emissione (numero, seq, XML...).
+  // Prima si poteva salvare una "fattura" con status 'emessa'/'inviata'/'stornata' o con seq/number/xml senza lockedAt:
+  // restava modificabile ma contava nei contatori/registri, e non era più emettibile né eliminabile.
+  const inc = incoming.invoice;
+  if (incoming.type === 'fattura' && inc && !inc.legacy && !inc.lockedAt && !lockedNow) {
+    const assigned = inc.seq !== undefined || !!inc.number || !!inc.xml || !!inc.xmlSha256 || !!inc.fileName || !!inc.progressivoInvio || inc.issuedAt !== undefined;
+    if (incoming.status !== 'bozza' || assigned) {
+      throw new ImmutableDocumentError('Una fattura non emessa può essere solo una bozza senza numero: il numero, l\'XML e lo stato si assegnano emettendola (issueInvoice).');
+    }
+  }
   if (!lockedNow) {
     if (incoming.invoice?.lockedAt && !allowLock) {
       throw new ImmutableDocumentError('Una fattura si blocca solo emettendola (issueInvoice), non salvandola.');
@@ -151,6 +159,13 @@ export function assertSaveAllowed(existing: QuoteDocument | undefined, incoming:
   };
   if (strip(existing!) !== strip(incoming)) {
     throw new ImmutableDocumentError();
+  }
+  if (!allowLock && existing!.invoice && incoming.invoice) {
+    // REV-S2: esiti SDI e incassi sono append-only anche via saveDocument (prima si potevano sostituire/cancellare, aggirando la finestra dei 5 giorni)
+    const prefix = (a: unknown[] | undefined, b: unknown[] | undefined) => (a ?? []).length <= (b ?? []).length && (a ?? []).every((x, i) => stable(x) === stable((b ?? [])[i]));
+    if (!prefix(existing!.invoice.sdiEvents, incoming.invoice.sdiEvents) || !prefix(existing!.invoice.payments, incoming.invoice.payments)) {
+      throw new ImmutableDocumentError('Esiti SDI e incassi di una fattura emessa si possono solo aggiungere, non modificare né togliere.');
+    }
   }
   if (incoming.status !== existing!.status) {
     const ok = SDI_STATUS_TRANSITIONS[existing!.status]?.includes(incoming.status);
@@ -428,8 +443,8 @@ function buildCandidate(draft: QuoteDocument, profile: Profile, docs: QuoteDocum
     const i = d.invoice;
     return i && !i.legacy && i.sectional === sectional && i.year === year && typeof i.seq === 'number' ? Math.max(m, i.seq) : m;
   }, 0);
-  const seq = Math.max(counters[key] ?? 0, maxDocSeq) + 1;
-  const prog = Math.max(1, Math.floor(profile.nextProgressivoInvio ?? 1));
+  const seq = Math.max(safeInt(counters[key], 0), maxDocSeq) + 1;
+  const prog = safeInt(profile.nextProgressivoInvio, 1);
   const progStr = progressivo(prog);
   const number = sectional === 'NC' ? `NC${seq}/${year}` : `${seq}/${year}`;
 
@@ -445,6 +460,16 @@ function buildCandidate(draft: QuoteDocument, profile: Profile, docs: QuoteDocum
   };
   delete (issued.invoice as Partial<InvoiceFiscal>).legacy;
 
+  // REV-S4: in forfettario l'IVA di riga è sempre 0 (l'XML la ignora): si congela 0, senza avvisi spuri "IVA 22% ignorata" nell'audit
+  if (profile.regimeForfettario) issued.lines = issued.lines.map((l) => (l.vat ? { ...l, vat: 0 } : l));
+  // REV-S5: i campi bollo congelati devono dire ciò che c'è nell'XML (che ricalcola dai totali), non ciò che la bozza aveva memorizzato
+  {
+    const t = invoiceTotalsCents(issued.lines, { forfettario: profile.regimeForfettario, stampChargedToCustomer: false });
+    const due = t.stampDueCents > 0;
+    issued.invoice!.stampDuty = due;
+    issued.invoice!.stampAmount = t.stampDueCents / 100;
+    issued.invoice!.stampDutyChargedToCustomer = due && issued.invoice!.tipoDocumento !== 'TD04' && !!issued.invoice!.stampDutyChargedToCustomer;
+  }
   const issues = validateInvoiceForIssue(issued, profile) ?? [];
   const errors = issues.filter((i) => i.severity === 'error');
   if (errors.length) throw new InvoiceValidationError(issues);
@@ -581,8 +606,14 @@ async function reconcileOriginal(t: Tx, originalId: string, now: number, why: st
   let target: DocStatus | null = null;
   if (eff.length && r.residualCents === 0) target = 'stornata';
   else if (o.status === 'stornata') target = statusFromEvents(o);
-  if (!target || target === o.status) return;
-  await t.put('documents', { ...o, status: target, updatedAt: now });
+  // REV-G4: dopo una nota di credito il dovuto scende: lo stato di pagamento va ricalcolato (prima restava 'parziale' per sempre)
+  const profile = withDefaults(await t.getProfile());
+  const payStatus = paymentStatusFor(o.invoice.payments.reduce((s, x) => s + toCents(x.amount), 0), dueCentsOf(o, all, profile));
+  const payChanged = o.invoice.payments.length > 0 && payStatus !== o.invoice.paymentStatus;
+  if ((!target || target === o.status) && !payChanged) return;
+  const nextO = { ...o, status: target ?? o.status, updatedAt: now, invoice: { ...o.invoice, ...(payChanged ? { paymentStatus: payStatus } : {}) } };
+  if (!target || target === o.status) { await t.put('documents', nextO); return; }
+  await t.put('documents', nextO);
   await addAudit(t, { docId: originalId, action: 'edit', detail: `Stato: ${o.status} -> ${target} (${why})`, xmlSha256: o.invoice.xmlSha256, at: now });
 }
 
@@ -691,6 +722,11 @@ export const recordSdiEvent = async (docId: string, ev: SdiEvent): Promise<Quote
       throw new InvalidSdiTransitionError('Gli esiti SDI si registrano solo su fatture emesse (non su bozze o fatture di cortesia).');
     }
     if (!ev || !Number.isFinite(ev.at)) throw new InvalidSdiTransitionError('Evento SDI senza data valida.');
+    // REV-E1: un esito non può essere nel futuro né precedere (come giorno) l'evento precedente: finestra dei 5 giorni e cronologia restano affidabili
+    if (ev.at > Date.now() + 86_400_000) throw new InvalidSdiTransitionError('La data dell\'evento SDI è nel futuro.');
+    const lastEv = d.invoice.sdiEvents[d.invoice.sdiEvents.length - 1];
+    const day = (ms: number) => new Date(ms).setHours(0, 0, 0, 0);
+    if (lastEv && day(ev.at) < day(lastEv.at)) throw new InvalidSdiTransitionError('La data dell\'evento SDI è precedente a quella dell\'evento già registrato.');
     const from = d.status;
     let to: DocStatus | undefined;
     switch (ev.type) {
@@ -746,6 +782,19 @@ export const recordSdiEvent = async (docId: string, ev: SdiEvent): Promise<Quote
 
 // ---------------------------------------------------------------- pagamenti
 
+/** Stato di pagamento da incassato e dovuto (centesimi). Dovuto 0 (fattura interamente stornata) con incassi = 'pagata'. */
+export function paymentStatusFor(paidCents: number, dueCents: number): InvoiceFiscal['paymentStatus'] {
+  if (paidCents <= 0) return 'non_pagata';
+  return dueCents <= 0 || paidCents >= dueCents ? 'pagata' : 'parziale';
+}
+
+/** Dovuto di una fattura = totale documento − note di credito efficaci (centesimi). */
+function dueCentsOf(d: QuoteDocument, all: QuoteDocument[], profile: Profile): number {
+  const gross = invoiceTotalsCents(d.lines, { forfettario: profile.regimeForfettario, stampChargedToCustomer: !!d.invoice?.stampDutyChargedToCustomer }).grossCents;
+  const credited = creditResidual(d, effectiveCreditNotes(all, d.id)).creditedCents;
+  return Math.max(0, gross - credited);
+}
+
 export const recordPayment = async (docId: string, p: { date: string; amount: number; method?: string }): Promise<QuoteDocument> =>
   getBackend().transact('readwrite', async (t) => {
     const d = await t.get<QuoteDocument>('documents', docId);
@@ -753,19 +802,37 @@ export const recordPayment = async (docId: string, p: { date: string; amount: nu
     if (d.type !== 'fattura' || !d.invoice || (!d.invoice.lockedAt && !d.invoice.legacy)) {
       throw new Error('I pagamenti si registrano solo su fatture emesse.');
     }
+    // REV-G1: una nota di credito non si incassa (gonfiava i ricavi per cassa e la soglia degli 85.000 €)
+    if (d.invoice.tipoDocumento === 'TD04') throw new Error('Una nota di credito non si incassa: gli incassi si registrano sulla fattura.');
     if (!Number.isFinite(p.amount) || p.amount <= 0) throw new Error('Importo del pagamento non valido.');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(p.date ?? '')) throw new Error('Data del pagamento non valida (AAAA-MM-GG).');
+    // REV-G2: data reale (prima bastava il formato: 2026-13-45), non nel futuro oltre 1 giorno
+    if (!isFiscalDate(p.date)) throw new Error('Data del pagamento non valida (AAAA-MM-GG).');
+    if (p.date > addDaysIso(todayIso(), 1)) throw new Error('La data del pagamento è nel futuro.');
+    const amountCents = toCents(p.amount);
+    if (amountCents <= 0) throw new Error('Importo del pagamento non valido.');
     const profile = withDefaults(await t.getProfile());
-    const payments = [...d.invoice.payments, { date: p.date, amount: p.amount, ...(p.method ? { method: p.method } : {}) }];
-    const paid = payments.reduce((s, x) => s + cents(x.amount), 0);
-    const gross = invoiceTotalsCents(d.lines, { forfettario: profile.regimeForfettario, stampChargedToCustomer: !!d.invoice.stampDutyChargedToCustomer }).grossCents;
-    const paymentStatus = paid >= gross && gross > 0 ? 'pagata' : paid > 0 ? 'parziale' : 'non_pagata';
+    const all = await t.all<QuoteDocument>('documents');
+    const due = d.invoice.legacy ? invoiceTotalsCents(d.lines, { forfettario: profile.regimeForfettario, stampChargedToCustomer: !!d.invoice.stampDutyChargedToCustomer }).grossCents : dueCentsOf(d, all, profile);
+    const already = d.invoice.payments.reduce((s, x) => s + toCents(x.amount), 0);
+    // REV-G3: non si incassa più del dovuto (doppio click / importo errato gonfiavano i ricavi per cassa)
+    if (already + amountCents > due) {
+      throw new Error(`L'incasso supera il residuo da incassare (${((due - already) / 100).toFixed(2)} €).`);
+    }
+    const payments = [...d.invoice.payments, { date: p.date, amount: amountCents / 100, ...(p.method ? { method: p.method } : {}) }];
+    const paymentStatus = paymentStatusFor(already + amountCents, due);
     const now = Date.now();
     const next: QuoteDocument = { ...d, updatedAt: now, invoice: { ...d.invoice, payments, paymentStatus } };
     await t.put('documents', next);
-    await addAudit(t, { docId, action: 'payment', detail: `Pagamento di ${p.amount.toFixed(2)} € il ${p.date}${p.method ? ` (${p.method})` : ''} -> ${paymentStatus}`, at: now });
+    await addAudit(t, { docId, action: 'payment', detail: `Pagamento di ${(amountCents / 100).toFixed(2)} € il ${p.date}${p.method ? ` (${p.method})` : ''} -> ${paymentStatus}`, at: now });
     return next;
   });
+
+const isFiscalDate = (s: string | undefined): boolean => {
+  if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+};
+const addDaysIso = (iso: string, days: number): string => new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 
 // ---------------------------------------------------------------- fattura scartata (NS): correggi e rinvia
 
@@ -847,7 +914,7 @@ export function reopenRejectedInvoice(docId: string, patch: RejectedInvoicePatch
           if (tot.netCents > res.residualCents + lines.length) throw issueErr('lines', 'exceeds_original', 'Nel frattempo la fattura è stata stornata da altre note: questa nota supererebbe l\'importo stornabile.');
         }
       }
-      const prog = Math.max(1, Math.floor(prep.profile.nextProgressivoInvio ?? 1));
+      const prog = safeInt(prep.profile.nextProgressivoInvio, 1);
       const progStr = progressivo(prog);
       const next: QuoteDocument = {
         ...clone(d),

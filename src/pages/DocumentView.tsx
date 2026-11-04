@@ -323,6 +323,11 @@ export default function DocumentView() {
           <strong>BOZZA</strong>: non ha ancora un numero e non è stata emessa. Il numero viene assegnato solo quando emetti la fattura.
         </p>
       )}
+      {draftInv && related.resubmissionOf && (
+        <p className="iv-note" role="note" data-testid="resubmission-of">
+          Rifà la fattura scartata <Link to={`/documenti/${related.resubmissionOf.id}`}>n. {related.resubmissionOf.invoice?.number ?? related.resubmissionOf.number}{related.resubmissionOf.invoice?.operationDate ? ` del ${fmtDate(related.resubmissionOf.invoice.operationDate)}` : ''}</Link>. Il numero nuovo viene assegnato all’emissione.
+        </p>
+      )}
       {legacy && doc.type === 'fattura' && <p className="iv-note" role="note">Fattura di cortesia (versione precedente dell’app): non è un documento fiscale.</p>}
 
       {draftInv && (
