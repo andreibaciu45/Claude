@@ -1,0 +1,20 @@
+[Unit]
+Description=VocePreventivo: prova di ripristino (restore drill)
+After=network-online.target
+Wants=network-online.target
+# Se la prova fallisce il servizio risulta "failed": controlla con `systemctl --failed`
+# e con `journalctl -u vocepreventivo-restore-drill`.
+
+[Service]
+Type=oneshot
+User=vocepreventivo
+Group=vocepreventivo
+EnvironmentFile=/etc/vocepreventivo/server.env
+ExecStart=/opt/vocepreventivo/current/infra/scripts/restore-drill.sh
+StateDirectory=vocepreventivo
+StateDirectoryMode=0750
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+UMask=0077

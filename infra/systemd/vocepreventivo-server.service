@@ -1,0 +1,47 @@
+[Unit]
+Description=VocePreventivo API (Node 22 + tsx)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vocepreventivo
+Group=vocepreventivo
+WorkingDirectory=/opt/vocepreventivo/current/server
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=8787
+# File segreti: proprietario vocepreventivo, permessi 600 (letto da systemd come root).
+EnvironmentFile=/etc/vocepreventivo/server.env
+ExecStart=/opt/vocepreventivo/current/server/node_modules/.bin/tsx src/index.ts
+Restart=on-failure
+RestartSec=3
+StartLimitIntervalSec=120
+StartLimitBurst=5
+TimeoutStopSec=20
+
+# Dati (SQLite) in /var/lib/vocepreventivo, creato e di proprieta' dell'utente di servizio
+StateDirectory=vocepreventivo
+StateDirectoryMode=0750
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+UMask=0077
+MemoryMax=768M
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

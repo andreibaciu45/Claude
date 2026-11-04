@@ -1,0 +1,17 @@
+[Unit]
+Description=VocePreventivo: snapshot giornaliero del DB
+After=vocepreventivo-server.service
+
+[Service]
+Type=oneshot
+User=vocepreventivo
+Group=vocepreventivo
+EnvironmentFile=/etc/vocepreventivo/server.env
+ExecStart=/opt/vocepreventivo/current/infra/scripts/backup.sh
+StateDirectory=vocepreventivo
+StateDirectoryMode=0750
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+UMask=0077

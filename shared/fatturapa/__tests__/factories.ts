@@ -76,7 +76,7 @@ export const fiscal = (over: Partial<InvoiceFiscal> = {}): InvoiceFiscal => ({
   ...over,
 });
 
-export const makeDoc = (over: Partial<QuoteDocument> & { invoice?: Partial<InvoiceFiscal> } = {}): QuoteDocument => {
+export const makeDoc = (over: Omit<Partial<QuoteDocument>, 'invoice'> & { invoice?: Partial<InvoiceFiscal> } = {}): QuoteDocument => {
   const { invoice, ...rest } = over;
   return {
     id: 'd1',

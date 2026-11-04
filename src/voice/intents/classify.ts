@@ -265,7 +265,7 @@ const ruleNew: Rule = (p) => {
   const hasNum = p.t.some((x, i) => x.n !== undefined && STRONG_BEFORE_NUM.has(p.ws[i - 1] ?? '') && i > docIdx);
   if (hasNum && !withVerb) return [];
   let c = 0;
-  if (!lead) c = 0.55;
+  if (!lead) c = 0.45;
   else if (['per', 'a', 'intestata', 'intestato', 'di'].includes(after ?? '')) c = withVerb ? 0.95 : 0.9;
   else if (withVerb && p.t.length === docIdx + 1) c = 0.88; // "nuovo preventivo"
   else if (withVerb) c = 0.8;
@@ -340,7 +340,7 @@ const ruleCredit: Rule = (p) => {
   const ref = parseRef(refToks, 'fattura');
   const trig = i >= 0 ? i : p.t.findIndex((x) => x.w === 'nota');
   // "emetti/fai/crea una nota di credito" è comunque un'azione sullo storno
-  let c = irreversible(p, hasNC ? 0.94 : p.hasIn(FATT) ? 0.9 : 0.8, trig);
+  let c = irreversible(p, hasNC ? 0.94 : p.hasIn(FATT) ? 0.9 : 0.7, trig);
   if (i >= 0 && p.ws[i] === 'storno') c -= 0.25; // prima persona: non è un ordine
   if (!hasNC && ref.kind === 'current' && !p.hasIn(CURRENT)) c -= 0.12; // "annulla la fattura" senza riferimento: troppo generico
   const command: Command = { type: 'credit_note', ref, ...(reason ? { reason } : {}) };

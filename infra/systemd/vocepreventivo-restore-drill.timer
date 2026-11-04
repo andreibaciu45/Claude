@@ -1,0 +1,10 @@
+[Unit]
+Description=VocePreventivo: prova di ripristino mensile
+
+[Timer]
+OnCalendar=*-*-01 04:15:00
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

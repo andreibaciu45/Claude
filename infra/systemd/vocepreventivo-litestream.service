@@ -1,0 +1,32 @@
+[Unit]
+Description=Litestream: replica continua del DB SQLite su bucket S3-compatibile
+After=network-online.target vocepreventivo-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vocepreventivo
+Group=vocepreventivo
+EnvironmentFile=/etc/vocepreventivo/server.env
+ExecStart=/usr/bin/litestream replicate -config /etc/vocepreventivo/litestream.yml
+Restart=on-failure
+RestartSec=5
+StateDirectory=vocepreventivo
+StateDirectoryMode=0750
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+UMask=0077
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

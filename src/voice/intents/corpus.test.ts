@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { classifyCommand } from './classify';
 import { CORPUS, type CorpusCase } from './corpus';
+import { HELDOUT } from './corpus-heldout';
 
 const IRREVERSIBLE = new Set(['issue_invoice', 'credit_note']);
 
@@ -28,6 +29,23 @@ function judge(c: CorpusCase): { ok: boolean; why?: string } {
   if (r.command && r.confidence >= 0.8) return { ok: false, why: `troppo sicura (${r.confidence}) ${r.command.type}` };
   return { ok: true };
 }
+
+function runAll(set: CorpusCase[]) {
+  const results = set.map((c) => ({ c, ...judge(c) }));
+  const ok = results.filter((r) => r.ok).length;
+  return { results, ok, acc: ok / Math.max(1, set.length), fails: results.filter((r) => !r.ok) };
+}
+
+describe('set cieco (generalizzazione)', () => {
+  it('misura e stampa l\'accuratezza', () => {
+    const r = runAll(HELDOUT);
+    // eslint-disable-next-line no-console
+    console.log(`[heldout] ${HELDOUT.length} frasi: accuratezza ${(r.acc * 100).toFixed(1)}% (${r.ok}/${HELDOUT.length})` + (r.fails.length ? `\n  errori:\n${r.fails.map((f) => `   - "${f.c.t}": ${f.why}`).join('\n')}` : ''));
+    expect(r.acc).toBeGreaterThanOrEqual(0.95);
+    // sicurezza: nessun irreversibile sicuro in casi non positivi
+    for (const f of r.fails) expect(f.why ?? '', f.c.t).not.toMatch(/irreversibile/);
+  });
+});
 
 describe('corpus classificatore comandi', () => {
   const results = CORPUS.map((c) => ({ c, ...judge(c) }));

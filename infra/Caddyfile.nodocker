@@ -1,0 +1,58 @@
+# VARIANTE SENZA DOCKER (Caddy da pacchetto apt, installato in /etc/caddy/Caddyfile da setup-vps.sh).
+# Stesso contenuto di infra/Caddyfile (variante Docker): cambiano solo il percorso della PWA
+# e l'indirizzo del server. DOMAIN e ACME_EMAIL arrivano da /etc/vocepreventivo/caddy.env.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), geolocation=(), payment=(), microphone=(self)"
+		Cross-Origin-Opener-Policy "same-origin"
+		# CSP restrittiva. Se una nuova funzione del client richiede altre origini
+		# (es. un provider esterno) va ampliata QUI in modo esplicito.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'self' blob:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+	}
+
+	# --- API: tutto cio' che e' /v1/* e /health va al server Node ---
+	@api path /v1/* /health
+	handle @api {
+		header Cache-Control "no-store"
+		reverse_proxy 127.0.0.1:8787 {
+			health_uri /health
+			health_interval 15s
+		}
+	}
+
+	# --- Asset con hash nel nome (Vite): immutabili, cache 1 anno. 404 vero se mancano ---
+	handle /assets/* {
+		root * /opt/vocepreventivo/current/dist
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# --- Service worker: MAI in cache, cosi' gli aggiornamenti arrivano subito ---
+	handle /sw.js {
+		root * /opt/vocepreventivo/current/dist
+		header Cache-Control "no-cache"
+		file_server
+	}
+
+	# --- Resto della PWA: HashRouter, quindi il fallback e' sempre index.html ---
+	handle {
+		root * /opt/vocepreventivo/current/dist
+		@html path / /index.html
+		header @html Cache-Control "no-cache"
+		@static path /manifest.webmanifest /icon*.png /icon*.svg /apple-touch-icon.png
+		header @static Cache-Control "public, max-age=86400"
+		try_files {path} {path}/index.html /index.html
+		file_server
+	}
+}
