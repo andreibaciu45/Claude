@@ -1,8 +1,8 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { DocLine, Profile, QuoteDocument } from '../types';
-import { roundMoney } from '../types';
 import { documentTotals } from './totals';
+import { lineEuro } from '../storage/invoiceTotals';
 export { documentTotals } from './totals';
 export type { DocTotals } from './totals';
 
@@ -29,8 +29,8 @@ const addDays = (iso: string, days: number): string => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
-export const lineAmount = (l: DocLine): number =>
-  roundMoney(l.qty * l.unitPrice * (1 - (l.discountPct ?? 0) / 100));
+/** Importo di riga: stesso calcolo in centesimi del totale documento e dell'XML (un solo arrotondamento half-up). */
+export const lineAmount = (l: DocLine): number => lineEuro(l);
 
 export const FORFETTARIO_TEXT =
   'Operazione effettuata ai sensi dell’art. 1, commi 54-89, Legge n. 190/2014 e successive modificazioni – regime forfettario, non soggetta a IVA.';

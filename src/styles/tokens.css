@@ -7,19 +7,21 @@
   --c-text: #0f1d22;
   --c-text-2: #43565d;
   --c-border: #c5d2d6;
+  --c-border-strong: #6f858c; /* bordi dei controlli: >= 3:1 (WCAG 1.4.11) */
+  --c-on-danger: #ffffff;
   --c-primary: #0b5c6b;
   --c-primary-hover: #094a56;
   --c-on-primary: #ffffff;
   --c-primary-soft: #d8ebef;
-  --c-accent: #e8590c;
-  --c-accent-hover: #c94a06;
+  --c-accent: #c2410c;
+  --c-accent-hover: #9a3412;
   --c-on-accent: #ffffff;
-  --c-success: #1b7a3d; --c-success-soft: #d9f0e0;
+  --c-success: #17703a; --c-success-soft: #d9f0e0;
   --c-warning: #8a5a00; --c-warning-soft: #fdecc4;
   --c-danger: #b42318;  --c-danger-soft: #fde0dc;
   --c-info: #0b5c6b;    --c-info-soft: #d8ebef;
   --c-overlay: rgba(8, 20, 24, .55);
-  --c-focus: #e8590c;
+  --c-focus: #c2410c;
 
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -31,8 +33,20 @@
   --shadow-2: 0 4px 14px rgba(15,29,34,.12);
   --shadow-3: 0 -8px 32px rgba(15,29,34,.25);
 
+  /* Alias usati dagli stili inline delle pagine (src/pages/catalog/styles.ts ecc.): prima non erano definiti. */
+  --text-muted: var(--c-text-2); --primary: var(--c-primary); --on-primary: var(--c-on-primary);
+  --surface: var(--c-surface); --surface-2: var(--c-surface-2); --border: var(--c-border-strong); --danger: var(--c-danger);
+
   --touch: 48px;
+  --touch-lg: 56px;      /* azioni principali (uso con una mano / guanti) */
   --tabbar-h: 64px;
+  /* Pila inferiore: tab bar -> [pulsante microfono + toast] ; ogni elemento fisso usa queste variabili. */
+  --fab-size: 56px;
+  --fab-gap: 12px;
+  --bottom-ui: calc(var(--tabbar-h) + var(--sab));                 /* altezza occupata dalla tab bar */
+  --fab-bottom: calc(var(--bottom-ui) + var(--fab-gap));            /* base del microfono */
+  --fab-zone: calc(var(--fab-size) + var(--fab-gap) * 2);           /* spazio riservato al microfono */
+  --stack-top: calc(var(--bottom-ui) + var(--fab-zone));            /* dove iniziano toast e barre undo */
   --content-w: 720px;
   --sat: env(safe-area-inset-top, 0px);
   --sar: env(safe-area-inset-right, 0px);
@@ -47,6 +61,8 @@
     --c-text: #eef4f6;
     --c-text-2: #a9bcc2;
     --c-border: #34494f;
+    --c-border-strong: #6a858c;
+    --c-on-danger: #2a0703;
     --c-primary: #4fb3c4;
     --c-primary-hover: #6fc5d4;
     --c-on-primary: #05181d;

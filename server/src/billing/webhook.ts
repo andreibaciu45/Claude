@@ -6,6 +6,7 @@ import { DEFAULT_GRACE_DAYS } from './entitlements';
 const EventSchema = z.object({
   id: z.string().min(1),
   type: z.string().min(1),
+  created: z.number().optional(), // epoch SECONDI (Stripe)
   data: z.object({ object: z.record(z.string(), z.unknown()) }),
 });
 export type StripeEvent = z.infer<typeof EventSchema>;
@@ -60,7 +61,13 @@ async function dispatch(ev: StripeEvent, store: BillingStore, now: number, grace
   if (!tenantId) return { handled: false, note: 'tenant non risolto' };
   const prev = await store.getSubscription(tenantId);
   const base: SubscriptionRecord = prev ?? { tenantId, status: 'canceled', updatedAt: now };
+  // Stripe non garantisce l'ordine: un evento più vecchio dell'ultimo applicato non deve far "risorgere" un abbonamento.
+  const evAt = typeof ev.created === 'number' && ev.created > 0 ? ev.created * 1000 : undefined;
+  if (evAt !== undefined && prev?.lastEventAt !== undefined && evAt < prev.lastEventAt) {
+    return { handled: false, tenantId, note: 'evento obsoleto (fuori ordine)' };
+  }
   const next: SubscriptionRecord = { ...base, updatedAt: now };
+  if (evAt !== undefined) next.lastEventAt = Math.max(evAt, prev?.lastEventAt ?? 0);
   const customer = str(obj.customer);
   if (customer) next.customerId = customer;
 

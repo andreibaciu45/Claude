@@ -69,7 +69,10 @@ export async function stripePost(
     'Content-Type': 'application/x-www-form-urlencoded',
   };
   if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
-  const res = await fetchImpl(`https://api.stripe.com/v1${path}`, { method: 'POST', headers, body: stripeForm(params) });
+  // Timeout e nessun redirect: l'host è fisso (api.stripe.com), la chiave segreta non deve mai seguire un 3xx.
+  const res = await fetchImpl(`https://api.stripe.com/v1${path}`, {
+    method: 'POST', headers, body: stripeForm(params), redirect: 'error', signal: AbortSignal.timeout(15_000),
+  });
   const text = await res.text();
   let json: Record<string, unknown> = {};
   try { json = JSON.parse(text) as Record<string, unknown>; } catch { /* corpo non JSON */ }

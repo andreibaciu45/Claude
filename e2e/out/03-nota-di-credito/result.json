@@ -1,6 +1,6 @@
 {
   "name": "03-nota-di-credito",
-  "status": "FAIL",
+  "status": "PASS",
   "checks": [
     {
       "name": "fattura 1/2026",
@@ -103,9 +103,54 @@
       "detail": "2/2026"
     },
     {
-      "name": "ERRORE SCRIPT/eccezione non gestita: locator.waitFor: Timeout 8000ms exceeded.",
-      "ok": false,
-      "detail": "locator.waitFor: Timeout 8000ms exceeded. | Call log: | \u001b[2m  - waiting for locator('.toast').filter({ hasText: 'Nota di credito emessa' }).first() to be visible\u001b[22m |  |     at anyToast (/home/user/Claude/e2e/scenarios/03-nota-di-credito.cjs:14:57)"
+      "name": "NC parziale numero NC2/2026",
+      "ok": true,
+      "detail": "Nota di credito emessa: n. NC2/2026"
+    },
+    {
+      "name": "NC parziale XML: TD04 + DatiFattureCollegate 2/2026",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NC parziale XML: una sola riga di 200.00",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "originale 2 resta \"Emessa\" (storno solo parziale)",
+      "ok": true,
+      "detail": "Emessa\nNon pagata"
+    },
+    {
+      "name": "NC parziale oltre il residuo rifiutata (messaggio d'errore)",
+      "ok": true,
+      "detail": "Nota di credito non riuscita. (Fattura non emettibile: La nota di credito supera l'importo ancora stornabile della fattura.)"
+    },
+    {
+      "name": "nessuna NC3 creata: ancora sulla fattura",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "storno TOTALE dopo uno parziale rifiutato",
+      "ok": true,
+      "detail": "Nota di credito non riuscita. (Fattura non emettibile: La fattura ha già note di credito parziali: indica le righe da stornare.)"
+    },
+    {
+      "name": "terza NC = NC3/2026",
+      "ok": true,
+      "detail": "Nota di credito emessa: n. NC3/2026"
+    },
+    {
+      "name": "originale 2 diventa \"Stornata\" a storno completo",
+      "ok": true,
+      "detail": "Stornata\nNon pagata"
+    },
+    {
+      "name": "elenco: mostra NC1/2026, NC2/2026, NC3/2026",
+      "ok": true,
+      "detail": ""
     },
     {
       "name": "nessun errore in console / pageerror",

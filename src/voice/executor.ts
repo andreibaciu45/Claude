@@ -5,13 +5,12 @@
  *                      (documento, cliente, importo). Non scrive nulla.
  *  executeCommand() -> esegue. Per i comandi IRREVERSIBILI esige il gettone di conferma creato da policy/ (altrimenti lancia).
  *
- * Audit: il contratto non espone una funzione pubblica per scrivere nel registro. Si usa `appendAudit` di src/storage se
- * esiste (richiesta all'agente STORAGE-FATTURE); altrimenti si ripiega in silenzio (le funzioni di storage registrano già
- * le proprie azioni). Vedi `voiceAudit`.
+ * Audit: `appendAudit` (src/storage) scrive nel registro append-only. Ogni comando vocale eseguito lascia una voce
+ * `voice_command` con la trascrizione (`voiceTranscript`); `download_xml` (che lo storage non registra) ha anche la propria
+ * voce. Un errore di audit non fa mai fallire l'azione già eseguita. Vedi `voiceAudit`.
  */
-import * as storage from '../storage';
 import {
-  createCreditNote, createInvoiceFromQuote, getDocument, getProfile, issueInvoice, listCatalog, listDocuments,
+  appendAudit, createCreditNote, createInvoiceFromQuote, getDocument, getProfile, issueInvoice, listCatalog, listDocuments,
   nextDocumentNumber, recordPayment, recordSdiEvent, saveDocument, deleteDocument,
 } from '../storage';
 import { computeTotals, parseDictation } from '../engine';
@@ -67,12 +66,14 @@ function paidSoFar(d: QuoteDocument): number {
   return roundMoney((d.invoice?.payments ?? []).reduce((s, x) => s + (Number.isFinite(x.amount) ? x.amount : 0), 0));
 }
 
-async function voiceAudit(docId: string, action: AuditEntry['action'], ctx: ExecContext, detail?: string): Promise<void> {
+async function voiceAudit(docId: string, action: AuditEntry['action'], ctx: ExecContext, detail?: string, extra: Pick<AuditEntry, 'xmlSha256'> = {}): Promise<void> {
   try {
-    const fn = (storage as unknown as Record<string, unknown>).appendAudit;
-    if (typeof fn !== 'function') return;
-    await (fn as (e: Pick<AuditEntry, 'docId' | 'action' | 'detail' | 'voiceTranscript'>) => Promise<void>)({
-      docId, action: 'voice_command', detail: `${action}${detail ? `: ${detail}` : ''}`, voiceTranscript: ctx.transcript,
+    // azioni che lo storage non registra da sé: voce propria (con trascrizione) oltre al voice_command
+    if (action === 'download_xml') {
+      await appendAudit({ docId, action: 'download_xml', detail: `Scaricato via comando vocale${detail ? `: ${detail}` : ''}`, voiceTranscript: ctx.transcript, ...extra });
+    }
+    await appendAudit({
+      docId, action: 'voice_command', detail: `${action}${detail ? `: ${detail}` : ''}`, voiceTranscript: ctx.transcript, ...extra,
     });
   } catch { /* l'audit non deve mai far fallire l'azione già eseguita */ }
 }
@@ -391,7 +392,7 @@ async function run(command: Command, ctx: ExecContext): Promise<ExecResult> {
         const xml = d.invoice?.xml;
         if (!xml) throw new VoiceExecError('L’XML esiste solo per le fatture già emesse.');
         save(new Blob([xml], { type: 'application/xml' }), d.invoice?.fileName ?? `${safeName(docLabel(d))}.xml`);
-        await voiceAudit(d.id, 'download_xml', ctx);
+        await voiceAudit(d.id, 'download_xml', ctx, d.invoice?.fileName, { xmlSha256: d.invoice?.xmlSha256 });
         return { message: `XML di ${docLabel(d)} scaricato.` };
       }
       const profile = await getProfile();

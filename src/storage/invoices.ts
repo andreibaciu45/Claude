@@ -643,3 +643,198 @@ export const recordPayment = async (docId: string, p: { date: string; amount: nu
     await addAudit(t, { docId, action: 'payment', detail: `Pagamento di ${p.amount.toFixed(2)} € il ${p.date}${p.method ? ` (${p.method})` : ''} -> ${paymentStatus}`, at: now });
     return next;
   });
+
+// ---------------------------------------------------------------- fattura scartata (NS): correggi e rinvia
+
+/** La finestra di 5 giorni dallo scarto è scaduta: non si può rinviare con lo stesso numero/data. */
+export class ResubmitWindowExpiredError extends Error {
+  constructor(message = `Sono passati più di ${RESUBMIT_DAYS} giorni dalla notifica di scarto: non si può rinviare con lo stesso numero e la stessa data. Crea una nuova fattura collegata a quella scartata.`) {
+    super(message);
+    this.name = 'ResubmitWindowExpiredError';
+  }
+}
+
+/** Correzioni ammesse su una fattura scartata. Numero, data, sezionale e anno NON sono modificabili. */
+export interface RejectedInvoicePatch {
+  customer?: Customer;
+  /** Solo fatture (TD01): una nota di credito non cambia le righe (il suo importo dipende dalla fattura originale). */
+  lines?: DocLine[];
+  notes?: string;
+  stampDutyChargedToCustomer?: boolean;
+}
+
+const lastNs = (d: QuoteDocument): SdiEvent | undefined => [...(d.invoice?.sdiEvents ?? [])].reverse().find((e) => e.type === 'NS');
+
+/** Giorni (con decimali) rimasti per rinviare con lo stesso numero: <= 0 se scaduta; null se non è una fattura scartata. */
+export function resubmitDeadline(d: Pick<QuoteDocument, 'status' | 'invoice'>, now: number = Date.now()): { until: number; expired: boolean } | null {
+  if (d.status !== 'scartata') return null;
+  const ns = [...(d.invoice?.sdiEvents ?? [])].reverse().find((e) => e.type === 'NS');
+  if (!ns) return null;
+  const until = ns.at + RESUBMIT_DAYS * 86_400_000;
+  return { until, expired: now > until };
+}
+
+const describePatch = (p: RejectedInvoicePatch): string => {
+  const parts = [p.customer && 'dati cliente', p.lines && 'righe', p.notes !== undefined && 'note', p.stampDutyChargedToCustomer !== undefined && 'addebito bollo'].filter(Boolean);
+  return parts.length ? parts.join(', ') : 'nessun dato (solo nuovo file XML)';
+};
+
+/**
+ * "Correggi e rinvia": rigenera l'XML di una fattura SCARTATA dallo SDI (NS) con NUOVO progressivo di invio ma STESSO
+ * numero, STESSA data e STESSO sezionale (FISCAL-SPEC §1.2: una fattura scartata si considera non emessa; si può rinviare
+ * con lo stesso numero entro 5 giorni dalla notifica). Oltre i 5 giorni -> `ResubmitWindowExpiredError`: usa `createResubmissionDraft`.
+ *
+ * Una sola transazione su profile + documents + audit (con verifica e ripetizione se i dati cambiano nel frattempo):
+ *  - l'XML scartato (con file, progressivo, hash ed esito NS) resta in `invoice.xmlHistory` e nell'audit;
+ *  - lo stato resta 'scartata' (non emessa) finché l'utente non dichiara il rinvio (`recordSdiEvent` INVIO);
+ *  - il documento NON è mai modificabile da `saveDocument`: l'unica via di correzione è questa funzione.
+ */
+export function reopenRejectedInvoice(docId: string, patch: RejectedInvoicePatch = {}, opts: { now?: number } = {}): Promise<QuoteDocument> {
+  return serialize(async () => {
+    const now = opts.now ?? Date.now();
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const prep = await getBackend().transact('readonly', async (t) => ({
+        doc: await t.get<QuoteDocument>('documents', docId),
+        profile: withDefaults(await t.getProfile()),
+        all: await t.all<QuoteDocument>('documents'),
+      }));
+      const d = prep.doc;
+      if (!d) throw new Error('Fattura non trovata.');
+      if (!isFiscalInvoice(d) || !d.invoice.lockedAt) throw new Error('Solo una fattura emessa e poi scartata dallo SDI si può correggere e rinviare.');
+      if (d.status !== 'scartata') {
+        throw new ImmutableDocumentError(`La fattura è nello stato "${d.status}": si può correggere e rinviare solo se è stata scartata dallo SDI. Altrimenti si annulla con una nota di credito.`);
+      }
+      const ns = lastNs(d);
+      if (!ns) throw new InvalidSdiTransitionError('Manca la notifica di scarto (NS) tra gli eventi: registrala prima di correggere.');
+      if (now > ns.at + RESUBMIT_DAYS * 86_400_000) throw new ResubmitWindowExpiredError();
+      const inv = d.invoice as InvoiceFiscalExt;
+      const nc = inv.tipoDocumento === 'TD04';
+      if (nc && patch.lines) throw issueErr('lines', 'not_editable', 'Le righe di una nota di credito non si modificano: se sono sbagliate crea una nuova nota collegata.');
+      if (patch.lines && !patch.lines.length) throw issueErr('lines', 'required', 'La fattura deve avere almeno una riga.');
+
+      const profile = prep.profile;
+      const customer = patch.customer ? clone(patch.customer) : clone(d.customer);
+      const lines = patch.lines ? clone(patch.lines) : clone(d.lines);
+      const charged = patch.stampDutyChargedToCustomer ?? inv.stampDutyChargedToCustomer;
+      const tot = invoiceTotalsCents(lines, { forfettario: profile.regimeForfettario, stampChargedToCustomer: nc ? false : charged });
+      if (nc && inv.originalDocumentId) {
+        const orig = prep.all.find((x) => x.id === inv.originalDocumentId);
+        if (orig) {
+          const res = creditResidual(orig, effectiveCreditNotes(prep.all, orig.id).filter((x) => x.id !== d.id));
+          if (tot.netCents > res.residualCents + lines.length) throw issueErr('lines', 'exceeds_original', 'Nel frattempo la fattura è stata stornata da altre note: questa nota supererebbe l\'importo stornabile.');
+        }
+      }
+      const prog = Math.max(1, Math.floor(prep.profile.nextProgressivoInvio ?? 1));
+      const progStr = progressivo(prog);
+      const next: QuoteDocument = {
+        ...clone(d),
+        customer, lines,
+        ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
+        // status, number, date, seq, year, sectional, issuedAt, lockedAt restano IDENTICI (stesso numero e stessa data)
+        updatedAt: now,
+        invoice: {
+          ...clone(inv),
+          stampDuty: tot.stampDueCents > 0,
+          stampAmount: tot.stampDueCents / 100,
+          stampDutyChargedToCustomer: nc ? false : charged,
+          customerChannel: customerChannel(customer),
+        },
+      };
+      const issues = validateInvoiceForIssue(next, profile) ?? [];
+      if (issues.some((i) => i.severity === 'error')) throw new InvoiceValidationError(issues);
+      const gen = generateFatturaPA(next, profile, progStr);
+      const sha = await sha256Hex(gen.xml);
+      const fingerprint = stable([d, prep.profile.nextProgressivoInvio]);
+
+      try {
+        return await getBackend().transact('readwrite', async (t) => {
+          const cur = await t.get<QuoteDocument>('documents', docId);
+          const pr = withDefaults(await t.getProfile());
+          if (!cur || stable([cur, pr.nextProgressivoInvio]) !== fingerprint) throw new RetryEmit();
+          const old = cur.invoice as InvoiceFiscalExt;
+          const archived: XmlVersion = {
+            xml: old.xml, xmlSha256: old.xmlSha256, fileName: old.fileName, progressivoInvio: old.progressivoInvio, archivedAt: now,
+            reason: (old.xmlHistory?.length ?? 0) === 0 || lastNs(cur)!.at > (old.xmlHistory![old.xmlHistory!.length - 1].archivedAt) ? 'scartata' : 'sostituita',
+            ...(lastNs(cur) ? { sdiEvent: clone(lastNs(cur)!) } : {}),
+          };
+          const final: QuoteDocument = {
+            ...next,
+            invoice: {
+              ...next.invoice!, xml: gen.xml, xmlSha256: sha, fileName: gen.fileName, progressivoInvio: gen.progressivoInvio || progStr,
+              xmlHistory: [...(old.xmlHistory ?? []), archived],
+            } as InvoiceFiscalExt,
+          };
+          pr.nextProgressivoInvio = prog + 1;
+          await t.putProfile(pr);
+          await t.put('documents', final);
+          const nsEv = lastNs(cur);
+          await addAudit(t, {
+            docId, action: 'edit', xmlSha256: sha, at: now,
+            detail: `Fattura ${final.invoice!.number} del ${final.invoice!.operationDate} ${archived.reason === 'scartata' ? `scartata dallo SDI${nsEv?.errorCodes?.length ? ` [${nsEv.errorCodes.join(', ')}]` : ''}` : 'corretta di nuovo prima del rinvio'}: ` +
+              `rigenerato l'XML con stesso numero e stessa data, nuovo progressivo ${final.invoice!.progressivoInvio} (file ${final.invoice!.fileName}). ` +
+              `Modificato: ${describePatch(patch)}. XML precedente conservato: file ${archived.fileName ?? '—'}, progressivo ${archived.progressivoInvio ?? '—'}, SHA-256 ${archived.xmlSha256 ?? '—'}. ` +
+              `Ora scaricalo e rinvialo allo SDI entro ${fmtDeadline(nsEv)}.`,
+          });
+          return final;
+        });
+      } catch (e) {
+        if (e instanceof RetryEmit) continue;
+        throw e;
+      }
+    }
+    throw new Error('Correzione non riuscita: i dati sono cambiati più volte durante l\'operazione. Riprova.');
+  });
+}
+
+const fmtDeadline = (ns?: SdiEvent): string => {
+  if (!ns) return `${RESUBMIT_DAYS} giorni dallo scarto`;
+  const d = new Date(ns.at + RESUBMIT_DAYS * 86_400_000);
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+};
+
+/**
+ * Oltre i 5 giorni (o se non si vuole rinviare con lo stesso numero): crea una NUOVA bozza collegata alla fattura scartata
+ * (`invoice.resubmissionOf`), con righe e cliente copiati, data odierna e nessun numero (lo assegna l'emissione, coerente con i
+ * documenti emessi nel frattempo). La scartata resta nello storico, in stato 'scartata' (non emessa). Una sola bozza collegata alla volta.
+ */
+export async function createResubmissionDraft(docId: string): Promise<QuoteDocument> {
+  return getBackend().transact('readwrite', async (t) => {
+    const d = await t.get<QuoteDocument>('documents', docId);
+    if (!d) throw new Error('Fattura non trovata.');
+    if (!isFiscalInvoice(d) || !d.invoice.lockedAt) throw new Error('Solo una fattura scartata dallo SDI si può rifare come nuova fattura collegata.');
+    if (d.status !== 'scartata') throw new ImmutableDocumentError(`La fattura è nello stato "${d.status}": non è stata scartata, quindi non va rifatta.`);
+    const all = await t.all<QuoteDocument>('documents');
+    const existing = all.find((x) => x.invoice?.resubmissionOf === docId);
+    if (existing) throw new Error(`Esiste già una nuova fattura collegata (${existing.invoice?.number ?? 'bozza'}): usa quella.`);
+    const profile = withDefaults(await t.getProfile());
+    const inv = d.invoice;
+    const nc = inv.tipoDocumento === 'TD04';
+    const now = Date.now();
+    const today = todayIso();
+    const lines: DocLine[] = clone(d.lines).map((l) => ({ ...l, id: uid() }));
+    const tot = invoiceTotalsCents(lines, { forfettario: profile.regimeForfettario, stampChargedToCustomer: false });
+    const invoice: InvoiceFiscal = {
+      tipoDocumento: nc ? 'TD04' : 'TD01',
+      year: Number(today.slice(0, 4)),
+      sectional: nc ? 'NC' : 'FT',
+      operationDate: today,
+      stampDuty: tot.stampDueCents > 0,
+      stampDutyChargedToCustomer: nc ? false : inv.stampDutyChargedToCustomer,
+      stampAmount: tot.stampDueCents / 100,
+      customerChannel: customerChannel(d.customer),
+      ...(nc ? { originalDocumentId: inv.originalDocumentId, originalNumber: inv.originalNumber, originalDate: inv.originalDate, creditNoteReason: inv.creditNoteReason } : {}),
+      sdiEvents: [],
+      resubmissionOf: d.id,
+      paymentStatus: 'non_pagata',
+      payments: [],
+    };
+    const draft: QuoteDocument = {
+      id: uid(), type: 'fattura', number: '', date: today, customer: clone(d.customer), lines, notes: d.notes, status: 'bozza', invoice,
+      createdAt: now, updatedAt: now,
+    };
+    await t.put('documents', draft);
+    await addAudit(t, { docId: draft.id, action: 'create', detail: `Nuova bozza collegata alla fattura scartata ${inv.number} del ${inv.operationDate} (rinvio oltre ${RESUBMIT_DAYS} giorni o con numero nuovo)`, at: now });
+    await addAudit(t, { docId: d.id, action: 'edit', detail: `Creata la bozza collegata ${draft.id} per rifare il documento (la fattura scartata resta nello storico come non emessa)`, xmlSha256: inv.xmlSha256, at: now });
+    return draft;
+  });
+}

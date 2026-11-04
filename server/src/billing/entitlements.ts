@@ -1,5 +1,6 @@
 // Entitlements e quote: funzioni pure + store iniettabile (in-memory per test; SQLite a cura di CORE).
 import type { Clock } from './common';
+import { periodSlackMs } from '../db/entitlements';
 
 export type Plan = 'free' | 'pro';
 export type SubStatus = 'active' | 'past_due' | 'canceled';
@@ -14,6 +15,8 @@ export interface SubscriptionRecord {
   interval?: 'month' | 'year';
   currentPeriodEnd?: number; // epoch ms
   graceUntil?: number; // epoch ms, valorizzato con past_due
+  /** `created` (epoch ms) dell'ultimo evento Stripe applicato: scarta gli eventi arrivati fuori ordine. */
+  lastEventAt?: number;
   updatedAt: number;
 }
 
@@ -24,10 +27,15 @@ export interface Entitlement {
   graceUntil?: number;
 }
 
-/** Pura: Pro se attivo, oppure past_due entro il periodo di grazia. */
+/** Pura: Pro se attivo (e currentPeriodEnd, se noto, non scaduto oltre la tolleranza), oppure past_due entro il periodo di grazia. Stessa regola di db/entitlements.effectivePlan. */
 export function computeEntitlement(sub: SubscriptionRecord | null, now: number): Entitlement {
   if (!sub) return { plan: 'free', state: 'free', docsLimit: FREE_DOCS_PER_MONTH };
-  if (sub.status === 'active') return { plan: 'pro', state: 'active', docsLimit: null };
+  if (sub.status === 'active') {
+    if (sub.currentPeriodEnd !== undefined && now > sub.currentPeriodEnd + periodSlackMs()) {
+      return { plan: 'free', state: 'canceled', docsLimit: FREE_DOCS_PER_MONTH };
+    }
+    return { plan: 'pro', state: 'active', docsLimit: null };
+  }
   if (sub.status === 'past_due' && sub.graceUntil !== undefined && sub.graceUntil > now) {
     return { plan: 'pro', state: 'grace', docsLimit: null, graceUntil: sub.graceUntil };
   }

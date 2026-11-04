@@ -222,9 +222,10 @@ describe('note di credito', () => {
     expect(nc1.number).toBe('NC1/2026');
     expect((await getDocument('a'))!.status).toBe('emessa');
     await expect(createCreditNote('a', { reason: 'troppo', lines: [line('y', 500)] })).rejects.toBeInstanceOf(InvoiceValidationError);
-    await expect(createCreditNote('a', { reason: 'totale' })).rejects.toBeInstanceOf(InvoiceValidationError);
-    const nc2 = await createCreditNote('a', { reason: 'resto', lines: [line('y', 100)] });
+    // senza righe = storno del RESIDUO (non più un errore): copre solo ciò che manca
+    const nc2 = await createCreditNote('a', { reason: 'resto' });
     expect(nc2.number).toBe('NC2/2026');
+    expect(nc2.lines.map((l) => l.unitPrice)).toEqual([100]);
     expect((await getDocument('a'))!.status).toBe('stornata');
   });
 

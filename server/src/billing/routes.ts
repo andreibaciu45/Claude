@@ -5,7 +5,7 @@ import {
   apiError, authGate, systemClock, type AppEnv, type Clock, type Env,
 } from './common';
 import {
-  createBillingService, type BillingService, type BillingStore,
+  computeEntitlement, createBillingService, type BillingService, type BillingStore,
 } from './entitlements';
 import { SqliteBillingStore } from './sqlite-store';
 import { StripeApiError, stripePost, verifyStripeSignature } from './stripe';
@@ -51,6 +51,10 @@ export function createBillingRoutes(deps: BillingDeps = defaultBillingDeps) {
     }
     const tenantId = c.get('tenantId');
     const sub = await deps.store.getSubscription(tenantId);
+    // Un abbonamento già attivo/in grazia si gestisce dal portale: un secondo checkout creerebbe un doppio addebito.
+    if (computeEntitlement(sub, deps.clock.now()).plan === 'pro') {
+      return c.json(apiError('already_subscribed', 'Abbonamento già attivo: usa il portale di fatturazione'), 409);
+    }
     try {
       const session = await stripePost(deps.fetch, secret, '/checkout/sessions', {
         mode: 'subscription',
@@ -93,7 +97,7 @@ export function createBillingRoutes(deps: BillingDeps = defaultBillingDeps) {
     if (!secret) return c.json(apiError('billing_unconfigured', 'Webhook non configurato'), 503);
     const raw = await c.req.text();
     const sig = verifyStripeSignature(raw, c.req.header('stripe-signature'), secret, deps.clock.now());
-    if (!sig.ok) return c.json(apiError('bad_signature', `Firma non valida (${sig.reason})`), 400);
+    if (!sig.ok) return c.json(apiError('bad_signature', 'Firma non valida'), 400);
     const ev = parseStripeEvent(raw);
     if (!ev) return c.json(apiError('invalid_event', 'Evento non valido'), 400);
     const graceDays = Number(deps.env().BILLING_GRACE_DAYS ?? '') || undefined;
