@@ -26,7 +26,7 @@ import {
   markAttempt, removeOps, setMeta, setSynced, updateOp, type OutboxRecord,
 } from './outbox';
 import {
-  detectMassDelete, diffSnapshot, hashValue, isPreviewEmpty, previewMigration, profilePayload, scanLocalChangesDetailed, takeSnapshot,
+  detectMassDelete, isMassRemoteDelete, diffSnapshot, hashValue, isPreviewEmpty, previewMigration, profilePayload, scanLocalChangesDetailed, takeSnapshot,
   type LocalStore, type MassDeleteAlert, type MigrationPreview, type Snapshot,
 } from './snapshot';
 
@@ -52,6 +52,8 @@ export interface DraftConflictInfo {
   rows: ConflictDiffRow[];
   /** true = in locale la bozza è stata eliminata, ma sul server è stata modificata da un altro dispositivo */
   localDeleted: boolean;
+  /** true = sul server la bozza è stata CANCELLATA da un altro dispositivo (la tua modifica non ha una versione da confrontare) */
+  serverDeleted?: boolean;
   localUpdatedAt?: number;
   serverUpdatedAt?: number;
 }
@@ -174,8 +176,8 @@ export function createSyncEngine(deps: EngineDeps) {
       return {
         opId: r.opId, entity: r.entity, entityId: r.entityId, reason: r.conflict?.reason ?? 'invalid',
         message: r.conflict?.message ?? 'Operazione non accettata dal server.', label: labelOf(r),
-        canUseServer: r.entity !== 'audit' && server != null && typeof server === 'object',
-        canKeepBoth: r.entity === 'document' && r.op === 'upsert' && !isLockedDoc(r.payload),
+        canUseServer: r.entity !== 'audit' && ((server != null && typeof server === 'object') || (!!draft && !!draft.serverDeleted)),
+        canKeepBoth: r.entity === 'document' && r.op === 'upsert' && !isLockedDoc(r.payload) && !draft?.serverDeleted,
         ...(draft ? { draft } : {}),
       };
     });
@@ -193,6 +195,7 @@ export function createSyncEngine(deps: EngineDeps) {
     return {
       rows: localDoc && serverDoc ? diffDrafts(localDoc, serverDoc, { forfettario }) : [],
       localDeleted: r.op === 'delete',
+      ...(r.op === 'upsert' && !serverDoc ? { serverDeleted: true } : {}),
       localUpdatedAt: localDoc?.updatedAt,
       serverUpdatedAt: serverDoc?.updatedAt,
     };

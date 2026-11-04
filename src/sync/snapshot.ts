@@ -166,6 +166,21 @@ export function detectMassDelete(snap: Snapshot, changes: Change[], synced: Map<
   };
 }
 
+/**
+ * Circuit breaker sulle cancellazioni che arrivano DAL server (tombstone nel pull, "cancellata altrove" nel push): stessa soglia di
+ * `detectMassDelete`. `keys` = chiavi `catalog:`/`document:` da cancellare in locale; `synced` = voci note come sincronizzate.
+ */
+export function isMassRemoteDelete(keys: Iterable<string>, synced: Map<string, SyncedEntry>): boolean {
+  for (const type of ['catalog:', 'document:']) {
+    const n = [...keys].filter((k) => k.startsWith(type)).length;
+    if (!n) continue;
+    let t = 0;
+    for (const k of synced.keys()) if (k.startsWith(type)) t++;
+    if ((n >= MASS_DELETE_MIN && n / Math.max(1, t) >= MASS_DELETE_RATIO) || (t >= 3 && n >= t)) return true;
+  }
+  return false;
+}
+
 export interface ScanResult { queued: number; massDelete: MassDeleteAlert | null }
 
 /**
