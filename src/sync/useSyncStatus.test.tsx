@@ -61,7 +61,7 @@ describe('SyncBadge e formattazioni', () => {
     expect(badgeView({ signedIn: false, phase: 'idle', pendingOps: 0, conflicts: [], migration: null })).toBeNull();
   });
   it('badgeView per ogni fase', () => {
-    const base = { signedIn: true, pendingOps: 0, conflicts: [], migration: null } as const;
+    const base = { signedIn: true, pendingOps: 0, conflicts: [] as never[], migration: null };
     expect(badgeView({ ...base, phase: 'idle' })).toEqual({ label: 'Sincronizzato', tone: 'success' });
     expect(badgeView({ ...base, phase: 'idle', pendingOps: 2 })?.label).toBe('2 da inviare');
     expect(badgeView({ ...base, phase: 'offline', pendingOps: 3 })).toEqual({ label: 'Offline · 3 in coda', tone: 'warning' });

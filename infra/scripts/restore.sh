@@ -2,6 +2,7 @@
 # Ripristino del DB da Litestream o da snapshot.
 #
 # Uso:
+#   (modalita senza Docker: eseguire come utente di servizio, es. sudo -u vocepreventivo ./restore.sh ... ; --live con sudo)
 #   restore.sh litestream [--at <ISO8601>] [--test]        da replica S3 (anche a un istante preciso)
 #   restore.sh snapshot <file> [--test]                    da snapshot (.sqlite.gz oppure .sqlite.gz.age)
 #   Con --test (modalita' di PROVA): ripristina in una cartella temporanea, verifica integrita'
@@ -14,7 +15,6 @@ set -Eeuo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-require_cmd docker
 load_env
 check_no_placeholders DB_PATH
 
@@ -36,20 +36,16 @@ done
 case "$MODE" in litestream|snapshot) ;; *) usage ;; esac
 
 WORK="$(mktemp -d)"
-chmod 755 "$WORK"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 OUT_NAME="restored.sqlite"
 
 # --- 1. produce $WORK/restored.sqlite ---
 if [ "$MODE" = "litestream" ]; then
-  args=(restore -config /etc/litestream.yml -o "/restore/$OUT_NAME")
+  args=()
   [ -n "$AT" ] && args+=(-timestamp "$AT")
-  args+=("$DB_PATH")
   log "ripristino da Litestream${AT:+ allo stato di $AT}"
-  chmod 777 "$WORK"
-  dc run --rm --no-deps -T -v "$WORK:/restore" --entrypoint litestream litestream "${args[@]}"
-  chmod 755 "$WORK"
+  litestream_restore "$WORK" "$OUT_NAME" "${args[@]}"
 else
   [ -f "$SNAP_FILE" ] || die "file non trovato: $SNAP_FILE"
   src="$SNAP_FILE"
@@ -79,18 +75,29 @@ fi
 # --- 3. sostituzione del DB vivo ---
 [ "$YES" -eq 1 ] || die "per sostituire il DB di produzione aggiungi --yes (dopo aver letto docs/DEPLOY.md)"
 log "ATTENZIONE: sostituisco il DB di produzione"
-dc stop server litestream
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-dbfile="$(basename "$DB_PATH")"
-dc run --rm --no-deps -T -v "$WORK:/restore:ro" --entrypoint sh litestream -c "
-  set -e
-  d=\$(dirname '$DB_PATH')
-  [ -f '$DB_PATH' ] && mv '$DB_PATH' '$DB_PATH.before-restore-$stamp'
-  rm -f '$DB_PATH-wal' '$DB_PATH-shm'
-  rm -rf \"\$d/.$dbfile-litestream\"
-  cp /restore/$OUT_NAME '$DB_PATH'
-  chown 1000:1000 '$DB_PATH'
-"
-dc up -d
-log "ripristino completato. Il vecchio DB e' in $DB_PATH.before-restore-$stamp (nel volume dati)."
-log "Dopo un ripristino da snapshot Litestream ricomincia una nuova generazione di replica: e' normale."
+if is_native; then
+  [ "$(id -u)" -eq 0 ] || die "il ripristino --live in modalita' senza Docker va eseguito con sudo"
+  systemctl stop vocepreventivo-server vocepreventivo-litestream
+  [ -f "$DB_PATH" ] && mv "$DB_PATH" "$DB_PATH.before-restore-$stamp"
+  rm -f "$DB_PATH-wal" "$DB_PATH-shm"
+  rm -rf "$(dirname "$DB_PATH")/.$(basename "$DB_PATH")-litestream"
+  install -o "$SVC_USER" -g "$SVC_USER" -m 600 "$WORK/$OUT_NAME" "$DB_PATH"
+  systemctl start vocepreventivo-server vocepreventivo-litestream
+else
+  require_cmd docker
+  dc stop server litestream
+  dbfile="$(basename "$DB_PATH")"
+  dc run --rm --no-deps -T -v "$WORK:/restore:ro" --entrypoint sh litestream -c "
+    set -e
+    d=\$(dirname '$DB_PATH')
+    [ -f '$DB_PATH' ] && mv '$DB_PATH' '$DB_PATH.before-restore-$stamp'
+    rm -f '$DB_PATH-wal' '$DB_PATH-shm'
+    rm -rf \"\$d/.$dbfile-litestream\"
+    cp /restore/$OUT_NAME '$DB_PATH'
+    chown 1000:1000 '$DB_PATH'
+  "
+  dc up -d
+fi
+log "ripristino completato. Il vecchio DB e' in $DB_PATH.before-restore-$stamp"
+log "Dopo un ripristino Litestream ricomincia una nuova generazione di replica: e' normale."

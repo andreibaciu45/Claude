@@ -9,32 +9,29 @@ set -Eeuo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-require_cmd docker
 load_env
 check_no_placeholders DB_PATH
 
-BACKUP_DIR="${BACKUP_DIR:-$INFRA_DIR/backups}"
+BACKUP_DIR="$(default_backup_dir)"
 case "$BACKUP_DIR" in /*) ;; *) BACKUP_DIR="$INFRA_DIR/$BACKUP_DIR" ;; esac
 mkdir -p "$BACKUP_DIR"
 LOG_FILE="$BACKUP_DIR/drill.log"
 TOLERANCE_PCT="${DRILL_TOLERANCE_PCT:-5}"   # scarto massimo ammesso tra replica e DB vivo
 
-WORK="$(mktemp -d)"; chmod 777 "$WORK"
+WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 fail=0
 note() { log "$*" | tee -a "$LOG_FILE"; }
 
 note "=== restore drill ==="
-dc run --rm --no-deps -T -v "$WORK:/restore" --entrypoint litestream litestream \
-  restore -config /etc/litestream.yml -o /restore/drill.sqlite "$DB_PATH" \
+litestream_restore "$WORK" drill.sqlite \
   || { note "FALLITO: ripristino da Litestream non riuscito"; exit 1; }
-chmod 755 "$WORK"
 
 res="$(integrity_check "$WORK" drill.sqlite)"
 if [ "$res" = "ok" ]; then note "integrity_check: ok"; else note "FALLITO integrity_check: $res"; exit 1; fi
 
-# DB vivo, in sola lettura, tramite il container server
-live_cnt() { dc exec -T server sqlite3 -readonly "$DB_PATH" "SELECT count(*) FROM \"$1\";"; }
+# DB vivo, in sola lettura
+live_cnt() { live_sql "SELECT count(*) FROM \"$1\";"; }
 
 total_r=0; total_l=0
 while IFS='|' read -r t rc; do
