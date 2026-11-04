@@ -103,7 +103,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     fs.writeFileSync(swPath, sw.replace(/const VERSION = '[^']+'/, "const VERSION = 'vTEST'"));
     await page.goto(BASE + '/#/');
     await page.evaluate(async () => { const reg = await navigator.serviceWorker.getRegistration(); await reg.update(); });
-    await page.waitForFunction(async () => { const k = await caches.keys(); return k.includes('voceprev-shell-vTEST') && !k.includes('voceprev-shell-v3'); }, null, { timeout: 15000 });
+    for (let i = 0; i < 40; i++) { // attivazione: la nuova shell nasce all'install, le vecchie cache sparono all'activate
+      const k = await page.evaluate(() => caches.keys());
+      if (k.includes('voceprev-shell-vTEST') && !k.includes('voceprev-shell-v3') && !k.includes('voceprev-v2')) break;
+      await sleep(400);
+    }
     await sleep(800);
     const ver2 = await page.evaluate(async () => (await caches.keys()).sort());
     check('aggiornamento: nuova shell creata, vecchie shell e v2 cancellate', ver2.includes('voceprev-shell-vTEST') && !ver2.some((k) => /^voceprev-shell-v\d+$/.test(k)) && !ver2.includes('voceprev-v2'), ver2);

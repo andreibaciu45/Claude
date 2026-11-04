@@ -1,5 +1,7 @@
 /**
- * Livello di persistenza: IndexedDB (idb) con fallback in memoria.
+ * Livello di persistenza: IndexedDB (idb). Il ripiego in memoria è ammesso SOLO se IndexedDB non è mai stato apribile
+ * (assente o apertura iniziale fallita): dopo un'apertura riuscita ogni errore viene rilanciato (`StorageUnavailableError`),
+ * lo stato è osservabile in ./health e la connessione si riapre da sola con backoff. Vedi REV-DB1.
  * Tutta la logica "di dominio" passa da `transact`: UNA transazione su profile+catalog+documents+audit.
  * Schema v2: nuovo store `audit` (append-only) + indici su `documents`; migrazione dei documenti v1.
  * Schema v3: nuovo store `customers` (rubrica clienti, solo locale), popolato UNA volta dai clienti dei documenti.
@@ -8,6 +10,8 @@ import { openDB, type IDBPDatabase, type IDBPTransaction } from 'idb';
 import type { AuditEntry, CatalogItem, InvoiceFiscal, Profile, QuoteDocument } from '../types';
 import { uid } from '../types';
 import { seedCustomersFromDocuments } from './customerModel';
+import { LOW_SPACE_BYTES, StorageUnavailableError, __patchStorageState, __resetStorageHealthForTests, getStorageStatus, type StorageReason } from './health';
+export { StorageUnavailableError } from './health';
 
 export const DB_NAME = 'vocepreventivo';
 export const DB_VERSION = 3;
@@ -73,11 +77,6 @@ export interface Tx {
 
 export interface Backend {
   transact<R>(mode: 'readonly' | 'readwrite', fn: (t: Tx) => Promise<R>): Promise<R>;
-}
-
-/** Errore lanciato dalla funzione passata a `transact`: va rilanciato così com'è, senza ripiegare sulla memoria. */
-class TxFnError extends Error {
-  constructor(readonly original: unknown) { super('tx-fn-error'); }
 }
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -230,12 +229,163 @@ async function upgrade(db: IDBPDatabase, oldVersion: number, tx: UpgradeTx): Pro
 
 const ALL_STORES = ['profile', 'catalog', 'documents', 'audit', 'customers'] as const;
 
-function idbBackend(dbp: Promise<IDBPDatabase>): Backend {
-  return {
-    async transact<R>(mode: 'readonly' | 'readwrite', fn: (t: Tx) => Promise<R>): Promise<R> {
-      const db = await dbp;
+const errName = (e: unknown): string => (typeof e === 'object' && e !== null && 'name' in e ? String((e as { name: unknown }).name) : '');
+
+/** Classifica un errore IndexedDB NON di dominio (null = errore di dominio, da rilanciare così com'è: es. ConstraintError). */
+export function classifyStorageError(e: unknown): StorageReason | null {
+  if (e instanceof StorageUnavailableError) return e.reason;
+  switch (errName(e)) {
+    case 'QuotaExceededError': return 'quota';
+    case 'InvalidStateError': return 'connection-closed';
+    case 'VersionError': return 'version-change';
+    case 'AbortError': case 'TransactionInactiveError': return 'aborted';
+    case 'UnknownError': case 'NotFoundError': case 'DataError': return 'unknown';
+    default: return null;
+  }
+}
+
+const isLostReason = (r: StorageReason): boolean => r === 'connection-closed' || r === 'version-change' || r === 'blocked';
+
+let backend: Backend | null = null;
+let db: IDBPDatabase | null = null;
+let connected = false;
+let everOpened = false;
+let memoryActive = false;
+let initialOpen: Promise<IDBPDatabase | null> | null = null;
+let reopening: Promise<IDBPDatabase> | null = null;
+let timer: ReturnType<typeof setTimeout> | null = null;
+let attempts = 0;
+let persistAsked = false;
+let lastEstimateAt = 0;
+let visibilityHooked = false;
+let memory: Backend | null = null;
+
+/** Attese del backoff di riapertura (ms): 0,5 s, 1 s, 2 s ... fino a 30 s. Modificabile solo dai test. */
+let backoffBase = 500;
+export const __setBackoffForTests = (ms: number): void => { backoffBase = ms; };
+
+function openConnection(): Promise<IDBPDatabase> {
+  return openDB(DB_NAME, DB_VERSION, {
+    async upgrade(d, oldVersion, _newVersion, tx) { await upgrade(d, oldVersion, tx as unknown as UpgradeTx); },
+    // un'altra scheda vuole aggiornare/eliminare il database: chiudiamo la nostra connessione (altrimenti resta bloccata) e riapriamo dopo
+    blocking() { markLost('version-change'); },
+    blocked() { __patchStorageState({ lostReason: 'blocked', persistent: false, retrying: true }); },
+    terminated() { markLost('connection-closed'); },
+  });
+}
+
+function onOpened(nd: IDBPDatabase): void {
+  db = nd;
+  connected = true;
+  everOpened = true;
+  memoryActive = false;
+  attempts = 0;
+  if (timer) { clearTimeout(timer); timer = null; }
+  __patchStorageState({ persistent: true, memoryOnly: false, retrying: false, lostReason: undefined, writeFailure: undefined });
+  void requestPersistence();
+  void refreshSpace(true);
+}
+
+/** Connessione persa dopo un'apertura riuscita: niente memoria, si riapre con backoff. */
+function markLost(reason: StorageReason): void {
+  if (connected) {
+    connected = false;
+    try { db?.close(); } catch { /* già chiusa */ }
+  }
+  __patchStorageState({ persistent: false, lostReason: reason, writeFailure: undefined, retrying: true });
+  scheduleReopen();
+}
+
+function scheduleReopen(): void {
+  if (timer || typeof setTimeout === 'undefined') return;
+  const delay = Math.min(30_000, backoffBase * 2 ** attempts);
+  attempts++;
+  timer = setTimeout(() => { timer = null; void reopenNow().catch(() => undefined); }, delay);
+}
+
+function reopenNow(): Promise<IDBPDatabase> {
+  if (reopening) return reopening;
+  if (timer) { clearTimeout(timer); timer = null; }
+  if (typeof indexedDB === 'undefined') return Promise.reject(new StorageUnavailableError('no-indexeddb'));
+  __patchStorageState({ retrying: true });
+  reopening = (async () => {
+    try {
+      const nd = await openConnection();
+      onOpened(nd);
+      return nd;
+    } catch (e) {
+      const r = classifyStorageError(e) ?? 'open-failed';
+      __patchStorageState({ persistent: false, lostReason: everOpened ? (isLostReason(r) ? r : 'connection-closed') : 'open-failed', retrying: true });
+      scheduleReopen();
+      throw new StorageUnavailableError(everOpened ? r : 'open-failed', undefined, e);
+    } finally { reopening = null; }
+  })();
+  return reopening;
+}
+
+async function requestPersistence(): Promise<void> {
+  if (persistAsked) return;
+  persistAsked = true;
+  try {
+    const s = typeof navigator !== 'undefined' ? navigator.storage : undefined;
+    if (!s?.persist) return;
+    const already = s.persisted ? await s.persisted() : false;
+    __patchStorageState({ persisted: already || (await s.persist()) });
+  } catch { /* non supportato */ }
+}
+
+/** Avvisa quando lo spazio libero è basso (< 50 MB). Al massimo una stima al minuto (salvo `force`). */
+async function refreshSpace(force = false): Promise<void> {
+  try {
+    const now = Date.now();
+    if (!force && now - lastEstimateAt < 60_000) return;
+    lastEstimateAt = now;
+    const s = typeof navigator !== 'undefined' ? navigator.storage : undefined;
+    if (!s?.estimate) return;
+    const { quota, usage } = await s.estimate();
+    if (typeof quota !== 'number' || typeof usage !== 'number') return;
+    const free = Math.max(0, quota - usage);
+    __patchStorageState({ freeBytes: free, lowSpace: free < LOW_SPACE_BYTES });
+  } catch { /* non supportato */ }
+}
+
+/** Il primo accesso: se l'apertura iniziale fallisce si ripiega sulla memoria (null), MAI più dopo un'apertura riuscita. */
+async function acquire(): Promise<IDBPDatabase | null> {
+  if (db && connected) return db;
+  if (initialOpen) { await initialOpen; if (db && connected) return db; }
+  if (!everOpened) return null; // mai aperto: memoria
+  return reopenNow();
+}
+
+function memoryBackendInstance(): Backend { return (memory ??= memoryBackend()); }
+
+function toStorageError(e: unknown, fallback: StorageReason = 'unknown'): StorageUnavailableError {
+  if (e instanceof StorageUnavailableError) return e;
+  return new StorageUnavailableError(classifyStorageError(e) ?? fallback, undefined, e);
+}
+
+/** Registra il fallimento di un'operazione su archivio persistente aperto e lo rilancia come StorageUnavailableError. */
+function failPersistent(e: unknown): never {
+  const err = toStorageError(e);
+  if (isLostReason(err.reason)) markLost(err.reason);
+  else __patchStorageState({ writeFailure: err.reason });
+  console.warn('[storage] errore IndexedDB (nessun ripiego in memoria):', e);
+  throw err;
+}
+
+function persistentTransact<R>(mode: 'readonly' | 'readwrite', fn: (t: Tx) => Promise<R>): Promise<R> {
+  const run = async (): Promise<R> => {
+    for (let attempt = 0; ; attempt++) {
+      let d: IDBPDatabase | null;
+      try { d = await acquire(); } catch (e) { throw toStorageError(e, 'connection-closed'); }
+      if (!d) return memoryBackendInstance().transact(mode, fn);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tx: any = db.transaction([...ALL_STORES], mode);
+      let tx: any;
+      try { tx = d.transaction([...ALL_STORES], mode); } catch (e) {
+        // connessione chiusa prima ancora di iniziare: nessuna scrittura avvenuta, si può riaprire e riprovare UNA volta
+        if (classifyStorageError(e) === 'connection-closed' && attempt === 0) { markLost('connection-closed'); continue; }
+        failPersistent(e);
+      }
       const t: Tx = {
         async getProfile() { return (await tx.objectStore('profile').get(PROFILE_KEY)) as Partial<Profile> | undefined; },
         async putProfile(p: Profile) { await tx.objectStore('profile').put(p, PROFILE_KEY); },
@@ -252,53 +402,90 @@ function idbBackend(dbp: Promise<IDBPDatabase>): Backend {
       } catch (e) {
         try { tx.abort(); } catch { /* già conclusa */ }
         await tx.done.catch(() => undefined);
-        throw new TxFnError(e);
+        if (classifyStorageError(e) === null) throw e; // errore di dominio (anche ConstraintError): nessun ripiego
+        failPersistent(e);
       }
-      await tx.done;
-      // Avvisa chi osserva (es. src/sync) che i dati locali sono cambiati: sync con debounce senza polling.
-      if (mode === 'readwrite' && typeof window !== 'undefined') {
-        try { window.dispatchEvent(new Event('vp:storage-changed')); } catch { /* ambiente senza eventi */ }
+      try { await tx.done; } catch (e) { failPersistent(classifyStorageError(e) ? e : new StorageUnavailableError('aborted', undefined, e)); }
+      if (mode === 'readwrite') {
+        if (getStorageStatus().health === 'degraded' && getStorageStatus().reason !== 'low-space') __patchStorageState({ writeFailure: undefined });
+        void refreshSpace();
+        // Avvisa chi osserva (es. src/sync) che i dati locali sono cambiati: sync con debounce senza polling.
+        if (typeof window !== 'undefined') {
+          try { window.dispatchEvent(new Event('vp:storage-changed')); } catch { /* ambiente senza eventi */ }
+        }
       }
       return r;
-    },
+    }
   };
+  return run();
 }
-
-let backend: Backend | null = null;
-let openDbp: Promise<IDBPDatabase> | null = null;
 
 export function getBackend(): Backend {
   if (backend) return backend;
   if (typeof indexedDB === 'undefined') {
     console.warn('[storage] IndexedDB non disponibile: uso la memoria, i dati andranno persi alla chiusura.');
-    return (backend = memoryBackend());
+    memoryActive = true;
+    __patchStorageState({ persistent: false, memoryOnly: true, lostReason: 'no-indexeddb', retrying: false });
+  } else {
+    initialOpen = openConnection().then(
+      (nd) => { onOpened(nd); return nd; },
+      (e) => {
+        // ripiego ammesso SOLO qui: l'archivio persistente non è mai stato aperto (es. navigazione privata di alcuni browser)
+        console.warn('[storage] apertura IndexedDB fallita, uso la memoria (dati non salvati):', e);
+        memoryActive = true;
+        __patchStorageState({ persistent: false, memoryOnly: true, lostReason: 'open-failed', retrying: true });
+        scheduleReopen();
+        return null;
+      },
+    );
+    if (!visibilityHooked && typeof document !== 'undefined') {
+      visibilityHooked = true;
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && !getStorageStatus().persistent && typeof indexedDB !== 'undefined') void reopenNow().catch(() => undefined);
+      });
+    }
   }
-  const dbp = openDB(DB_NAME, DB_VERSION, {
-    async upgrade(db, oldVersion, _newVersion, tx) { await upgrade(db, oldVersion, tx as unknown as UpgradeTx); },
-  });
-  openDbp = dbp;
-  // se l'apertura fallisce (es. navigazione privata di alcuni browser) ripiega su memoria
-  const fallback = memoryBackend();
-  let broken = false;
-  dbp.catch((e) => { broken = true; console.warn('[storage] apertura IndexedDB fallita, uso la memoria:', e); });
-  const real = idbBackend(dbp);
-  return (backend = {
-    async transact<R>(mode: 'readonly' | 'readwrite', fn: (t: Tx) => Promise<R>): Promise<R> {
-      if (broken) return fallback.transact(mode, fn);
-      try {
-        return await real.transact(mode, fn);
-      } catch (e) {
-        if (e instanceof TxFnError) throw e.original; // errore di dominio: nessun fallback
-        if (!broken) { broken = true; console.warn('[storage] errore IndexedDB, uso la memoria:', e); }
-        return fallback.transact(mode, fn);
-      }
-    },
-  });
+  return (backend = { transact: persistentTransact });
+}
+
+/** Avvia l'apertura dell'archivio (se non già avviata): serve al banner, che deve conoscere lo stato anche prima del primo accesso ai dati. */
+export function ensureStorageStarted(): void { getBackend(); }
+
+/**
+ * "Riprova": riapre subito l'archivio. Dopo un'apertura iniziale fallita passa dalla memoria all'archivio persistente
+ * (i dati scritti in memoria nel frattempo NON vengono trasferiti: erano solo bozze temporanee).
+ */
+export async function retryStorage(): Promise<boolean> {
+  getBackend();
+  if (typeof indexedDB === 'undefined') return false;
+  if (initialOpen) await initialOpen;
+  if (getStorageStatus().persistent && connected) { void refreshSpace(true); return true; }
+  try { await reopenNow(); return true; } catch { return false; }
+}
+
+/**
+ * Da chiamare PRIMA di ogni scrittura fiscale (emissione, nota di credito, contatore, esito SDI, incasso):
+ * se l'archivio non è persistente lancia `StorageUnavailableError` invece di scrivere in memoria. Se la connessione era stata
+ * persa prova a riaprirla subito.
+ */
+export async function requirePersistentStorage(action = 'questa operazione'): Promise<void> {
+  getBackend();
+  if (initialOpen) await initialOpen;
+  if (connected && db) return;
+  if (everOpened && typeof indexedDB !== 'undefined') {
+    try { await reopenNow(); return; } catch { /* sotto */ }
+  }
+  const st = getStorageStatus();
+  const reason: StorageReason = st.reason && st.reason !== 'low-space' ? st.reason : memoryActive ? 'open-failed' : 'connection-closed';
+  throw new StorageUnavailableError(reason, `Impossibile ${action}: ${st.message} Non è stato scritto nulla.`);
 }
 
 /** Solo per i test: azzera la connessione memorizzata. */
 export async function __resetStorageForTests(): Promise<void> {
-  try { (await openDbp)?.close(); } catch { /* ignore */ }
-  openDbp = null;
-  backend = null;
+  try { (await initialOpen)?.close(); } catch { /* ignore */ }
+  try { db?.close(); } catch { /* ignore */ }
+  if (timer) { clearTimeout(timer); timer = null; }
+  initialOpen = null; reopening = null; db = null; connected = false; everOpened = false; memoryActive = false;
+  attempts = 0; persistAsked = false; lastEstimateAt = 0; memory = null; backend = null; backoffBase = 500;
+  __resetStorageHealthForTests();
 }
