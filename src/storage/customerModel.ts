@@ -60,7 +60,12 @@ export function sameCustomer(a: Partial<Customer>, b: Partial<Customer>): boolea
   const cb = normCf(b.fiscalCode);
   if (ca && cb) return ca === cb;
   const na = normName(a.name ?? '');
-  return !!na && na === normName(b.name ?? '');
+  if (!na || na !== normName(b.name ?? '')) return false;
+  // REV2-C1: omonimi senza identificativi fiscali (due "Mario Rossi"): se i comuni sono entrambi indicati e diversi sono persone
+  // diverse. Prima venivano fusi e i dati dell'uno (telefono, email...) completavano la scheda dell'altro.
+  const cityA = normName(a.city ?? '');
+  const cityB = normName(b.city ?? '');
+  return !(cityA && cityB && cityA !== cityB);
 }
 
 export const findDuplicate = <T extends Customer>(c: Customer, list: T[], exceptId?: string): T | undefined =>

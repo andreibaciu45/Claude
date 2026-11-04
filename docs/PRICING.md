@@ -1,6 +1,6 @@
 # VocePreventivo — Ipotesi di prezzi, costi e break-even
 
-Data: 4 novembre 2026. Stato: **ipotesi di lavoro**.
+Data: 4 novembre 2026. **Ultimo aggiornamento: 4 novembre 2026** (aggiornati solo i riferimenti al testo "due mesi in meno", i prossimi passi e la sezione 9 sui limiti nell'app; le ipotesi di prezzo e di costo restano quelle originali). Stato: **ipotesi di lavoro**.
 
 > **Tutti i numeri di questo documento sono stime, non dati.** Nessun cliente ha ancora pagato, nessun preventivo di fornitore è stato richiesto, nessun costo è stato misurato. Le cifre di costo vengono da `docs/ARCHITECTURE-V2.md` §1.9 (che le definisce "ordini di grandezza, non preventivi"); le ipotesi di conversione sono nostre e **non** si basano su misure. Dove un valore è "da verificare" si trova su un listino ufficiale o su un preventivo, che non abbiamo ancora.
 
@@ -16,7 +16,7 @@ Data: 4 novembre 2026. Stato: **ipotesi di lavoro**.
 | Quote voce server (solo per chi non può usare la dettatura del browser) | 20 minuti/mese Gratis, 120 Pro | `server/src/billing/README.md` |
 | Trasmissione allo SDI tramite provider | **Non attiva** (nessun provider scelto); oggi l'utente carica l'XML a mano | `server/src/sdi/` |
 
-**Incoerenza da correggere (non la modifico io, è un testo della pagina pubblica):** la pagina Informazioni dice che i 120 €/anno sono "due mesi in meno rispetto al mensile". In realtà 12 x 15 € = 180 €: 120 € equivalgono a **6 mesi in meno** (sconto del 33%), non a 2. Va allineato il testo oppure il prezzo (con "due mesi gratis" il prezzo annuale sarebbe 150 €).
+**Incoerenza trovata in origine, ora risolta nel codice (verificato il 4/11/2026):** la pagina Informazioni diceva che i 120 €/anno sono "due mesi in meno rispetto al mensile", ma 12 x 15 € = 180 € e 120 € equivalgono a **6 mesi in meno** (sconto del 33%). Il testo attuale (`src/pages/LandingPage.tsx`, `public/prodotto.html`) dice "risparmi 60 € rispetto al mensile", calcolato da `src/billing/pricing.ts` (`PRO_YEARLY_SAVING`). Resta da ricordare che `public/prodotto.html` ha il prezzo scritto a mano (e nel JSON-LD): va aggiornato a mano se cambiano i prezzi.
 
 ## 2. Ipotesi di piani
 
@@ -170,20 +170,21 @@ Altre ipotesi da misurare nelle prime settimane (non le conosciamo):
 ## 8. Prossimi passi consigliati
 
 1. Decidere se i prezzi sono IVA inclusa o esclusa, con il commercialista (anche su come fatturiamo noi).
-2. Allineare il testo "due mesi in meno" della pagina Informazioni al prezzo annuale reale.
+2. ~~Allineare il testo "due mesi in meno"~~: fatto (vedi §1). Resta da tenere allineato `public/prodotto.html` se i prezzi cambiano.
 3. Chiedere 2-3 preventivi a provider SDI **solo se** si decide di inviare le fatture al posto dell'utente (oggi non è previsto).
 4. Fare 5-10 interviste agli artigiani sulla disponibilità a pagare, prima di fissare A, B o C.
 5. Raccogliere i primi dati reali (attivazioni, passaggi a Pro, disdette) e sostituire questo documento con numeri misurati.
 
 ## 9. Come funzionano i limiti nell'app
 
-Implementazione in `src/billing/`. Prezzi e limite Free vivono in un'unica costante (`src/billing/pricing.ts`), usata dall'app e dalla pagina Informazioni.
+Aggiornato il 4 novembre 2026 sul codice attuale. Implementazione in `src/billing/`. Prezzi e limite Free vivono in un'unica costante (`src/billing/pricing.ts`: `FREE_DOCS_PER_MONTH = 3`, `PRO_PRICE_MONTH = 15`, `PRO_PRICE_YEAR = 120`), usata dall'app e dalla pagina Informazioni; il server ha la sua costante (`server/src/billing/entitlements.ts`) e le due vanno tenute uguali.
 
-- **Gratis**: 3 documenti **nuovi** al mese (preventivi e fatture), contati sul mese di calendario del dispositivo in base a `createdAt`. Le bozze eliminate **non** rimborsano il conteggio. Le note di credito non contano.
-- **Mai bloccati**: modificare un documento esistente, scaricarlo, consultarlo, esportare il backup. Le fatture emesse restano sempre consultabili e stornabili (nota di credito) anche oltre il limite.
-- **Pro**: documenti illimitati e sincronizzazione. Il piano viene letto da `GET /v1/me` quando c'è un account e tenuto in cache locale; se l'app non riesce a riverificarlo (offline, server non raggiungibile) il Pro resta valido per **14 giorni** dall'ultima verifica riuscita, poi si torna al Free finché non ci si riconnette. Il passaggio a Free deciso dal server è immediato. I dati non vengono mai toccati.
+- **Gratis**: 3 documenti **nuovi** al mese (preventivi e fatture), contati sul mese di calendario del dispositivo in base a `createdAt`. Contano anche la **bozza di fattura creata convertendo un preventivo** (`createInvoiceFromQuote`) e i documenti **duplicati**: un preventivo convertito in fattura consuma quindi 2 documenti del mese. Le bozze eliminate **non** rimborsano il conteggio (registro locale `vp:billing:ledger`). Le **note di credito non contano** e non sono mai bloccate.
+- **Mai bloccati**: modificare un documento esistente, scaricarlo, consultarlo, esportare il backup, registrare incassi ed esiti SDI, correggere e rinviare una scartata, stornare con nota di credito. Le fatture emesse restano sempre consultabili e stornabili anche oltre il limite.
+- **Pro**: documenti illimitati e sincronizzazione. Il piano viene letto da `GET /v1/me` quando c'è un account e tenuto in cache locale (`vp:billing:plan`); dopo un sync riuscito `/me` si rilegge se più vecchio di 1 ora; se l'app non riesce a riverificarlo (offline, server non raggiungibile) il Pro resta valido per **14 giorni** dall'ultima verifica riuscita (`OFFLINE_GRACE_MS`), poi si torna al Free finché non ci si riconnette. Il passaggio a Free deciso dal server è immediato. I dati non vengono mai toccati.
 - **Limite "morbido" senza account**: senza account il conteggio è solo sul dispositivo e chi vuole può aggirarlo (cancellando i dati del browser, usando un altro browser). Non è una protezione e non la presentiamo come tale. L'unico limite **vincolante** è quello del server sui documenti sincronizzati: se supera la quota Free il server risponde `quota_exceeded`, il documento resta intero sul dispositivo e l'app lo segnala in "Da controllare" (con "Passa a Pro" e "Riprova").
-- **Differenza di fuso**: l'app conta il mese del dispositivo, il server il mese UTC; a cavallo del mese le due viste possono differire di qualche ora.
-- **Interfaccia**: contatore discreto "Documenti questo mese: 2/3" (nuovo documento e Account), avviso quando resta 1 documento, schermata gentile al raggiungimento del limite (senza conto alla rovescia né testi colpevolizzanti, con "Continua a consultare i documenti" in evidenza).
-- **App nativa (iOS/Android)**: nessun prezzo e nessun pulsante d'acquisto (regola Apple 3.1.1, `docs/MOBILE.md` §7); compare solo "Gestisci il tuo abbonamento dal sito". La sezione prezzi della pagina Informazioni è nascosta.
-- **Pagamento**: da Account, "Passa a Pro" chiama `/v1/billing/checkout`, "Gestisci abbonamento" chiama `/v1/billing/portal`. Al ritorno (`#/account?checkout=success` o `cancel`) l'app interroga `/me` per qualche secondo finché il webhook ha attivato il Pro; il parametro nell'URL da solo non attiva nulla.
+- **Differenza di fuso (corretta)**: l'app conta il mese del dispositivo, il server il mese UTC. Dalla revisione del client (difetto B1) il conteggio del server viene confrontato solo se riguarda il mese UTC corrente (`serverUsedFor`, `periodKey`), così a cavallo del mese nessuno resta bloccato per ore. Resta qualche ora di differenza possibile tra la vista locale e quella del server.
+- **Interfaccia**: contatore discreto "Documenti questo mese: 2/3" (nuovo documento e Account), avviso "Ti resta 1 documento gratuito questo mese", schermata gentile al raggiungimento del limite ("Hai usato i 3 documenti gratuiti di questo mese", con la data di azzeramento, senza conto alla rovescia né testi colpevolizzanti, con "Continua a consultare i documenti" in evidenza). La verifica del limite avviene anche in "Converti in fattura" e "Duplica"; se la verifica non riesce l'utente non viene bloccato.
+- **App nativa (iOS/Android)**: nessun prezzo e nessun pulsante d'acquisto (regola Apple 3.1.1, `docs/MOBILE.md` §7); compare solo "Gestisci il tuo abbonamento dal sito". La sezione prezzi della pagina Informazioni è nascosta. Implementato in `src/billing/platform.ts` (`isNativeApp`) e usato in `LimitGate`, `AccountView`, `LandingPage`; mai provato su un'app nativa vera.
+- **Pagamento**: da Account, "Passa a Pro" chiama `/v1/billing/checkout`, "Gestisci abbonamento" chiama `/v1/billing/portal`. Gli indirizzi di pagamento ricevuti dal server vengono aperti solo se sono https verso `stripe.com` (e sottodomini) o l'host dell'app; per un dominio di pagamento personalizzato va impostato `VITE_PAYMENT_HOSTS` (`src/billing/safeUrl.ts`). Al ritorno (`#/account?checkout=success` o `cancel`) l'app interroga `/me` per qualche secondo finché il webhook ha attivato il Pro; il parametro nell'URL da solo non attiva nulla.
+- **Non provato**: il pagamento reale con Stripe, l'attivazione del Pro dal webhook su un server di produzione, la quota server oltre il Free in condizioni reali (solo test automatici; `docs/QA-REPORT.md`).

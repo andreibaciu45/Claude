@@ -74,17 +74,28 @@ import { docBelongsTo, normalizeCustomerRecord, sameCustomer, seedCustomersFromD
 import type { Customer, QuoteDocument } from '../types';
 
 function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32; }; }
-const VATS = ['', '', '02345678904', '01234567897', 'IT02345678904', ' 0123 4567 897 '];
-const CFS = ['', '', 'BNCMRA80A01H501A', 'RSSMRA85T10A562S'];
-const NAMES = ['Mario Rossi', 'mario  rossi', 'Rossi Srl', 'ROSSI S.r.l.', "D'Angelo", 'Dangelo', 'Verdi Spa', 'Èlite Café'];
-const CITIES = ['', '', 'Milano', 'Roma'];
-
-function randomDocs(r: () => number, n: number): QuoteDocument[] {
+/** Identità coerenti (come nella realtà: una P.IVA va sempre con lo stesso CF); gli ultimi due sono omonimi senza identificativi. */
+const IDENTITIES = [
+  { names: ['Rossi Srl', 'ROSSI S.r.l.', 'rossi  srl'], vat: ['02345678904', 'IT02345678904', ' 0234 5678 904 '], cf: ['02345678904'], city: 'Milano' },
+  { names: ["D'Angelo Mario", 'Dangelo Mario'], vat: ['01234567897'], cf: ['DNGMRA80A01H501Q'], city: 'Roma' },
+  { names: ['Èlite Café Snc'], vat: ['03456789014'], cf: [], city: 'Torino' },
+  { names: ['Mario Verdi'], vat: [], cf: ['VRDMRA70A01F205X'], city: 'Napoli' },
+  { names: ['Mario Bianchi'], vat: [], cf: [], city: 'Genova' },
+  { names: ['Mario Bianchi'], vat: [], cf: [], city: 'Bari' },
+];
+function randomDocs(r: () => number, n: number): { docs: QuoteDocument[]; who: number[] } {
   const pick = <T,>(a: T[]) => a[Math.floor(r() * a.length)];
-  return Array.from({ length: n }, (_, i): QuoteDocument => ({
-    id: `d${i}`, type: 'preventivo', number: `P${i}`, date: '2026-01-01', lines: [], status: 'bozza', createdAt: i + 1, updatedAt: i + 1,
-    customer: { id: `c${Math.floor(r() * 6)}`, name: pick(NAMES), vatNumber: pick(VATS), fiscalCode: pick(CFS), city: pick(CITIES) } as Customer,
-  }));
+  const who: number[] = [];
+  const docs = Array.from({ length: n }, (_, i): QuoteDocument => {
+    const w = Math.floor(r() * IDENTITIES.length); who.push(w);
+    const id = IDENTITIES[w];
+    const c: Customer = { id: `c${Math.floor(r() * 4)}`, name: pick(id.names) };
+    if (id.vat.length && r() < 0.6) c.vatNumber = pick(id.vat);
+    if (id.cf.length && r() < 0.5) c.fiscalCode = pick(id.cf);
+    if (r() < 0.7) c.city = id.city;
+    return { id: `d${i}`, type: 'preventivo', number: `P${i}`, date: '2026-01-01', lines: [], status: 'bozza', createdAt: i + 1, updatedAt: i + 1, customer: c };
+  });
+  return { docs, who };
 }
 const applyTouched = (book: StoredCustomer[], touched: StoredCustomer[]) => {
   const m = new Map(book.map((c) => [c.id, c]));
@@ -93,22 +104,31 @@ const applyTouched = (book: StoredCustomer[], touched: StoredCustomer[]) => {
 };
 
 describe('rubrica: proprietà (seme fisso)', () => {
-  it('il popolamento è idempotente e ogni documento è attribuibile ad almeno una scheda', () => {
-    for (let seed = 1; seed <= 60; seed++) {
+  it('il popolamento è idempotente, ogni documento ha una scheda e nessuna scheda mescola persone diverse', () => {
+    for (let seed = 1; seed <= 120; seed++) {
       const r = rng(seed);
-      const docs = randomDocs(r, 3 + Math.floor(r() * 12));
+      const { docs, who } = randomDocs(r, 3 + Math.floor(r() * 14));
       const first = seedCustomersFromDocuments(docs, [], 1000);
-      const again = seedCustomersFromDocuments(docs, first, 2000);
-      if (again.length) console.log(seed, JSON.stringify(docs.map((d) => [d.id, d.customer.id, d.customer.name, d.customer.vatNumber, d.customer.fiscalCode, d.customer.city])), JSON.stringify(first), JSON.stringify(again));
-      expect(again, `seed ${seed}: seconda esecuzione senza modifiche`).toEqual([]);
       const book = applyTouched([], first);
-      for (const d of docs) {
-        expect(book.some((c) => docBelongsTo(d, c)), `seed ${seed}: documento ${d.id} senza scheda`).toBe(true);
+      expect(seedCustomersFromDocuments(docs, book, 2000), `seed ${seed}: seconda esecuzione senza modifiche`).toEqual([]);
+      for (const d of docs) expect(book.some((c) => docBelongsTo(d, c)), `seed ${seed}: documento ${d.id} senza scheda`).toBe(true);
+      // nessuna contaminazione: P.IVA e CF di una scheda appartengono a una sola identità
+      for (const c of book) {
+        const owners = new Set<number>();
+        docs.forEach((d, i) => {
+          const dc = normalizeCustomerRecord(d.customer);
+          if ((c.vatNumber && dc.vatNumber === c.vatNumber) || (c.fiscalCode && dc.fiscalCode === c.fiscalCode)) owners.add(who[i]);
+        });
+        expect(owners.size, `seed ${seed}: scheda ${c.name} mescola identità ${[...owners]}`).toBeLessThanOrEqual(1);
       }
-      // nessun cliente perso: ogni P.IVA valida presente nei documenti compare in rubrica
-      for (const d of docs) {
-        const v = normalizeCustomerRecord(d.customer).vatNumber;
-        if (v && /^\d{11}$/.test(v)) expect(book.some((c) => c.vatNumber === v), `seed ${seed}: P.IVA ${v} persa`).toBe(true);
+      // i due omonimi (Mario Bianchi, Genova / Bari) non devono finire nella stessa scheda quando la città li distingue
+      const genova = docs.filter((d, i) => who[i] === 4 && d.customer.city);
+      const bari = docs.filter((d, i) => who[i] === 5 && d.customer.city);
+      if (genova.length && bari.length) {
+        const cg = book.find((c) => genova.some((d) => d.customer.city === c.city && docBelongsTo(d, c)));
+        expect(book.filter((c) => c.name === 'Mario Bianchi' && c.city === 'Genova').length, `seed ${seed}`).toBeGreaterThan(0);
+        expect(cg?.city, `seed ${seed}`).toBe('Genova');
+        expect(book.filter((c) => c.name === 'Mario Bianchi' && c.city === 'Bari').length, `seed ${seed}: omonimo di Bari fuso`).toBeGreaterThan(0);
       }
     }
   });
