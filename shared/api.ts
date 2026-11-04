@@ -11,7 +11,7 @@ export interface ApiError { error: { code: string; message: string } }
 export interface AuthRequestBody { email: string }                 // POST /v1/auth/request  -> 204
 export interface TermsAcceptance { termsVersion: string; dpaVersion?: string; acceptedAt?: number }
 /** Errori possibili su verify: 'terms_required' (primo accesso senza accettazione con REQUIRE_TERMS=1), 'terms_version_mismatch' */
-export interface AuthVerifyBody { email: string; code: string; deviceId: string; deviceName?: string; acceptedTerms?: TermsAcceptance }
+export interface AuthVerifyBody { email: string; code: string; deviceId: string; deviceName?: string; acceptedTerms?: TermsAcceptance; /** codice invito monouso (richiesto solo con INVITE_ONLY=1 sul server; errori 403 'invite_required' / 'invite_invalid') */ inviteCode?: string }
 export interface AuthVerifyResponse { token: string; expiresAt: number; tenantId: string }  // POST /v1/auth/verify
 export interface MeResponse {
   email: string; tenantId: string; plan: 'free' | 'pro';
