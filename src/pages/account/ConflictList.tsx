@@ -23,7 +23,9 @@ export function DraftCompare({ draft }: { draft: NonNullable<ConflictItem['draft
   return (
     <div style={a.stack} data-testid="draft-compare">
       <p style={a.muted}>
-        {draft.localDeleted
+        {draft.serverDeleted
+          ? 'Questa bozza è stata cancellata su un altro dispositivo, ma qui l’hai modificata: non cancello nulla senza il tuo ok.'
+          : draft.localDeleted
           ? 'Hai eliminato questa bozza su questo dispositivo, ma un altro dispositivo l’ha modificata.'
           : 'Questa bozza è stata modificata sia qui sia su un altro dispositivo.'}
       </p>
@@ -80,8 +82,8 @@ export function ConflictList({ conflicts, engine, onUpgrade }: { conflicts: Conf
                 {c.reason === 'quota_exceeded' && !native && <Button size="sm" onClick={onUpgrade}>Passa a Pro</Button>}
                 {c.reason === 'quota_exceeded' && native && <span style={a.muted}>Gestisci il tuo abbonamento dal sito.</span>}
                 {c.reason === 'quota_exceeded' && <Button size="sm" variant="secondary" disabled={busy === c.opId} onClick={() => void run(c, 'retry')}>Riprova</Button>}
-                {c.canUseServer && <Button size="sm" variant="secondary" disabled={busy === c.opId} onClick={() => void run(c, 'use-server')}>{c.draft ? 'Usa quella del server' : 'Usa la versione del server'}</Button>}
-                {c.draft && <Button size="sm" variant="secondary" disabled={busy === c.opId} onClick={() => void run(c, 'keep-local')}>{c.draft.localDeleted ? 'Elimina comunque' : 'Tieni la mia'}</Button>}
+                {c.canUseServer && <Button size="sm" variant="secondary" disabled={busy === c.opId} onClick={() => void run(c, 'use-server')}>{c.draft?.serverDeleted ? 'Elimina anche qui' : c.draft ? 'Usa quella del server' : 'Usa la versione del server'}</Button>}
+                {c.draft && <Button size="sm" variant="secondary" disabled={busy === c.opId} onClick={() => void run(c, 'keep-local')}>{c.draft.localDeleted ? 'Elimina comunque' : c.draft.serverDeleted ? 'Ripristina la mia' : 'Tieni la mia'}</Button>}
                 {c.canKeepBoth && <Button size="sm" variant="secondary" disabled={busy === c.opId} onClick={() => void run(c, 'keep-both')}>Tieni entrambe</Button>}
                 {c.draft && c.canKeepBoth && <span style={a.muted}>«Tieni entrambe»: la tua versione diventa una nuova bozza «copia in conflitto», senza numero fiscale; l’originale prende quella del server.</span>}
                 {!c.draft && c.reason !== 'quota_exceeded' && <Button size="sm" variant="ghost" disabled={busy === c.opId} onClick={() => void run(c, 'keep-local')}>Tieni solo la mia, non inviare</Button>}

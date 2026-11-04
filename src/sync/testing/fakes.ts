@@ -23,6 +23,10 @@ export class FakeServer implements ApiClient {
   plan: 'free' | 'pro' = 'free';
   docLimit: number | null = null;
   pageSize = 100;
+  /** server con tombstone ordinati: una modifica con base su una voce cancellata è `stale` SENZA serverVersion */
+  strictTombstones = false;
+  /** dispositivo offline da oltre 180 giorni: una modifica con base su una voce assente è `resync_required` */
+  resyncRequired = false;
   down = false;       // simula rete assente
   unauthorized = false;
   receivedOps: SyncOp[] = [];
@@ -79,6 +83,10 @@ export class FakeServer implements ApiClient {
         }
         if (!existing && this.docLimit !== null && this.count('document') >= this.docLimit) return fail('quota_exceeded', 'Limite del piano Free raggiunto.');
       }
+    }
+    if (op.entity !== 'audit' && (!cur || cur.deleted) && op.baseUpdatedAt !== undefined) {
+      if (this.resyncRequired) return fail('resync_required', 'Dispositivo offline da troppo tempo: riallinea i dati.');
+      if (this.strictTombstones && cur?.deleted) return fail('stale', 'Voce cancellata su un altro dispositivo.');
     }
     if (op.entity !== 'audit' && cur && !cur.deleted && op.baseUpdatedAt !== undefined && cur.updatedAt !== undefined && cur.updatedAt > op.baseUpdatedAt) {
       return fail('stale', 'Versione più recente sul server.', cur.payload);

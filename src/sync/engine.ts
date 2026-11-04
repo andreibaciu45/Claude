@@ -270,8 +270,43 @@ export function createSyncEngine(deps: EngineDeps) {
   }
 
   // ------------------------------------------------------------ push
-  async function handleConflict(rec: OutboxRecord, c: SyncConflict, retried: Set<string>): Promise<void> {
+  /** Riallineamento completo (`resync_required`): 0 = no, 1 = richiesto in questo ciclo, 2 = già fatto (un solo giro per ciclo). */
+  let resyncPhase: 0 | 1 | 2 = 0;
+
+  async function handleConflict(rec: OutboxRecord, c: SyncConflict, retried: Set<string>, goneOk = true): Promise<void> {
     const key = entityKey(rec.entity, rec.entityId);
+    if (c.reason === 'resync_required' && resyncPhase !== 2) {
+      // Dispositivo rimasto offline troppo a lungo: il server non può più fidarsi delle basi delle nostre modifiche. Si riscarica tutto
+      // da cursore 0; la voce rifiutata si "dimentica" come sincronizzata, così il giro successivo la ricrea come NUOVA (nessuna base,
+      // nuova operazione e nuovo clientTs). I dati locali restano intatti; il circuit breaker resta attivo sia in uscita sia in entrata.
+      if (resyncPhase === 0) {
+        resyncPhase = 1;
+        addLog('warn', 'Questo dispositivo non si sincronizzava da molto tempo: riscarico i dati dall’account e ricarico come nuove le tue modifiche locali. Nessun dato locale viene cancellato.');
+      }
+      await removeOps([rec.opId]);
+      await deleteSynced([key]);
+      await setMeta('cursor', '0');
+      return;
+    }
+    if (c.reason === 'stale' && c.serverVersion == null && rec.entity !== 'audit') {
+      // `stale` SENZA versione del server = la voce è stata CANCELLATA altrove (tombstone più recente della nostra modifica)
+      if (rec.op === 'delete') { await removeOps([rec.opId]); await deleteSynced([key]); return; } // già cancellata: obiettivo raggiunto
+      if (rec.entity === 'catalog' && goneOk) {
+        const name = (rec.payload as CatalogItem | undefined)?.name;
+        await store.deleteCatalogItem(rec.entityId);
+        await removeOps([rec.opId]);
+        await deleteSynced([key]);
+        addLog('warn', `Voce di catalogo${name ? ` «${name}»` : ''}: cancellata su un altro dispositivo, rimossa anche qui.`);
+        return;
+      }
+      if (rec.entity === 'profile') {
+        // i dati azienda non si azzerano mai da un tombstone: si ricreano sull'account (contatori e dati fiscali restano al sicuro)
+        await removeOps([rec.opId]);
+        await deleteSynced([key]);
+        addLog('warn', 'Dati azienda: risultavano cancellati su un altro dispositivo; li ho mantenuti e ricaricati sull’account.');
+        return;
+      }
+    }
     const draft = rec.entity === 'document' && !isLockedDoc(rec.payload) && !isLockedDoc(c.serverVersion);
     if (c.reason === 'stale' && draft) {
       // BOZZA: niente last-write-wins silenzioso. La versione locale resta in coda come conflitto con la versione del server.
@@ -376,11 +411,17 @@ export function createSyncEngine(deps: EngineDeps) {
       if (dels.length) await deleteSynced(dels);
       await removeOps([...accepted].filter((id) => byId.has(id)));
       let handled = accepted.size;
+      // voci di catalogo "cancellate altrove": passano dal circuit breaker (mai una cancellazione di massa decisa dal server)
+      const goneKeys = res.conflicts
+        .filter((c) => c.reason === 'stale' && c.serverVersion == null && !accepted.has(c.opId))
+        .map((c) => byId.get(c.opId)).filter((r): r is OutboxRecord => !!r && r.entity === 'catalog' && r.op === 'upsert').map((r) => entityKey(r.entity, r.entityId));
+      const goneOk = !goneKeys.length || !isMassRemoteDelete(goneKeys, await getSynced());
+      if (!goneOk) addLog('warn', `Il server segnala ${goneKeys.length} voci di catalogo cancellate altrove: non le rimuovo da sola, controllale in "Da controllare".`);
       for (const c of res.conflicts) {
         const rec = byId.get(c.opId);
         if (!rec || accepted.has(c.opId)) continue;
         handled++;
-        await handleConflict(rec, c, retried);
+        await handleConflict(rec, c, retried, goneOk);
       }
       if (handled === 0) {
         // il server non ha né accettato né rifiutato: evita il ciclo infinito, riproverà al prossimo giro
@@ -393,6 +434,8 @@ export function createSyncEngine(deps: EngineDeps) {
   // ------------------------------------------------------------ pull
   async function pullAll(my: number): Promise<number> {
     let ignored = 0;
+    let heldDeletes = false;
+    const appliedDeletes = new Set<string>();
     let cursor = ((await getMeta<string>('cursor')) ?? '0') as string;
     for (let guard = 0; guard < 10_000; guard++) {
       alive(my);
@@ -410,8 +453,18 @@ export function createSyncEngine(deps: EngineDeps) {
         // più operazioni sulla stessa entità nella pagina: conta solo l'ultima (le precedenti sono superate)
         const lastByKey = new Map<string, RemoteOp>();
         for (const op of res.ops) lastByKey.set(entityKey(op.entity, op.entityId), op);
+        // tombstone (cancellazioni) dal server: contano su TUTTO il pull; oltre la soglia del circuit breaker non si applicano più
+        // (le copie locali restano, nulla va perso) e il motivo è nel registro.
+        const pageDeletes = [...lastByKey.values()].filter((o) => o.op === 'delete' && (o.entity === 'catalog' || o.entity === 'document')
+          && !dirty.has(entityKey(o.entity, o.entityId)) && local.has(entityKey(o.entity, o.entityId))).map((o) => entityKey(o.entity, o.entityId));
+        if (!heldDeletes && pageDeletes.length && isMassRemoteDelete([...appliedDeletes, ...pageDeletes], synced)) {
+          heldDeletes = true;
+          addLog('warn', 'Il server chiede di cancellare molte voci in una volta: non le cancello da sola, restano su questo dispositivo. Controlla i dati sull’altro dispositivo.');
+        }
         for (const op of lastByKey.values()) {
           const key = entityKey(op.entity, op.entityId);
+          if (heldDeletes && op.op === 'delete' && (op.entity === 'catalog' || op.entity === 'document') && local.has(key) && !dirty.has(key)) { ignored++; continue; }
+          if (op.op === 'delete' && local.has(key) && (op.entity === 'catalog' || op.entity === 'document')) appliedDeletes.add(key);
           if (dirty.has(key)) { await noteDirtyRemote(op, snap, synced, box); continue; } // profilo/catalogo: vince l'ultimo push; bozze: conflitto
           if (op.op === 'upsert' && local.get(key) === hashValue(op.entity === 'profile' ? profilePayload(op.payload as Profile) : op.payload)) {
             done.push(op); // eco di una nostra scrittura: già identico, basta registrarlo
@@ -475,10 +528,19 @@ export function createSyncEngine(deps: EngineDeps) {
 
     set({ phase: 'syncing', error: null });
     try {
+      resyncPhase = 0;
       await runScan();
       await pushAll(my);
-      const ignored = await pullAll(my);
+      let ignored = await pullAll(my);
       alive(my);
+      if ((resyncPhase as number) === 1) {
+        // riallineamento completo: dopo il pull da cursore 0 le voci rifiutate si ricreano come nuove
+        resyncPhase = 2;
+        await runScan();
+        await pushAll(my);
+        ignored += await pullAll(my);
+        alive(my);
+      }
       const now = deps.now();
       await setMeta('lastSyncAt', now);
       await refreshCounts();
@@ -666,10 +728,11 @@ export function createSyncEngine(deps: EngineDeps) {
     const server = rec.conflict?.serverVersion;
     const key = entityKey(rec.entity, rec.entityId);
     const draftStale = isDraftStale(rec);
+    const goneElsewhere = rec.op === 'upsert' && rec.conflict?.reason === 'stale' && server == null;
     const requeue = async () => {
       // nuova operazione con base = versione del server: ora il server la accetterà e la nostra versione prevale
       await removeOps([rec.opId]);
-      const base = updatedAtOf(server) ?? rec.baseUpdatedAt;
+      const base = goneElsewhere ? undefined : updatedAtOf(server) ?? rec.baseUpdatedAt; // cancellata altrove: si ricrea come nuova
       if (rec.op === 'delete') await enqueueDelete({ entity: rec.entity, entityId: rec.entityId, baseUpdatedAt: base });
       else await enqueueUpsert({ entity: rec.entity, entityId: rec.entityId, payload: rec.payload, baseUpdatedAt: base, hash: rec.hash });
     };
@@ -681,7 +744,13 @@ export function createSyncEngine(deps: EngineDeps) {
       }
       await removeOps([rec.opId]);
     };
-    if (choice === 'use-server') {
+    if (choice === 'use-server' && goneElsewhere && draftStale) {
+      // "Elimina anche qui": la bozza è stata cancellata altrove, la si cancella anche in locale (scelta esplicita dell'utente)
+      await store.deleteDocument(rec.entityId);
+      await deleteSynced([key]);
+      await removeOps([rec.opId]);
+      addLog('info', `${labelOf(rec)}: per scelta tua la bozza cancellata su un altro dispositivo è stata eliminata anche qui.`);
+    } else if (choice === 'use-server') {
       if (!server) throw new Error('Nessuna versione del server disponibile.');
       await useServer();
     } else if (choice === 'keep-both') {
