@@ -308,19 +308,24 @@ function reopenNow(): Promise<IDBPDatabase> {
   if (timer) { clearTimeout(timer); timer = null; }
   if (typeof indexedDB === 'undefined') return Promise.reject(new StorageUnavailableError('no-indexeddb'));
   __patchStorageState({ retrying: true });
-  reopening = (async () => {
+  const attempt = (async () => {
+    await Promise.resolve(); // mai sincrona: `reopening` è assegnato prima di poter essere azzerato
     try {
       const nd = await openConnection();
       onOpened(nd);
       return nd;
     } catch (e) {
+      console.warn('[storage] riapertura dell\'archivio fallita:', e);
       const r = classifyStorageError(e) ?? 'open-failed';
       __patchStorageState({ persistent: false, lostReason: everOpened ? (isLostReason(r) ? r : 'connection-closed') : 'open-failed', retrying: true });
       scheduleReopen();
       throw new StorageUnavailableError(everOpened ? r : 'open-failed', undefined, e);
-    } finally { reopening = null; }
+    }
   })();
-  return reopening;
+  reopening = attempt;
+  const clear = (): void => { if (reopening === attempt) reopening = null; };
+  attempt.then(clear, clear);
+  return attempt;
 }
 
 async function requestPersistence(): Promise<void> {

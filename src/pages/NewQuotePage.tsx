@@ -133,10 +133,12 @@ export default function NewQuotePage() {
 
   /* ---------- bozza locale ---------- */
   const draftReady = !loading && !loadError && !editId;
+  const draftSavedRef = useRef(false); // dopo il salvataggio del documento l'autosalvataggio della bozza locale non deve più scrivere
   useEffect(() => {
     if (!draftReady) return;
     const meaningful = text.trim() || lines.length || customer.name.trim() || notes.trim();
     const t = window.setTimeout(() => {
+      if (draftSavedRef.current) return;
       if (meaningful) saveDraft({ stage, type, transcript: text, customer, lines, notes, savedAt: Date.now() });
       else clearDraft();
     }, 400);
@@ -222,7 +224,7 @@ export default function NewQuotePage() {
   const restart = () => {
     if ((lines.length || customer.name) && !window.confirm('Ricominciare? Le righe attuali andranno perse.')) return;
     setLines([]); setCustomer(emptyCustomer()); setNotes(''); setText(''); setLeftovers([]); setHint(null); setWarnings([]); setLineMeta({}); setRefPrev(false);
-    baseRef.current = ''; speech.reset(); clearDraft(); setStage('input');
+    baseRef.current = ''; speech.reset(); draftSavedRef.current = false; clearDraft(); setStage('input');
   };
 
   const pickCustomer = (c: Customer) => {
@@ -291,6 +293,7 @@ export default function NewQuotePage() {
       };
       await saveDocument(doc);
       recordDocumentCreated(doc.id, doc.createdAt);
+      draftSavedRef.current = true;
       clearDraft();
       nav(`/documenti/${doc.id}`);
     } catch (e) {

@@ -121,7 +121,7 @@ describe('CLI grant-pro / revoke-pro', () => {
     expect(getPlan(tenantId)).toBe('pro');
     const row = one<any>("SELECT * FROM admin_actions WHERE action='grant_pro'")!;
     expect(row).toMatchObject({ tenant_id: tenantId, note: 'beta tester' });
-    expect(row.until_at - row.at).toBe(30 * DAY);
+    expect(Math.abs(row.until_at - row.at - 30 * DAY)).toBeLessThan(1000); // now() è letto due volte (calcolo scadenza e registrazione): possibili pochi ms di differenza
     expect(JSON.stringify(row)).not.toContain('mario'); // niente email nel registro
 
     const target = new Date(Date.now() + 400 * DAY).toISOString().slice(0, 10);

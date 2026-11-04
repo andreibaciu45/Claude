@@ -89,6 +89,23 @@ describe('connessione chiusa dopo un\'apertura riuscita', () => {
   });
 });
 
+describe('riapertura', () => {
+  it('"Riprova" funziona dopo un tentativo fallito (anche se l\'apertura fallisce in modo sincrono)', async () => {
+    __setBackoffForTests(100000);
+    const F = (globalThis as unknown as { IDBFactory: { prototype: { open: (...a: unknown[]) => unknown } } }).IDBFactory.prototype;
+    vi.spyOn(proto(), 'transaction').mockImplementation(() => { throw dom('InvalidStateError'); });
+    const open = vi.spyOn(F, 'open').mockImplementation(() => { throw dom('InvalidStateError'); });
+    await expect(listDocuments()).rejects.toBeInstanceOf(StorageUnavailableError);
+    expect(await retryStorage()).toBe(false);
+    expect(await retryStorage()).toBe(false);
+    vi.restoreAllMocks();
+    open.mockRestore();
+    expect(await retryStorage()).toBe(true);
+    expect(getStorageHealth()).toBe('ok');
+    expect((await listDocuments()).length).toBe(1);
+  });
+});
+
 describe('errori di scrittura (spazio pieno, transazione annullata)', () => {
   it('QuotaExceededError: errore esplicito, stato "degraded", niente memoria; torna "ok" al prossimo salvataggio riuscito', async () => {
     const OS = (globalThis as unknown as { IDBObjectStore: { prototype: { put: (...a: unknown[]) => unknown } } }).IDBObjectStore.prototype;

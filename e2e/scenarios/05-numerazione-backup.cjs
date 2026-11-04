@@ -72,7 +72,8 @@ run('05-numerazione-backup', async (S) => {
   await go(page, '/backup');
   await page.locator('input[aria-label="File di backup"]').setInputFiles(bk.path);
   await S.shot(page, 'conferma ripristino');
-  await page.getByRole('button', { name: 'Sì, sostituisci i dati' }).click();
+  { const ok = page.getByRole('checkbox', { name: /Ho capito/ }); if (await ok.count()) await ok.check(); }
+  await page.getByRole('button', { name: /Sì, sostituisci i dati|Ripristina i dati/ }).click();
   await page.locator('.toast', { hasText: 'Dati ripristinati' }).first().waitFor();
   await S.shot(page, 'ripristinato (backup vecchio)');
   const warn = await page.locator('main').innerText();
@@ -102,7 +103,8 @@ run('05-numerazione-backup', async (S) => {
   S.check('dopo svuotamento: nessun documento', /Ancora nessun documento/.test(await page.locator('main').innerText()));
   await go(page, '/backup');
   await page.locator('input[aria-label="File di backup"]').setInputFiles(bk.path);
-  await page.getByRole('button', { name: 'Sì, sostituisci i dati' }).click();
+  { const ok = page.getByRole('checkbox', { name: /Ho capito/ }); if (await ok.count()) await ok.check(); }
+  await page.getByRole('button', { name: /Sì, sostituisci i dati|Ripristina i dati/ }).click();
   await page.locator('.toast', { hasText: 'Dati ripristinati' }).first().waitFor();
   await go(page, '/documenti');
   await S.shot(page, 'ripristinato dopo svuotamento');

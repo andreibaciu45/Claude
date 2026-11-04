@@ -26,17 +26,18 @@ if (process.env.NODE_ENV === 'production') {
 if (process.env.INVITE_ONLY === '1') logEvent('info', 'invite_only_enabled', { hint: 'registrazioni solo con codice invito (admin.ts create-invite-code)' });
 
 const port = Number(process.env.PORT ?? 8787);
+// Il messaggio «in ascolto» esce quando la porta è DAVVERO aperta (prima usciva subito dopo serve(): chi aspetta il messaggio per collegarsi,
+// per esempio un orchestratore o i test, poteva ricevere ECONNREFUSED).
 const server = serve({
   fetch: createApp().fetch, port, hostname: process.env.HOST ?? '127.0.0.1',
   serverOptions: { maxHeaderSize: 16 * 1024 },
-});
+}, () => console.log(`server in ascolto su :${port}`));
 // Timeout anti-slowloris: intestazioni entro 15 s, richiesta completa (incluso audio) entro 60 s, keep-alive breve.
 const srv = server as unknown as { headersTimeout: number; requestTimeout: number; keepAliveTimeout: number; maxRequestsPerSocket: number };
 srv.headersTimeout = 15_000;
 srv.requestTimeout = 60_000;
 srv.keepAliveTimeout = 5_000;
 srv.maxRequestsPerSocket = 1000;
-console.log(`server in ascolto su :${port}`);
 const stopSdiWorker = startSdiWorker();
 const stopMaintenance = startMaintenance();
 // Arresto ordinato entro 10 s (SHUTDOWN_TIMEOUT_MS): drena le richieste, ferma i worker, chiude il DB. Systemd: TimeoutStopSec >= 15.
