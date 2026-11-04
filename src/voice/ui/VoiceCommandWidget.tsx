@@ -3,7 +3,7 @@
  * "Intendevi…?", scelta del documento, scheda di conferma (pressione prolungata per le azioni irreversibili) e risultato.
  * Alternativa testuale sempre disponibile ("Scrivi un comando").
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Badge, Button, Icon, Input, Sheet, Spinner, useToast } from '../../ui';
 import { listCatalog, listDocuments } from '../../storage';
@@ -17,25 +17,28 @@ import {
 import { useVoiceInput } from '../provider';
 import type { DocChoice } from '../resolve';
 import type { Command, ScoredCommand } from '../types';
+import { registerBusy, unregisterBusy, withBusy } from '../../pwa/busy';
+import { EXAMPLE_GROUPS } from '../examples';
+import { hasVoicePrivacyAck, setVoicePrivacyAck } from '../privacy';
+import { isNativeSpeechAvailable } from '../provider/native';
 import { useVoiceFabHidden } from './fabVisibility';
+import { VoicePrivacyDialog } from './VoicePrivacyDialog';
 import './voice.css';
+
+const HELP_SEEN_KEY = 'vp.voiceHelpSeen';
+const helpSeen = (): boolean => { try { return localStorage.getItem(HELP_SEEN_KEY) === '1'; } catch { return false; } };
+const markHelpSeen = (): void => { try { localStorage.setItem(HELP_SEEN_KEY, '1'); } catch { /* ignora */ } };
 
 type View =
   | { kind: 'closed' }
+  /** informativa microfono prima del primo ascolto; `back` = vista a cui tornare */
+  | { kind: 'privacy'; back: View }
   | { kind: 'listen' }
   | { kind: 'working'; heard: string }
   | { kind: 'message'; tone: 'info' | 'error' | 'success'; title: string; text?: string; issues?: string[]; hint?: string; items?: DocChoice[] }
   | { kind: 'disambiguate'; heard: string; options: ScoredCommand[]; conflicting: boolean }
   | { kind: 'choose'; message: string; choices: Array<DocChoice & { command: Command }> }
   | { kind: 'confirm'; pending: PendingConfirmation };
-
-const EXAMPLES = [
-  'Nuovo preventivo per Rossi, tre metri di tubo rame',
-  'Converti il preventivo 8 in fattura',
-  'Emetti la fattura',
-  'Segna la fattura 12 come pagata',
-  'Apri l’ultimo preventivo',
-];
 
 export function VoiceCommandWidget() {
   const nav = useNavigate();
@@ -111,7 +114,10 @@ export function VoiceCommandWidget() {
 
   const runConfirmed = useCallback(async (p: PendingConfirmation, token: Confirmation) => {
     setView({ kind: 'working', heard: p.summary.headline });
-    try { finish(await executeCommand(p.command, ctx(), token)); } catch (e) { fail(e); }
+    // 'voice-command': finché il comando è in esecuzione l'app non si ricarica (rilasciato sempre, anche in caso di errore)
+    await withBusy('voice-command', async () => {
+      try { finish(await executeCommand(p.command, ctx(), token)); } catch (e) { fail(e); }
+    });
   }, [ctx, fail, finish]);
 
   const handleCommand = useCallback(async (command: Command) => {
@@ -123,14 +129,16 @@ export function VoiceCommandWidget() {
       return;
     }
     setView({ kind: 'working', heard: describeCommand(command) });
-    try {
-      const plan = await planCommand(command, ctx());
-      if (plan.status === 'blocked') { setView({ kind: 'message', tone: 'error', title: plan.message, issues: plan.issues, hint: plan.hint }); return; }
-      if (plan.status === 'choose') { setView({ kind: 'choose', message: plan.message, choices: plan.choices }); return; }
-      const g = gate(plan.command, plan.target);
-      if (g.kind === 'execute') { finish(await executeCommand(plan.command, ctx())); return; }
-      setView({ kind: 'confirm', pending: createConfirmation(plan.command, plan.summary) });
-    } catch (e) { fail(e); }
+    await withBusy('voice-command', async () => {
+      try {
+        const plan = await planCommand(command, ctx());
+        if (plan.status === 'blocked') { setView({ kind: 'message', tone: 'error', title: plan.message, issues: plan.issues, hint: plan.hint }); return; }
+        if (plan.status === 'choose') { setView({ kind: 'choose', message: plan.message, choices: plan.choices }); return; }
+        const g = gate(plan.command, plan.target);
+        if (g.kind === 'execute') { finish(await executeCommand(plan.command, ctx())); return; }
+        setView({ kind: 'confirm', pending: createConfirmation(plan.command, plan.summary) });
+      } catch (e) { fail(e); }
+    });
   }, [ctx, fail, finish, runUndo]);
 
   const handleTranscript = useCallback(async (text: string, nBest: string[] = []) => {
@@ -185,11 +193,33 @@ export function VoiceCommandWidget() {
     } catch { /* il vocabolario è solo un aiuto */ }
   }, []);
 
-  const startListening = useCallback(() => {
+  const beginListening = useCallback(() => {
     if (viewRef.current.kind === 'closed') setView({ kind: 'listen' });
     void ensureVocab();
     voice.start();
   }, [ensureVocab, voice]);
+
+  const startListening = useCallback(() => {
+    const cur = viewRef.current;
+    if (cur.kind === 'privacy') return; // l'informativa è già a schermo
+    if (voice.listening || voice.state === 'processing') return; // doppio avvio
+    // informativa sul microfono: una sola volta, prima del primo ascolto (se non c'è microfono non serve)
+    if (voice.kind !== 'none' && !hasVoicePrivacyAck()) { setView({ kind: 'privacy', back: cur }); return; }
+    beginListening();
+  }, [beginListening, voice.kind, voice.listening, voice.state]);
+
+  const leavePrivacy = useCallback((): void => {
+    const cur = viewRef.current;
+    const back = cur.kind === 'privacy' ? cur.back : cur;
+    setView(back.kind === 'closed' || back.kind === 'privacy' ? { kind: 'listen' } : back);
+  }, []);
+  const acceptPrivacy = useCallback(() => {
+    setVoicePrivacyAck();
+    leavePrivacy();
+    void ensureVocab();
+    voice.start();
+  }, [ensureVocab, leavePrivacy, voice]);
+  const declinePrivacy = leavePrivacy;
 
   const stopListening = useCallback(() => { voice.stop(); }, [voice]);
 
@@ -210,6 +240,17 @@ export function VoiceCommandWidget() {
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
   }, [voice]);
+
+  // cambio rotta durante l'ascolto o con una scheda aperta: si ferma il microfono e si chiude ciò che riguardava la pagina
+  // precedente (un comando in esecuzione, "working", prosegue e porta da solo alla rotta di destinazione)
+  const lastPath = useRef(loc.pathname);
+  useEffect(() => {
+    if (lastPath.current === loc.pathname) return;
+    lastPath.current = loc.pathname;
+    voice.cancel();
+    const v = viewRef.current;
+    if (v.kind !== 'closed' && v.kind !== 'working') setView({ kind: 'closed' });
+  }, [loc.pathname, voice]);
 
   // la scheda si chiude da sola dopo un minuto
   useEffect(() => {
@@ -245,7 +286,7 @@ export function VoiceCommandWidget() {
 
   const fabState = voice.state === 'processing' || view.kind === 'working' ? 'processing' : voice.listening ? 'listening' : 'idle';
   const sheetTitle = {
-    closed: '', listen: 'Comando vocale', working: 'Un attimo…', message: 'Comando vocale', disambiguate: 'Intendevi…?', choose: 'Quale documento?',
+    closed: '', privacy: '', listen: 'Comando vocale', working: 'Un attimo…', message: 'Comando vocale', disambiguate: 'Intendevi…?', choose: 'Quale documento?',
     confirm: view.kind === 'confirm' ? view.pending.summary.headline : '',
   }[view.kind];
 
@@ -270,7 +311,11 @@ export function VoiceCommandWidget() {
         </div>
       )}
 
-      <Sheet open={view.kind !== 'closed'} onClose={close} title={sheetTitle}>
+      {view.kind === 'privacy' && (
+        <VoicePrivacyDialog variant={isNativeSpeechAvailable() ? 'native' : 'web'} onAccept={acceptPrivacy} onDecline={declinePrivacy} />
+      )}
+
+      <Sheet open={view.kind !== 'closed' && view.kind !== 'privacy'} onClose={close} title={sheetTitle}>
         <div className="vc-body">
           {view.kind === 'listen' && (
             <ListenView
@@ -369,8 +414,32 @@ function ListenView(p: {
           <span className="vc-hint">Cantiere rumoroso: registra e trascrivi con il server{p.usesServer ? ' (attivo)' : ''}</span>
         </label>
       )}
-      <ul className="vc-examples" aria-label="Esempi di comandi">{EXAMPLES.map((x) => <li key={x}>{x}</li>)}</ul>
+      <HelpPanel />
     </>
+  );
+}
+
+/** «Cosa posso dire?»: aperto al primo uso, poi richiamabile con il pulsante. Esempi verificati contro il classificatore. */
+function HelpPanel() {
+  const [open, setOpen] = useState(() => !helpSeen());
+  const id = useId();
+  useEffect(() => { if (open) markHelpSeen(); }, [open]);
+  return (
+    <div className="vc-help">
+      <Button variant="ghost" size="sm" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
+        <Icon name="info" size={18} /> Cosa posso dire?
+      </Button>
+      {open && (
+        <div id={id} role="region" aria-label="Cosa posso dire?">
+          {EXAMPLE_GROUPS.map((g) => (
+            <section key={g.title} aria-label={g.title}>
+              <h3 className="vc-help-title">{g.title}</h3>
+              <ul className="vc-examples">{g.items.map((x) => <li key={x.say}>«{x.say}»{x.note ? <small> — {x.note}</small> : null}</li>)}</ul>
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -447,17 +516,23 @@ function ConfirmView({ pending, onTap, onHold, onListen, onStop, listening, part
   );
 }
 
-/** Pulsante a pressione prolungata: conferma solo dopo HOLD_CONFIRM_MS di pressione continua (tocco, mouse o tasto Invio/Spazio). */
+/**
+ * Pulsante a pressione prolungata: conferma solo dopo HOLD_CONFIRM_MS di pressione continua (tocco, mouse o tasto Invio/Spazio).
+ * Per tutta la pressione è registrato il lavoro 'hold-confirm' (l'app non si aggiorna a metà); il rilascio avviene in UN solo punto
+ * (`release`) ed è garantito: rilascio, pointercancel, perdita del fuoco/della pagina, ESC, completamento e smontaggio.
+ */
 function HoldButton({ label, onComplete }: { label: string; onComplete: (heldMs: number) => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   const start = useRef<number | null>(null);
   const raf = useRef<number | null>(null);
   const done = useRef(false);
-  const stop = () => {
+  const registered = useRef(false);
+  const release = () => {
     start.current = null;
     if (raf.current) cancelAnimationFrame(raf.current);
     raf.current = null;
     ref.current?.style.setProperty('--hold', '0');
+    if (registered.current) { registered.current = false; unregisterBusy('hold-confirm'); }
   };
   const tick = () => {
     if (start.current === null) return;
@@ -465,9 +540,8 @@ function HoldButton({ label, onComplete }: { label: string; onComplete: (heldMs:
     ref.current?.style.setProperty('--hold', String(Math.min(1, held / HOLD_CONFIRM_MS)));
     if (held >= HOLD_CONFIRM_MS && !done.current) {
       done.current = true;
-      const h = held;
-      stop();
-      onComplete(h);
+      // prima si avvia il comando (registra 'voice-command'), poi si rilascia 'hold-confirm': nessun varco in cui l'app risulti libera
+      try { onComplete(held); } finally { release(); }
       return;
     }
     raf.current = requestAnimationFrame(tick);
@@ -475,17 +549,34 @@ function HoldButton({ label, onComplete }: { label: string; onComplete: (heldMs:
   const begin = () => {
     if (start.current !== null || done.current) return;
     start.current = performance.now();
+    if (!registered.current) { registered.current = true; registerBusy('hold-confirm'); }
     raf.current = requestAnimationFrame(tick);
   };
-  useEffect(() => () => { if (raf.current) cancelAnimationFrame(raf.current); }, []);
+  const cancelHold = () => { release(); done.current = false; };
+  const releaseRef = useRef(cancelHold);
+  releaseRef.current = cancelHold;
+  useEffect(() => {
+    const off = () => releaseRef.current();
+    const onVis = () => { if (document.visibilityState !== 'visible') off(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') off(); };
+    window.addEventListener('blur', off);
+    document.addEventListener('visibilitychange', onVis);
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('blur', off);
+      document.removeEventListener('visibilitychange', onVis);
+      document.removeEventListener('keydown', onKey, true);
+      releaseRef.current(); // smontaggio (chiusura scheda, cambio rotta, scadenza)
+    };
+  }, []);
   return (
     <button
       ref={ref} type="button" className="vc-hold" aria-describedby="vc-hold-help"
       onPointerDown={(e) => { e.preventDefault(); (e.target as Element).setPointerCapture?.(e.pointerId); begin(); }}
-      onPointerUp={() => { stop(); done.current = false; }} onPointerCancel={stop} onPointerLeave={stop} onContextMenu={(e) => e.preventDefault()}
+      onPointerUp={cancelHold} onPointerCancel={cancelHold} onLostPointerCapture={cancelHold} onPointerLeave={cancelHold} onContextMenu={(e) => e.preventDefault()}
       onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !e.repeat) { e.preventDefault(); begin(); } }}
-      onKeyUp={(e) => { if (e.key === 'Enter' || e.key === ' ') { stop(); done.current = false; } }}
-      onBlur={stop}
+      onKeyUp={(e) => { if (e.key === 'Enter' || e.key === ' ') cancelHold(); }}
+      onBlur={cancelHold}
     >
       <span>{label}</span>
       <span id="vc-hold-help" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Tieni premuto per un secondo senza rilasciare.</span>

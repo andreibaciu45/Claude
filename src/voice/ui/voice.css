@@ -52,3 +52,7 @@ body:has(.qe-undo) .vc-undo { bottom: calc(var(--stack-top) + 64px); }
 .vc-undo-inner { pointer-events: auto; display: flex; align-items: center; gap: var(--sp-3); background: var(--c-text); color: var(--c-bg); padding: 6px 6px 6px var(--sp-4); border-radius: var(--r-md); box-shadow: var(--shadow-2); max-width: 480px; font-weight: 600; animation: slideup .2s ease; }
 .vc-undo-inner button { min-height: 44px; padding: 0 var(--sp-4); border: 0; border-radius: var(--r-sm); background: var(--c-accent); color: var(--c-on-accent); font: inherit; font-weight: 800; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .vc-fab, .vc-undo-inner { animation: none; transition: none; } .vc-fab[data-state="listening"]::after { animation: none; } }
+
+.vc-help { display: grid; gap: var(--sp-2); }
+.vc-help-title { margin: var(--sp-2) 0 2px; font-size: var(--fs-sm); font-weight: 700; color: var(--c-text); }
+.vc-examples small { color: var(--c-text-2); }

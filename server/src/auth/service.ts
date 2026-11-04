@@ -12,7 +12,7 @@ export const OTP_TTL_MS = 10 * 60_000;
 export const otpDigits = (): number => { const n = Number(process.env.OTP_DIGITS); return Number.isInteger(n) && n >= 6 && n <= 10 ? n : 8; };
 /** Tentativi massimi per singolo codice (somma di tutti i dispositivi e IP): oltre, il codice è invalidato anche se poi arriva quello giusto.
  *  Configurabile con OTP_MAX_ATTEMPTS (default 5). Il freno globale per email è in auth/guard.ts. */
-export const otpMaxAttempts = (): number => { const n = Number(process.env.OTP_MAX_ATTEMPTS); return Number.isInteger(n) && n >= 1 && n <= 50 ? n : 5; };
+export const otpMaxAttempts = (): number => { const n = Number(process.env.OTP_MAX_ATTEMPTS); return Number.isInteger(n) && n >= 1 && n <= 10_000 ? n : 5; };
 export const OTP_MAX_ATTEMPTS = 5; // valore di default (compatibilità con i test e i riferimenti esterni); il valore effettivo è otpMaxAttempts()
 /** Codici validi contemporaneamente per email: una nuova richiesta NON invalida subito i precedenti (altrimenti chiunque potrebbe
  *  annullare il codice appena inviato alla vittima), ma i più vecchi oltre il terzo sì. */

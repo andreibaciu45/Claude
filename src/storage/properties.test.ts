@@ -85,7 +85,7 @@ describe('numerazione senza buchi sotto operazioni casuali', () => {
       const by = seqs(docs);
       expect(by['FT-2026']?.length ?? 0, 'lo scenario deve emettere almeno una fattura (test non vacuo)').toBeGreaterThan(0);
       for (const [key, list] of Object.entries(by)) expect(list, `${key}: ${list.join(',')}`).toEqual(list.map((_, i) => i + 1));
-      const counters = (await getProfile()).invoiceYearCounters;
+      const counters = (await getProfile()).invoiceYearCounters ?? {};
       for (const [key, list] of Object.entries(by)) expect(counters[key], key).toBe(list.length);
       // il testo del numero è coerente con seq/sezionale/anno
       for (const d of docs) {
@@ -156,12 +156,12 @@ describe('backup: round-trip', () => {
   it('un backup più vecchio non fa scendere i contatori né riusa numeri già emessi', async () => {
     await populate(31);
     const oldJson = await exportBackup();
-    const oldCounters = (await getProfile()).invoiceYearCounters;
+    const oldCounters = (await getProfile()).invoiceYearCounters ?? {};
     // dopo il backup si emettono altre fatture
     for (let i = 0; i < 3; i++) { await saveDocument(draftData(`dopo${i}`, '2026-12-20')); await issueInvoice(`dopo${i}`); }
-    const newer = (await getProfile()).invoiceYearCounters;
+    const newer = (await getProfile()).invoiceYearCounters ?? {};
     await importBackup(oldJson);
-    const restored = (await getProfile()).invoiceYearCounters;
+    const restored = (await getProfile()).invoiceYearCounters ?? {};
     for (const [k, v] of Object.entries(newer)) expect(restored[k] ?? 0, k).toBeGreaterThanOrEqual(v);
     for (const [k, v] of Object.entries(oldCounters)) expect(restored[k] ?? 0, k).toBeGreaterThanOrEqual(v);
     // la prossima emissione non riusa un numero già assegnato
