@@ -264,6 +264,86 @@ registerMigration(5, 'issued_number_index', `
 CREATE INDEX idx_documents_issued_number ON documents(tenant_id, number) WHERE locked_at IS NOT NULL;
 `);
 
+registerMigration(6, 'audit_retention', `
+-- Retention dell'audit. Ogni voce ha una CLASSE: retain=1 (fiscale: fatture emesse, SDI, consensi, account) non si elimina mai;
+-- retain=0 (voice_command, bozze, accessi, catalogo, profilo) si puo' aggregare in audit_daily e potare dopo AUDIT_RETENTION_DAYS.
+-- recorded_at = orologio del SERVER all'inserimento (l'\`at\` delle voci del client e' dichiarato dal client e non fa fede per la potatura).
+-- I trigger append-only restano: UPDATE sempre vietato; DELETE ammesso SOLO per righe retain=0 piu' vecchie del limite scritto in audit_prune_ctl,
+-- che esiste soltanto DENTRO la transazione di potatura (se la transazione fallisce, sparisce con lei).
+DROP TRIGGER trg_audit_no_update;
+DROP TRIGGER trg_audit_no_delete;
+ALTER TABLE audit_log ADD COLUMN retain INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE audit_log ADD COLUMN recorded_at INTEGER NOT NULL DEFAULT 0;
+UPDATE audit_log SET recorded_at = at;
+UPDATE audit_log SET retain = 0 WHERE action LIKE 'auth.%' OR action LIKE 'sync.catalog.%' OR action LIKE 'sync.profile.%'
+  OR action LIKE 'sync.audit.%' OR action = 'client.voice_command';
+UPDATE audit_log SET retain = 0 WHERE retain = 1 AND (action LIKE 'sync.document.%' OR action LIKE 'client.%')
+  AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.tenant_id = audit_log.tenant_id AND d.id = audit_log.entity_id AND d.locked_at IS NOT NULL);
+CREATE INDEX idx_audit_prunable ON audit_log(tenant_id, id) WHERE retain = 0;
+CREATE INDEX idx_audit_prunable_at ON audit_log(recorded_at) WHERE retain = 0;
+CREATE INDEX idx_audit_fiscal_entity ON audit_log(tenant_id, entity_id) WHERE retain = 1 AND entity_id IS NOT NULL;
+
+CREATE TABLE audit_prune_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), cutoff_at INTEGER NOT NULL);
+-- Conteggi delle voci potate (nessun contenuto): tenant, giorno, azione.
+CREATE TABLE audit_daily (
+  tenant_id TEXT NOT NULL, day TEXT NOT NULL, action TEXT NOT NULL, n INTEGER NOT NULL,
+  PRIMARY KEY (tenant_id, day, action)
+);
+
+CREATE TRIGGER trg_audit_no_update BEFORE UPDATE ON audit_log
+BEGIN SELECT RAISE(ABORT, 'audit_log append-only: UPDATE vietato'); END;
+-- COALESCE: senza riga di controllo il confronto sarebbe NULL e NOT(NULL) disattiverebbe il trigger (vedi CODE-REVIEW-SERVER).
+CREATE TRIGGER trg_audit_no_delete BEFORE DELETE ON audit_log
+WHEN NOT (OLD.retain = 0 AND OLD.recorded_at < COALESCE((SELECT cutoff_at FROM audit_prune_ctl WHERE id = 1), 0))
+BEGIN SELECT RAISE(ABORT, 'audit_log append-only: DELETE vietato'); END;
+`);
+
+registerMigration(7, 'fiscal_chain', `
+-- Catena di hash per tenant sulle EMISSIONI (rilevazione di manomissioni a DB spento: righe cancellate, rinumerate o riordinate).
+-- received_at = orologio del SERVER alla prima ricezione della fattura emessa (il lockedAt del client e' solo dichiarato).
+CREATE TABLE fiscal_chain (
+  tenant_id TEXT NOT NULL,
+  n INTEGER NOT NULL,
+  doc_id TEXT NOT NULL,
+  sectional TEXT NOT NULL,
+  year INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  number TEXT,
+  client_locked_at INTEGER NOT NULL,
+  received_at INTEGER NOT NULL,
+  legacy INTEGER NOT NULL DEFAULT 0,   -- 1 = agganciata a posteriori (fattura emessa prima dell'introduzione della catena)
+  prev_hash TEXT NOT NULL,
+  hash TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, n)
+);
+CREATE UNIQUE INDEX uq_fiscal_chain_doc ON fiscal_chain(tenant_id, doc_id);
+CREATE TRIGGER trg_fiscal_chain_no_update BEFORE UPDATE ON fiscal_chain
+BEGIN SELECT RAISE(ABORT, 'fiscal_chain append-only: UPDATE vietato'); END;
+CREATE TRIGGER trg_fiscal_chain_no_delete BEFORE DELETE ON fiscal_chain
+BEGIN SELECT RAISE(ABORT, 'fiscal_chain append-only: DELETE vietato'); END;
+`);
+
+registerMigration(8, 'otp_guard', `
+-- Difesa globale per email contro l'indovinare l'OTP da molti IP: cooldown crescente sulle sole VERIFICHE (mai sull'invio dei codici).
+-- email_hash = HMAC(AUTH_SECRET, email): non invertibile con un dizionario.
+CREATE TABLE otp_guard (
+  email_hash TEXT PRIMARY KEY,
+  fails INTEGER NOT NULL,
+  level INTEGER NOT NULL DEFAULT 0,
+  locked_until INTEGER NOT NULL DEFAULT 0,
+  alerted_at INTEGER,
+  updated_at INTEGER NOT NULL
+);
+-- Reti da cui l'utente ha gia' completato un accesso (HMAC di email e IP/rete, max 5 per email, 30 giorni): corsia privilegiata
+-- che non subisce il cooldown globale, cosi' un attacco distribuito non puo' chiudere fuori il legittimo proprietario.
+CREATE TABLE otp_trusted_ips (
+  email_hash TEXT NOT NULL,
+  ip_hash TEXT NOT NULL,
+  last_ok_at INTEGER NOT NULL,
+  PRIMARY KEY (email_hash, ip_hash)
+);
+`);
+
 /** Elenco (ordinato) delle migrazioni registrate: serve ai test di upgrade e a /health/deep. */
 export const listMigrations = (): Migration[] => [...migrations].sort((a, b) => a.version - b.version);
 

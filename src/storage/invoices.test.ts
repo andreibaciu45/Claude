@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deleteDB, openDB } from 'idb';
 import { webcrypto } from 'node:crypto';
 
@@ -39,7 +39,10 @@ const quote = (id: string): QuoteDocument => ({
 });
 const sdi = (type: 'INVIO' | 'RC' | 'MC' | 'NS', at = Date.now()) => ({ at, type, channel: 'portale_ade' as const });
 
+// Orologio fisso: i fixture usano date 2026 e numeri '1/2026'; senza il blocco il test diventerebbe rosso dal 1/1/2027.
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-06-15T12:00:00'));
   await __resetStorageForTests();
   await deleteDB('vocepreventivo');
   vi.mocked(generateFatturaPA).mockClear();
@@ -47,6 +50,8 @@ beforeEach(async () => {
   const p = await getProfile();
   await saveProfile({ ...p, vatNumber: '01234567897', regimeForfettario: true });
 });
+
+afterEach(() => vi.useRealTimers());
 
 describe('emissione', () => {
   it('assegna numero, XML, hash, lock e audit; aggiorna i contatori', async () => {

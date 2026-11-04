@@ -21,3 +21,6 @@ export const otpHash = (email: string, code: string): string => createHmac('sha2
 
 /** Pseudonimo per i log: HMAC con il segreto del server (non invertibile con un dizionario di email). 12 caratteri. */
 export const logHash = (s: string): string => createHmac('sha256', getAuthSecret()).update(`log|${s}`).digest('hex').slice(0, 12);
+
+/** HMAC con il segreto del server, per chiavi non invertibili (email/IP nelle tabelle di difesa OTP). */
+export const hmacHex = (label: string, s: string): string => createHmac('sha256', getAuthSecret()).update(`${label}|${s}`).digest('hex');

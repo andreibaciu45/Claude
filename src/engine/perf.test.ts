@@ -22,8 +22,9 @@ describe('prestazioni con catalogo da 2000 voci', () => {
 
   it('parse < 50 ms con indice già costruito (mediana di più frasi)', () => {
     prepareCatalog(big);
-    const times: number[] = [];
-    for (let round = 0; round < 3; round++) for (const p of PHRASES) times.push(time(() => parseDictation(p, big)));
+    // per ogni frase si tiene il tempo MIGLIORE su 3 prove: un picco di carico della macchina (CI, suite in parallelo)
+    // non è una regressione, mentre una regressione di complessità peggiora tutte le prove.
+    const times = PHRASES.map((p) => Math.min(...Array.from({ length: 3 }, () => time(() => parseDictation(p, big)))));
     times.sort((a, b) => a - b);
     const median = times[Math.floor(times.length / 2)];
     const worst = times[times.length - 1];

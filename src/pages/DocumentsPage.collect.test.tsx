@@ -18,13 +18,16 @@ if (!globalThis.crypto?.subtle) Object.defineProperty(globalThis, 'crypto', { va
 let host: HTMLDivElement;
 let root: Root;
 const flush = async () => { for (let i = 0; i < 12; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
-const year = new Date().getFullYear();
+// Orologio fisso a metà 2026 (vedi beforeEach): le date dei fixture non dipendono dall'anno in cui gira la suite.
+const year = 2026;
 const stat = (label: string): string => {
   const el = [...host.querySelectorAll('*')].find((e) => e.children.length === 0 && e.textContent === label)!;
   return el.parentElement!.textContent!.replace(/\s/g, ' ');
 };
 
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-06-15T12:00:00'));
   Element.prototype.scrollIntoView = vi.fn();
   await __resetStorageForTests();
   await deleteDB('vocepreventivo');
@@ -33,7 +36,7 @@ beforeEach(async () => {
   root = createRoot(host);
   await seedProfile();
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); });
+afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers(); });
 
 const mount = async () => { await act(async () => { root.render(<ToastProvider><MemoryRouter><DocumentsPage /></MemoryRouter></ToastProvider>); }); await flush(); };
 

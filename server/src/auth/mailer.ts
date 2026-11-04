@@ -2,12 +2,27 @@
 import net from 'node:net';
 import tls from 'node:tls';
 
-export interface Mailer { sendOtp(email: string, code: string): Promise<void> }
+export interface Mailer {
+  sendOtp(email: string, code: string): Promise<void>;
+  /** Avviso «qualcuno sta tentando di accedere al tuo account» (nessun codice). Opzionale: se manca, l'avviso non parte. */
+  sendSecurityAlert?(email: string): Promise<void>;
+}
+
+export const ALERT_SUBJECT = 'Tentativi di accesso al tuo account VocePreventivo';
+export const ALERT_LINES = [
+  'Qualcuno sta provando a indovinare il codice di accesso del tuo account VocePreventivo.',
+  'Se sei tu (per esempio hai sbagliato il codice più volte) puoi ignorare questo messaggio: dopo alcuni tentativi errati l\'accesso viene rallentato.',
+  'Se NON sei tu, non devi fare nulla: senza il codice che ricevi per email nessuno può entrare, e le sessioni già aperte restano valide.',
+  'Non comunicare a nessuno i codici che ricevi.',
+];
 
 export class ConsoleMailer implements Mailer {
   async sendOtp(email: string, code: string): Promise<void> {
     // Solo sviluppo: il codice finisce nel log. In produzione createMailerFromEnv rifiuta questa implementazione.
     console.log(`[mail:console] codice di accesso per ${email}: ${code}`);
+  }
+  async sendSecurityAlert(email: string): Promise<void> {
+    console.log(`[mail:console] avviso tentativi di accesso per ${email}`);
   }
 }
 
@@ -68,6 +83,12 @@ export class SmtpMailer implements Mailer {
     this.from = from;
   }
   async sendOtp(email: string, code: string): Promise<void> {
+    await this.deliver(email, 'Il tuo codice di accesso a VocePreventivo', [`Il tuo codice di accesso e': ${code}`, 'Vale 10 minuti. Se non l\'hai richiesto, ignora questo messaggio.']);
+  }
+  async sendSecurityAlert(email: string): Promise<void> {
+    await this.deliver(email, ALERT_SUBJECT, ALERT_LINES);
+  }
+  private async deliver(email: string, subject: string, lines: string[]): Promise<void> {
     if (/[\r\n<>]/.test(email)) throw new Error('indirizzo non valido');
     const secure = this.url.protocol === 'smtps:';
     const host = this.url.hostname;
@@ -94,9 +115,9 @@ export class SmtpMailer implements Mailer {
       await c.cmd(`RCPT TO:<${email}>`, [250, 251]);
       await c.cmd('DATA', [354]);
       const body = [
-        `From: <${this.from}>`, `To: <${email}>`, 'Subject: Il tuo codice di accesso a VocePreventivo',
+        `From: <${this.from}>`, `To: <${email}>`, `Subject: ${subject}`,
         'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: 8bit', '',
-        `Il tuo codice di accesso e': ${code}`, 'Vale 10 minuti. Se non l\'hai richiesto, ignora questo messaggio.',
+        ...lines,
       ].join('\r\n');
       await c.cmd(body.replace(/^\./gm, '..') + '\r\n.', [250]);
       await c.cmd('QUIT', [221]).catch(() => undefined);

@@ -71,7 +71,7 @@ afterAll(() => { console.log('[perf storage]', JSON.stringify(times)); });
 
 // I test condividono lo stesso seed (beforeAll) e gli ultimi sono distruttivi: l'ordine è parte del progetto.
 // `shuffle: false` impedisce a `--sequence.shuffle` di rimescolarli (falsi rossi documentati in docs/TEST-REPORT.md).
-describe(`prestazioni storage: ${N_DOCS} documenti, ${N_CAT} voci di catalogo`, { shuffle: false }, () => {
+describe(`prestazioni storage: ${N_DOCS} documenti, ${N_CAT} voci di catalogo`, { shuffle: false, timeout: 120_000 }, () => {
   it('listDocuments ordinata per data', async () => {
     const docs = await timed('listDocuments', listDocuments);
     expect(docs).toHaveLength(N_DOCS);

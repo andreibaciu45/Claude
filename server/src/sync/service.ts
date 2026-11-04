@@ -14,7 +14,8 @@ import type { SyncConflict, SyncOp, SyncPushResponse } from '../../../shared/api
 import type { QuoteDocument } from '../../../shared/types';
 import { one, run, transaction } from '../db';
 import { now } from '../db/clock';
-import { audit } from '../db/audit';
+import { audit, auditClass } from '../db/audit';
+import { appendEmission } from '../db/chain';
 import { appendChange, currentCursor } from '../db/changes';
 import { FREE_DOCS_PER_MONTH, getDocsThisMonth, getPlan, incrementDocsCreated } from '../db/entitlements';
 import { auditSchema, catalogSchema, documentSchema, profileSchema } from '../documents/schema';
@@ -61,6 +62,7 @@ const strip = (d: any) => {
   return c;
 };
 /** Stati finali dai quali una fattura non può passare a 'scartata' (esito SDI già positivo o documento chiuso). */
+const ISSUED_STATUSES = new Set(['emessa', 'inviata', 'consegnata', 'mancata_consegna', 'scartata', 'stornata', 'pagato']);
 const NOT_REJECTABLE = new Set(['consegnata', 'stornata', 'pagato']);
 const canon = (v: unknown): string => JSON.stringify(v, (_k, x) =>
   x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x);
@@ -136,6 +138,11 @@ function applyDocument(ctx: PushContext, op: Raw): Result {
   if (existing && existing.updatedAt > doc.updatedAt) return bad('stale', 'Il server ha una versione più recente', existing.deletedAt === null ? existing.data : undefined);
 
   const inv = doc.invoice;
+  // Una fattura in uno stato successivo all'emissione DEVE avere lockedAt (salvo le fatture di cortesia v1, `legacy`, non fiscali): altrimenti il server
+  // la terrebbe modificabile e un client (difettoso o ostile) potrebbe riscriverla dopo la consegna.
+  if (doc.type === 'fattura' && ISSUED_STATUSES.has(doc.status) && inv?.lockedAt === undefined && !(inv as { legacy?: boolean } | undefined)?.legacy) {
+    return bad('invalid', 'Fattura emessa senza invoice.lockedAt');
+  }
   if (inv?.lockedAt !== undefined) {
     if (doc.type !== 'fattura' || inv.seq === undefined || !inv.number || doc.status === 'bozza') {
       return bad('invalid', 'Fattura emessa incompleta (seq, number e stato)');
@@ -154,6 +161,10 @@ function applyDocument(ctx: PushContext, op: Raw): Result {
     return bad('quota_exceeded', `Piano Free: massimo ${FREE_DOCS_PER_MONTH} documenti al mese`);
   }
   upsertDocument(tenantId, doc, doc.updatedAt);
+  // Prima ricezione dell'emissione: attestata dal server nella catena di hash del tenant (vedi db/chain.ts).
+  if (inv?.lockedAt !== undefined && (!existing || existing.lockedAt === null)) {
+    appendEmission(tenantId, { docId: doc.id, sectional: inv.sectional, year: inv.year, seq: inv.seq!, number: doc.number ?? null, lockedAt: inv.lockedAt });
+  }
   if (isNew) incrementDocsCreated(tenantId);
   appendChange(tenantId, op.opId, 'document', doc.id, 'upsert', doc);
   return { ok: true };
@@ -222,8 +233,10 @@ function applyAudit(ctx: PushContext, op: Raw): Result {
   const lim = dbRateLimitStore.hit(`audit:${ctx.tenantId}`, auditPerDay(), 24 * 3600_000);
   if (!lim.ok) return bad('invalid', 'Troppe voci di audit oggi: riprova domani');
   const r = run(
-    'INSERT OR IGNORE INTO audit_log(tenant_id, user_id, at, action, entity, entity_id, ref_id, payload) VALUES (?,?,?,?,?,?,?,?)',
-    ctx.tenantId, ctx.userId, p.data.at, `client.${p.data.action}`, 'audit', p.data.docId, p.data.id, sealJson(clean, aadAudit(ctx.tenantId, p.data.id)));
+    'INSERT OR IGNORE INTO audit_log(tenant_id, user_id, at, action, entity, entity_id, ref_id, payload, retain, recorded_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+    ctx.tenantId, ctx.userId, p.data.at, `client.${p.data.action}`, 'audit', p.data.docId, p.data.id, sealJson(clean, aadAudit(ctx.tenantId, p.data.id)),
+    // Classe decisa dal SERVER: fiscale solo se la voce riguarda una fattura davvero emessa (con tetto per documento), altrimenti potabile.
+    auditClass(ctx.tenantId, `client.${p.data.action}`, p.data.docId), now());
   if (Number(r.changes) > 0) appendChange(ctx.tenantId, op.opId, 'audit', p.data.id, 'upsert', clean);
   return { ok: true };
 }

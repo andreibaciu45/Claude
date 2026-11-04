@@ -1,6 +1,6 @@
 // REV-IMP1: un backup manomesso non può riscrivere fatture emesse.
 import 'fake-indexeddb/auto';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deleteDB } from 'idb';
 import { webcrypto } from 'node:crypto';
 import {
@@ -12,10 +12,15 @@ import { draftData, lineData, seedProfile } from './testkit';
 
 if (!globalThis.crypto?.subtle) Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
 
+afterEach(() => vi.useRealTimers());
+
 type Json = { documents: { id: string; status: string; invoice: Record<string, unknown> }[]; audit: Record<string, unknown>[]; profile: { invoiceYearCounters: Record<string, number> } };
 let good: string;
 
+// Orologio fisso: i fixture usano date 2026 e numeri '1/2026'; senza il blocco il test diventerebbe rosso dal 1/1/2027.
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-06-15T12:00:00'));
   await __resetStorageForTests();
   await deleteDB('vocepreventivo');
   await seedProfile();
