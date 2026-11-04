@@ -68,3 +68,59 @@ describe('migrazione v3 con una seconda scheda ancora alla v2', () => {
     expect(ok, blockedForever ? 'deleteDatabase bloccato da una connessione orfana' : 'timeout').toBe(true);
   });
 });
+
+// ------------------------------------------------------------------ rubrica: proprietà con seme fisso
+import { docBelongsTo, normalizeCustomerRecord, sameCustomer, seedCustomersFromDocuments, type StoredCustomer } from './customerModel';
+import type { Customer, QuoteDocument } from '../types';
+
+function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32; }; }
+const VATS = ['', '', '02345678904', '01234567897', 'IT02345678904', ' 0123 4567 897 '];
+const CFS = ['', '', 'BNCMRA80A01H501A', 'RSSMRA85T10A562S'];
+const NAMES = ['Mario Rossi', 'mario  rossi', 'Rossi Srl', 'ROSSI S.r.l.', "D'Angelo", 'Dangelo', 'Verdi Spa', 'Èlite Café'];
+const CITIES = ['', '', 'Milano', 'Roma'];
+
+function randomDocs(r: () => number, n: number): QuoteDocument[] {
+  const pick = <T,>(a: T[]) => a[Math.floor(r() * a.length)];
+  return Array.from({ length: n }, (_, i): QuoteDocument => ({
+    id: `d${i}`, type: 'preventivo', number: `P${i}`, date: '2026-01-01', lines: [], status: 'bozza', createdAt: i + 1, updatedAt: i + 1,
+    customer: { id: `c${Math.floor(r() * 6)}`, name: pick(NAMES), vatNumber: pick(VATS), fiscalCode: pick(CFS), city: pick(CITIES) } as Customer,
+  }));
+}
+const applyTouched = (book: StoredCustomer[], touched: StoredCustomer[]) => {
+  const m = new Map(book.map((c) => [c.id, c]));
+  for (const t of touched) m.set(t.id, t);
+  return [...m.values()];
+};
+
+describe('rubrica: proprietà (seme fisso)', () => {
+  it('il popolamento è idempotente e ogni documento è attribuibile ad almeno una scheda', () => {
+    for (let seed = 1; seed <= 60; seed++) {
+      const r = rng(seed);
+      const docs = randomDocs(r, 3 + Math.floor(r() * 12));
+      const first = seedCustomersFromDocuments(docs, [], 1000);
+      const again = seedCustomersFromDocuments(docs, first, 2000);
+      if (again.length) console.log(seed, JSON.stringify(docs.map((d) => [d.id, d.customer.id, d.customer.name, d.customer.vatNumber, d.customer.fiscalCode, d.customer.city])), JSON.stringify(first), JSON.stringify(again));
+      expect(again, `seed ${seed}: seconda esecuzione senza modifiche`).toEqual([]);
+      const book = applyTouched([], first);
+      for (const d of docs) {
+        expect(book.some((c) => docBelongsTo(d, c)), `seed ${seed}: documento ${d.id} senza scheda`).toBe(true);
+      }
+      // nessun cliente perso: ogni P.IVA valida presente nei documenti compare in rubrica
+      for (const d of docs) {
+        const v = normalizeCustomerRecord(d.customer).vatNumber;
+        if (v && /^\d{11}$/.test(v)) expect(book.some((c) => c.vatNumber === v), `seed ${seed}: P.IVA ${v} persa`).toBe(true);
+      }
+    }
+  });
+
+  it('REV2-C1: due omonimi di città diverse non vengono fusi (e i dati dell\'uno non finiscono nell\'altro)', () => {
+    const a = { name: 'Mario Rossi', city: 'Milano', phone: '' } as Customer;
+    const b = { name: 'Mario Rossi', city: 'Roma', phone: '3331112222' } as Customer;
+    expect(sameCustomer(a, b)).toBe(false);
+    // stessa città (o città mancante) = stesso cliente come prima
+    expect(sameCustomer({ name: 'Mario Rossi', city: 'milano' }, { name: 'mario rossi', city: 'MILANO' })).toBe(true);
+    expect(sameCustomer({ name: 'Mario Rossi' }, { name: 'Mario Rossi', city: 'Roma' })).toBe(true);
+    // gli identificativi fiscali restano decisivi anche con città diverse (trasloco)
+    expect(sameCustomer({ name: 'Mario Rossi', vatNumber: '02345678904', city: 'Milano' }, { name: 'Mario Rossi', vatNumber: '02345678904', city: 'Roma' })).toBe(true);
+  });
+});
