@@ -68,6 +68,7 @@
         <ImportoTotaleDocumento>300.00</ImportoTotaleDocumento>
         <Causale>Storno della fattura n. 1/2026 del 04/11/2026: Importo errato</Causale>
         <Causale>Operazione effettuata ai sensi dell&apos;articolo 1, commi da 54 a 89, della Legge n. 190/2014 - Regime forfettario.</Causale>
+        <Causale>Imposta di bollo assolta in modo virtuale (DPR 642/72).</Causale>
       </DatiGeneraliDocumento>
       <DatiFattureCollegate>
         <IdDocumento>1/2026</IdDocumento>

@@ -7,7 +7,7 @@
  */
 import type {
   AuthRequestBody, AuthVerifyBody, AuthVerifyResponse, CheckoutResponse, MeResponse, PortalResponse,
-  SyncPullResponse, SyncPushBody, SyncPushResponse, ApiError as ApiErrorBody,
+  DeleteAccountBody, SyncPullResponse, SyncPushBody, SyncPushResponse, ApiError as ApiErrorBody,
 } from '../../shared/api';
 import { uid } from '../types';
 
@@ -21,8 +21,11 @@ export const API_BASE_URL: string = (import.meta.env?.VITE_API_URL as string | u
 export class ApiClientError extends Error {
   readonly status: number;
   readonly code: string;
-  constructor(status: number, code: string, message: string) {
+  /** secondi da attendere (header Retry-After), se il server li ha indicati */
+  readonly retryAfterSec?: number;
+  constructor(status: number, code: string, message: string, retryAfterSec?: number) {
     super(message);
+    this.retryAfterSec = retryAfterSec;
     this.name = 'ApiClientError';
     this.status = status;
     this.code = code;
@@ -64,6 +67,11 @@ export const accountStore = {
   clear: (): void => lsDel(ACCOUNT_KEY),
 };
 
+/** `shared/api.ts` espone solo confirmEmail; il server accetta anche acknowledgeSubscription (cancellare con abbonamento attivo). */
+export type DeleteAccountRequest = DeleteAccountBody & { acknowledgeSubscription?: boolean };
+/** Risposta di DELETE /v1/me (non ancora tipizzata in shared/api.ts). */
+export interface DeleteAccountResult { deleted: boolean; mode?: 'purged' | 'anonymized'; retainedInvoices?: number }
+
 export interface ApiClientOptions {
   baseUrl?: string;
   fetchImpl?: typeof fetch;
@@ -84,6 +92,19 @@ export interface ApiClient {
   syncPull(cursor: string): Promise<SyncPullResponse>;
   checkout(plan: 'month' | 'year'): Promise<CheckoutResponse>;
   portal(): Promise<PortalResponse>;
+  /** GET /v1/me/export: tutti i dati dell'utente (JSON) come file da salvare. */
+  exportData(): Promise<Blob>;
+  /** DELETE /v1/me */
+  deleteAccount(body: DeleteAccountRequest): Promise<DeleteAccountResult>;
+}
+
+/** Retry-After: secondi interi oppure data HTTP. */
+export function parseRetryAfter(v: string | null | undefined, nowMs = Date.now()): number | undefined {
+  if (!v) return undefined;
+  const t = v.trim();
+  if (/^\d+$/.test(t)) return Math.min(Number(t), 86_400);
+  const d = Date.parse(t);
+  return Number.isFinite(d) ? Math.min(Math.max(0, Math.ceil((d - nowMs) / 1000)), 86_400) : undefined;
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -116,7 +137,7 @@ export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
     }
   }
 
-  async function request<T>(method: string, path: string, body: unknown, auth = true): Promise<T> {
+  async function request<T>(method: string, path: string, body: unknown, auth = true, as: 'json' | 'blob' = 'json'): Promise<T> {
     let res: Response | undefined;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
@@ -133,6 +154,7 @@ export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
     }
     if (!res) throw new ApiClientError(0, 'network', 'Nessuna connessione al server.');
     if (res.ok) {
+      if (as === 'blob') return (await res.blob()) as T;
       if (res.status === 204) return undefined as T;
       const text = await res.text();
       return (text ? JSON.parse(text) : undefined) as T;
@@ -147,7 +169,7 @@ export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
       tokenStore.clear();
       opts.onUnauthorized?.();
     }
-    throw new ApiClientError(res.status, code, message);
+    throw new ApiClientError(res.status, code, message, parseRetryAfter(res.headers?.get('Retry-After')));
   }
 
   return {
@@ -158,14 +180,41 @@ export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
     syncPull: (cursor) => request<SyncPullResponse>('GET', `/sync/pull?cursor=${encodeURIComponent(cursor)}`, undefined),
     checkout: (plan) => request<CheckoutResponse>('POST', '/billing/checkout', { plan }),
     portal: () => request<PortalResponse>('POST', '/billing/portal', {}),
+    exportData: () => request<Blob>('GET', '/me/export', undefined, true, 'blob'),
+    deleteAccount: (body) => request<DeleteAccountResult>('DELETE', '/me', body),
   };
 }
 
-/** Messaggio italiano leggibile per qualsiasi errore. */
+/** "tra 30 secondi" / "tra 2 minuti" */
+export function waitPhrase(sec: number): string {
+  if (sec < 90) { const n = Math.max(1, Math.round(sec)); return `${n} ${n === 1 ? 'secondo' : 'secondi'}`; }
+  const m = Math.round(sec / 60);
+  if (m < 90) return `${m} minuti`;
+  const h = Math.round(m / 60);
+  return `${h} ${h === 1 ? 'ora' : 'ore'}`;
+}
+
+/** Messaggio italiano leggibile per qualsiasi errore (rete, limiti, codici noti del server). */
 export function describeError(e: unknown): string {
   if (e instanceof ApiClientError) {
-    if (e.isNetwork) return 'Impossibile contattare il server. Controlla la connessione e riprova.';
-    if (e.status === 429) return 'Troppi tentativi. Attendi qualche minuto e riprova.';
+    if (e.isNetwork) {
+      return e.code === 'timeout'
+        ? 'Il server non risponde. Riprova tra poco.'
+        : 'Impossibile contattare il server. Controlla la connessione e riprova.';
+    }
+    switch (e.code) {
+      case 'terms_required': return 'Per creare l\u2019account devi accettare i Termini di servizio, l\u2019Informativa privacy e il DPA.';
+      case 'terms_version_mismatch': return 'I Termini sono stati aggiornati. Ricarica l\u2019app per avere la versione pi\u00f9 recente, poi accetta di nuovo.';
+      case 'confirmation_mismatch': return 'L\u2019email scritta non coincide con quella dell\u2019account. Controlla e riprova.';
+      case 'active_subscription': return 'Hai un abbonamento attivo: annullalo dal portale di fatturazione prima di cancellare l\u2019account.';
+      default: break;
+    }
+    if (e.status === 429) {
+      return e.retryAfterSec ? `Troppe richieste. Riprova tra ${waitPhrase(e.retryAfterSec)}.` : 'Troppe richieste. Attendi qualche minuto e riprova.';
+    }
+    if (e.status >= 500) return `Il servizio ha un problema temporaneo (errore ${e.status}). Riprova tra qualche minuto: i tuoi dati sul dispositivo sono al sicuro.`;
+    if (e.status === 401) return 'La sessione \u00e8 scaduta. Accedi di nuovo.';
+    if (e.status === 413) return 'La richiesta \u00e8 troppo grande per il server.';
     return e.message;
   }
   return e instanceof Error ? e.message : 'Errore imprevisto.';

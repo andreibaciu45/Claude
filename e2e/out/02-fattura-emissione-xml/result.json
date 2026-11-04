@@ -120,7 +120,7 @@
     {
       "name": "stato pagamento: Pagata",
       "ok": true,
-      "detail": "Consegnata\nPagata in parte"
+      "detail": "Consegnata\nPagata"
     },
     {
       "name": "cronologia contiene emissione, invio, esito, incasso",

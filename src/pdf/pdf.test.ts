@@ -17,6 +17,7 @@ vi.mock('../engine', () => ({
 
 import { generateDocumentPdf, renderDocumentPdf, creditNoteLines, docTitle, fmtNum, fmtEuro } from './index';
 import { fakeDoc, fakeProfile, fakeInvoice, fakeCreditNote } from './fixtures';
+import { BOLLO_LEGAL_TEXT, FORFETTARIO_LEGAL_TEXT } from '../../shared/fatturapa';
 
 const head = async (b: Blob) => new TextDecoder().decode(await b.slice(0, 5).arrayBuffer());
 
@@ -50,7 +51,7 @@ describe('generateDocumentPdf', () => {
     expect(docTitle(fakeInvoice())).toBe('FATTURA n. 12/2026');
     expect(txt).toContain('FATTURA n. 12/2026');
     expect(txt).toContain('Data: 03/11/2026');
-    expect(txt).toContain('regime forfettario');
+    expect(txt).toContain('Regime forfettario');
     expect(txt).toContain('Imposta di bollo assolta in modo virtuale');
     expect(txt).toContain('Copia di cortesia della fattura elettronica');
     expect(txt).not.toContain('BOZZA');
@@ -79,5 +80,18 @@ describe('generateDocumentPdf', () => {
   it('fattura legacy (v1): resta "copia di cortesia" non fiscale', () => {
     const d = fakeDoc({ type: 'fattura', number: 'FT-0001' });
     expect(docTitle(d)).toBe('FATTURA (copia di cortesia) n. FT-0001');
+  });
+
+  it('diciture di legge identiche a quelle dell\'XML (una sola fonte: shared/fatturapa/legalText)', () => {
+    const txt = renderDocumentPdf(fakeInvoice(), fakeProfile({ regimeForfettario: true }), { compress: false }).output();
+    const esc = (t: string) => t.replace(/[()]/g, (c) => `\\${c}`);
+    expect(txt).toContain(esc(FORFETTARIO_LEGAL_TEXT));
+    expect(txt).toContain(esc(BOLLO_LEGAL_TEXT));
+  });
+  it('fattura emessa: riporta la scadenza calcolata dalle condizioni di pagamento (come DataScadenzaPagamento nell\'XML)', () => {
+    const txt = renderDocumentPdf(fakeInvoice(), fakeProfile({ regimeForfettario: true, paymentTerms: 'Bonifico a 30 giorni', iban: undefined }), { compress: false }).output();
+    expect(txt).toContain('Scadenza: 03/12/2026');
+    const nc = renderDocumentPdf(fakeCreditNote(), fakeProfile({ regimeForfettario: true }), { compress: false }).output();
+    expect(nc).not.toContain('Scadenza:');
   });
 });

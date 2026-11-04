@@ -195,6 +195,130 @@ export async function appendAudit(entry: AuditInput): Promise<AuditEntry> {
   return full;
 }
 
+// ---------------------------------------------------------------- numero di partenza
+
+export type CounterSectional = 'FT' | 'NC';
+export type CounterStartErrorCode = 'invalid' | 'below_issued' | 'lowering_not_confirmed';
+
+/** Impostazione del numero di partenza rifiutata. `maxIssued` = massimo numero già emesso con questa app (per `below_issued`). */
+export class CounterStartError extends Error {
+  readonly code: CounterStartErrorCode;
+  readonly maxIssued?: number;
+  readonly current?: number;
+  constructor(code: CounterStartErrorCode, message: string, extra: { maxIssued?: number; current?: number } = {}) {
+    super(message);
+    this.name = 'CounterStartError';
+    this.code = code;
+    this.maxIssued = extra.maxIssued;
+    this.current = extra.current;
+  }
+}
+
+/** Numero fiscale come compare in fattura: '15/2026' (FT) o 'NC3/2026' (NC). */
+export const formatInvoiceNumber = (sectional: string, seq: number, year: number): string =>
+  `${sectional === 'NC' ? 'NC' : ''}${seq}/${year}`;
+
+export interface InvoiceCounterInfo {
+  sectional: CounterSectional;
+  year: number;
+  /** Ultimo numero usato secondo il contatore (quello che conta per il prossimo). */
+  counter: number;
+  /** Massimo numero già EMESSO con questa app per sezionale e anno (0 se nessuno). */
+  maxIssued: number;
+  /** Ultimo numero usato effettivo = max(contatore, massimo emesso). */
+  lastUsed: number;
+  /** Numero che riceverà la prossima emissione. */
+  next: number;
+  nextNumber: string;
+}
+
+export const MAX_COUNTER_VALUE = 9_999_999;
+
+function counterInfo(profile: Profile, docs: QuoteDocument[], sectional: CounterSectional, year: number): InvoiceCounterInfo {
+  const counter = Math.max(0, Math.floor(profile.invoiceYearCounters?.[counterKey(sectional, year)] ?? 0));
+  const maxIssued = docs.reduce((m, d) => {
+    const i = d.invoice;
+    return i && !i.legacy && i.sectional === sectional && i.year === year && typeof i.seq === 'number' ? Math.max(m, i.seq) : m;
+  }, 0);
+  const lastUsed = Math.max(counter, maxIssued);
+  return { sectional, year, counter, maxIssued, lastUsed, next: lastUsed + 1, nextNumber: formatInvoiceNumber(sectional, lastUsed + 1, year) };
+}
+
+/** Stato della numerazione per sezionale e anno (sola lettura). */
+export async function getInvoiceCounterInfo(sectional: CounterSectional, year: number): Promise<InvoiceCounterInfo> {
+  return getBackend().transact('readonly', async (t) => counterInfo(withDefaults(await t.getProfile()), await t.all<QuoteDocument>('documents'), sectional, year));
+}
+
+/** Tutte le coppie sezionale/anno note (da contatori e documenti emessi), dalla più recente. */
+export async function listInvoiceCounters(): Promise<InvoiceCounterInfo[]> {
+  return getBackend().transact('readonly', async (t) => {
+    const profile = withDefaults(await t.getProfile());
+    const docs = await t.all<QuoteDocument>('documents');
+    const keys = new Set<string>(Object.keys(profile.invoiceYearCounters ?? {}));
+    for (const d of docs) if (d.invoice && !d.invoice.legacy && typeof d.invoice.seq === 'number') keys.add(counterKey(d.invoice.sectional, d.invoice.year));
+    const out: InvoiceCounterInfo[] = [];
+    for (const k of keys) {
+      const m = /^(FT|NC)-(\d{4})$/.exec(k);
+      if (m) out.push(counterInfo(profile, docs, m[1] as CounterSectional, Number(m[2])));
+    }
+    return out.sort((a, b) => b.year - a.year || (a.sectional < b.sectional ? -1 : 1));
+  });
+}
+
+/**
+ * Imposta l'ULTIMO numero già usato per sezionale e anno: la prossima emissione prenderà `lastUsed + 1`.
+ * Serve a chi ha già emesso fatture nell'anno con un altro programma (es. ultima = 14 -> la prossima è 15/2026).
+ *
+ * Regole (errore fiscale grave se violate: numeri duplicati o fuori sequenza):
+ *  - non si può scendere sotto il massimo numero GIÀ EMESSO con questa app (`CounterStartError` 'below_issued');
+ *  - ridurre il valore rispetto a quello attuale (anche se ancora sopra l'emesso) richiede `confirmLowering: true`
+ *    ('lowering_not_confirmed'): la UI mostra l'avviso e chiede conferma esplicita;
+ *  - valore intero da 0 a MAX_COUNTER_VALUE, anno 2000-2100, sezionale FT o NC ('invalid').
+ * Scrive in UNA transazione profilo + audit (voce 'edit' sul pseudo-documento `counter:<sezionale>-<anno>`). Idempotente: se non cambia
+ * nulla non scrive nulla.
+ */
+export async function setInvoiceCounterStart(
+  sectional: CounterSectional,
+  year: number,
+  lastUsed: number,
+  opts: { confirmLowering?: boolean } = {},
+): Promise<InvoiceCounterInfo & { changed: boolean; previous: number }> {
+  if (sectional !== 'FT' && sectional !== 'NC') throw new CounterStartError('invalid', 'Sezionale non valido: scegli fatture (FT) o note di credito (NC).');
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new CounterStartError('invalid', 'Anno non valido.');
+  if (!Number.isInteger(lastUsed) || lastUsed < 0 || lastUsed > MAX_COUNTER_VALUE) {
+    throw new CounterStartError('invalid', `Indica un numero intero da 0 a ${MAX_COUNTER_VALUE.toLocaleString('it-IT')}.`);
+  }
+  return getBackend().transact('readwrite', async (t) => {
+    const profile = withDefaults(await t.getProfile());
+    const docs = await t.all<QuoteDocument>('documents');
+    const before = counterInfo(profile, docs, sectional, year);
+    const label = `${sectional === 'NC' ? 'note di credito' : 'fatture'} ${year}`;
+    if (lastUsed < before.maxIssued) {
+      throw new CounterStartError('below_issued',
+        `Con questa app hai già emesso fino al n. ${formatInvoiceNumber(sectional, before.maxIssued, year)} (${label}): non si può impostare un numero più basso, creerebbe numeri duplicati.`,
+        { maxIssued: before.maxIssued, current: before.lastUsed });
+    }
+    const lowering = lastUsed < before.lastUsed;
+    if (lowering && !opts.confirmLowering) {
+      throw new CounterStartError('lowering_not_confirmed',
+        `Stai abbassando l'ultimo numero usato (${label}) da ${before.lastUsed} a ${lastUsed}. Se hai emesso altrove un numero più alto, avrai fatture con lo stesso numero: serve una conferma esplicita.`,
+        { maxIssued: before.maxIssued, current: before.lastUsed });
+    }
+    if (lastUsed === before.counter) return { ...before, changed: false, previous: before.counter };
+    const key = counterKey(sectional, year);
+    profile.invoiceYearCounters = { ...(profile.invoiceYearCounters ?? {}), [key]: lastUsed };
+    await t.putProfile(profile);
+    const nextNumber = formatInvoiceNumber(sectional, lastUsed + 1, year);
+    await addAudit(t, {
+      docId: `counter:${key}`, action: 'edit',
+      detail: `Numero di partenza impostato (${label}): ultimo numero usato ${lastUsed} (prima ${before.counter}); la prossima sarà la n. ${nextNumber}. ` +
+        `Massimo emesso con questa app: ${before.maxIssued}.` +
+        (lowering ? ' ATTENZIONE: valore ABBASSATO rispetto al precedente, confermato dall\'utente (rischio di numeri duplicati).' : ''),
+    });
+    return { ...counterInfo(profile, docs, sectional, year), changed: true, previous: before.counter };
+  });
+}
+
 // ---------------------------------------------------------------- bozza da preventivo
 
 const customerChannel = (c: QuoteDocument['customer']): InvoiceFiscal['customerChannel'] => {

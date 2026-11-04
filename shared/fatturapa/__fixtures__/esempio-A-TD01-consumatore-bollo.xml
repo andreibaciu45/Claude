@@ -65,6 +65,7 @@
         </DatiBollo>
         <ImportoTotaleDocumento>372.00</ImportoTotaleDocumento>
         <Causale>Operazione effettuata ai sensi dell'articolo 1, commi da 54 a 89, della Legge n. 190/2014 - Regime forfettario.</Causale>
+        <Causale>Imposta di bollo assolta in modo virtuale (DPR 642/72).</Causale>
         <Causale>Compenso non assoggettato a ritenuta d'acconto ai sensi dell'art. 1, comma 67, L. 190/2014.</Causale>
       </DatiGeneraliDocumento>
     </DatiGenerali>

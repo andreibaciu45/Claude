@@ -1,0 +1,133 @@
+{
+  "name": "01-onboarding-preventivo",
+  "status": "PASS",
+  "checks": [
+    {
+      "name": "home: campo testo e Interpreta presenti",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "home: avviso catalogo vuoto",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "profilo persistito dopo ricarica (P.IVA)",
+      "ok": true,
+      "detail": "01234567897"
+    },
+    {
+      "name": "profilo: forfettario ancora spuntato",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "profilo: P.IVA con checksum errato rifiutata",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "catalogo: voci di esempio create (>=15)",
+      "ok": true,
+      "detail": "20"
+    },
+    {
+      "name": "interpretazione: 2 righe",
+      "ok": true,
+      "detail": "2"
+    },
+    {
+      "name": "interpretazione: cliente \"Mario Rossi\"",
+      "ok": true,
+      "detail": "Mario Rossi"
+    },
+    {
+      "name": "totale preventivo 104,50 € (3 m x 9,50 + 2 h x 38)",
+      "ok": true,
+      "detail": "TOTALE\n104,50 €"
+    },
+    {
+      "name": "forfettario: nessuna riga IVA nel riepilogo",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "preventivo: numero assegnato (non bozza senza numero)",
+      "ok": true,
+      "detail": "Preventivo\n\nn. PRev-0001\n\nBozza\nScarica PDF\nCondividi\nInvia su WhatsApp\nStato del preventivo\nBozza\nInviato\nAccettato\nRif"
+    },
+    {
+      "name": "PDF scaricato con estensione .pdf",
+      "ok": true,
+      "detail": "Preventivo_PRev_0001_Mario_Rossi.pdf"
+    },
+    {
+      "name": "PDF: contiene \"PREVENTIVO\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "PDF: contiene cliente",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "PDF: contiene ragione sociale",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "PDF: contiene P.IVA venditore",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "PDF: contiene descrizioni righe",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "PDF: contiene totale 104,50",
+      "ok": true,
+      "detail": "TOTALE                                           € 104,50"
+    },
+    {
+      "name": "PDF: dicitura regime forfettario",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "PDF: nessuna IVA 22% esposta",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "PDF: header %PDF valido",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "documenti: preventivo in elenco",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "nessuno scroll orizzontale (tablet)",
+      "ok": true,
+      "detail": "0"
+    },
+    {
+      "name": "nessuno scroll orizzontale (desktop)",
+      "ok": true,
+      "detail": "0"
+    },
+    {
+      "name": "nessun errore in console / pageerror",
+      "ok": true,
+      "detail": "[]"
+    }
+  ],
+  "consoleErrors": [],
+  "notes": []
+}

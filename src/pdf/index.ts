@@ -3,6 +3,8 @@ import autoTable from 'jspdf-autotable';
 import type { DocLine, Profile, QuoteDocument } from '../types';
 import { documentTotals } from './totals';
 import { lineEuro } from '../storage/invoiceTotals';
+import { BOLLO_LEGAL_TEXT, FORFETTARIO_LEGAL_TEXT, derivePayment, legalNotesFor } from '../../shared/fatturapa';
+import { isValidIban } from '../../shared/fiscal';
 export { documentTotals, draftTotals } from './totals';
 export type { DocTotals } from './totals';
 
@@ -32,9 +34,9 @@ const addDays = (iso: string, days: number): string => {
 /** Importo di riga: stesso calcolo in centesimi del totale documento e dell'XML (un solo arrotondamento half-up). */
 export const lineAmount = (l: DocLine): number => lineEuro(l);
 
-export const FORFETTARIO_TEXT =
-  'Operazione effettuata ai sensi dell’art. 1, commi 54-89, Legge n. 190/2014 e successive modificazioni – regime forfettario, non soggetta a IVA.';
-export const BOLLO_TEXT = 'Imposta di bollo assolta in modo virtuale (DPR 642/72).';
+/** Diciture di legge: UNA sola definizione condivisa con l'XML (shared/fatturapa/legalText). */
+export const FORFETTARIO_TEXT = FORFETTARIO_LEGAL_TEXT;
+export const BOLLO_TEXT = BOLLO_LEGAL_TEXT;
 /** Fattura/nota di credito fiscale emessa: il PDF è solo una copia leggibile. */
 export const COURTESY_TEXT = 'Copia di cortesia della fattura elettronica: l’originale è il file XML trasmesso tramite SDI.';
 /** Fattura v1 migrata (non fiscale). */
@@ -288,13 +290,15 @@ export function renderDocumentPdf(doc: QuoteDocument, profile: Profile, opts: { 
     conds.push(`Preventivo valido ${profile.quoteValidityDays} giorni, fino al ${fmtDate(addDays(doc.date, profile.quoteValidityDays))}.`);
   }
   if (!note && profile.paymentTerms) conds.push(`Pagamento: ${profile.paymentTerms}.`.replace(/\.\.$/, '.'));
+  // scadenza: la stessa data che finisce nell'XML (DataScadenzaPagamento), calcolata dalla data del documento
+  if (fiscal && !note) {
+    const pay = derivePayment(profile, docDate(doc), !!profile.iban?.trim() && isValidIban(profile.iban));
+    if (pay?.dueDate) conds.push(`Scadenza: ${fmtDate(pay.dueDate)}.`);
+  }
   if (!note && profile.iban) conds.push(`IBAN: ${profile.iban}${profile.businessName ? ` - intestato a ${profile.businessName}` : ''}`);
   if (conds.length) block('Condizioni', conds.join('\n'));
   if (doc.notes?.trim()) block('Note', doc.notes.trim());
-  if (forf) {
-    block('', FORFETTARIO_TEXT, { small: true });
-    if (totals.stampDue > 0) block('', BOLLO_TEXT, { small: true });
-  }
+  for (const t of legalNotesFor({ forfettario: forf, stampDue: totals.stampDue > 0 })) block('', t, { small: true });
   if (draft) block('', DRAFT_TEXT, { small: true });
   else if (doc.type === 'fattura' && !fiscal) block('', LEGACY_COURTESY_TEXT, { small: true, muted: true });
 
