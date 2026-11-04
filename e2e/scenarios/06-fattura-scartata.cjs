@@ -1,6 +1,7 @@
 'use strict';
 // (6) Fattura scartata dallo SDI (NS): stato, avvisi, azioni disponibili, rinvio.
-const { run, go, fillProfile, createInvoiceDraft, issueCurrent, docIdOf, sleep } = require('../lib.cjs');
+const fs = require('fs');
+const { run, go, saveDownload, fillProfile, createInvoiceDraft, issueCurrent, docIdOf, sleep } = require('../lib.cjs');
 const tst = async (page, t) => page.locator('.toast', { hasText: t }).first().waitFor({ timeout: 8000 });
 
 run('06-fattura-scartata', async (S) => {
@@ -41,28 +42,73 @@ run('06-fattura-scartata', async (S) => {
   S.check('NS: avviso "non ancora disponibile" non contraddice l\'azione Segna come rinviata', !/non è ancora disponibile/.test(panel), /Se lo scarto[^\n]*/.exec(panel)?.[0]);
   S.check('NS: nessun pulsante "Annulla con nota di credito" (non emessa)', (await page.getByRole('button', { name: /Annulla con nota/ }).count()) === 0);
 
-  // un nuovo documento dopo lo scarto: numero successivo
-  await createInvoiceDraft(S, page, { lines: [{ description: 'Altra', qty: 1, price: 20 }] });
-  const n2 = await issueCurrent(S, page, { tag: 'dopo-scarto ' });
-  S.check('dopo uno scarto, la fattura successiva e 2/2026 (il numero 1 resta riservato al rinvio)', n2 === '2/2026', n2);
+  // XML originale (scartato) -> poi correzione con lo stesso numero/data
+  const [dl0] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Scarica XML' }).click()]);
+  const x0 = fs.readFileSync((await saveDownload(S, dl0, 'xml-scartato.xml')).path, 'utf8');
 
-  // rinvio
-  await go(page, `/documenti/${id}`);
-  await page.getByRole('button', { name: 'Segna come rinviata' }).click();
+  const hasCorrect = await page.getByRole('button', { name: 'Correggi e rinvia' }).count();
+  S.check('NS entro 5 giorni: pulsante "Correggi e rinvia" (stesso numero/data)', hasCorrect === 1);
+  if (hasCorrect) {
+    await page.getByRole('button', { name: 'Correggi e rinvia' }).click();
+    const d = page.getByRole('dialog', { name: 'Correggi e rinvia' });
+    await d.waitFor();
+    await S.shot(page, 'correggi e rinvia');
+    await d.locator('[id="f-customer.address"]').fill('Via Torino 99');
+    await d.getByRole('button', { name: 'Rigenera il file XML' }).click();
+    await tst(page, 'File XML rigenerato');
+    await sleep(400);
+    await S.shot(page, 'xml rigenerato');
+    const st = await page.locator('.iv-badges').first().innerText();
+    S.note('Stato dopo "Rigenera il file XML": ' + st.replace(/\n/g, ' '));
+    const [dl1] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Scarica XML' }).click()]);
+    const f1 = await saveDownload(S, dl1, 'xml-corretto.xml');
+    const x1 = fs.readFileSync(f1.path, 'utf8');
+    const g = (x, t) => (new RegExp(`<${t}>([^<]*)<`).exec(x) || [])[1];
+    S.check('XML corretto: stesso Numero e stessa Data', g(x0, 'Numero') === g(x1, 'Numero') && g(x0, 'Data') === g(x1, 'Data'), `${g(x0, 'Numero')}/${g(x0, 'Data')} -> ${g(x1, 'Numero')}/${g(x1, 'Data')}`);
+    S.check('XML corretto: nuovo ProgressivoInvio e nuovo nome file', g(x0, 'ProgressivoInvio') !== g(x1, 'ProgressivoInvio') && f1.name !== 'IT01234567897_00001.xml', `${g(x0, 'ProgressivoInvio')} -> ${g(x1, 'ProgressivoInvio')} (${f1.name})`);
+    S.check('XML corretto: contiene il nuovo indirizzo', /Via Torino 99/.test(x1));
+    await page.getByRole('button', { name: 'Segna come inviata' }).or(page.getByRole('button', { name: 'Segna come rinviata' })).first().click();
+    await page.getByRole('dialog').getByRole('button', { name: /l’ho inviata/ }).click();
+    await tst(page, 'Segnata come inviata');
+    await page.getByRole('button', { name: 'Registra esito SDI' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Registra esito' }).click();
+    await tst(page, 'Esito registrato');
+    await sleep(300);
+    S.check('correzione + rinvio + RC: Consegnata, numero invariato 1/2026', /consegnata/i.test(await page.locator('.iv-badges').first().innerText()) && /1\/2026/.test(await page.locator('main').innerText()));
+    await S.shot(page, 'rinviata e consegnata');
+    const hist = await page.locator('.iv-history').count();
+    S.note('Storico file scartati (.iv-history) presente: ' + hist);
+  }
+
+  // seconda fattura scartata: "Rifai con un nuovo numero"
+  await createInvoiceDraft(S, page, { lines: [{ description: 'Seconda da rifare', qty: 1, price: 90 }] });
+  const id2 = docIdOf(page);
+  const n2 = await issueCurrent(S, page, { tag: 'f2 ' });
+  S.check('seconda fattura 2/2026', n2 === '2/2026', n2);
+  await page.getByRole('button', { name: 'Segna come inviata' }).click();
   await page.getByRole('dialog').getByRole('button', { name: /l’ho inviata/ }).click();
   await tst(page, 'Segnata come inviata');
-  await S.shot(page, 'rinviata');
-  S.check('dopo rinvio: stato Inviata', /inviata/i.test(await page.locator('.iv-badges').first().innerText()), await page.locator('.iv-badges').first().innerText());
   await page.getByRole('button', { name: 'Registra esito SDI' }).click();
+  await page.getByRole('dialog').getByRole('combobox').first().selectOption('NS');
   await page.getByRole('dialog').getByRole('button', { name: 'Registra esito' }).click();
   await tst(page, 'Esito registrato');
   await sleep(300);
-  S.check('rinvio + RC: Consegnata', /consegnata/i.test(await page.locator('.iv-badges').first().innerText()));
-  const tl = await page.locator('main').innerText();
-  S.check('cronologia contiene INVIO, NS, INVIO, RC (>= 4 eventi SDI)', (tl.match(/Inviata allo SDI|Segnata come inviata|Inviata/gi) || []).length >= 2, tl.slice(tl.indexOf('Cronologia'), tl.indexOf('Cronologia') + 600).replace(/\n+/g, ' | '));
-  await S.shot(page, 'cronologia');
-
-  // MC e poi NC possibile
+  await page.getByRole('button', { name: /Rifai con un nuovo numero|Rifai come nuova fattura/ }).click();
+  await S.shot(page, 'rifai con nuovo numero');
+  await page.getByRole('button', { name: 'Crea la bozza collegata' }).click();
+  await tst(page, 'Creata la nuova bozza collegata');
+  await page.waitForFunction((x) => !location.hash.endsWith(x), id2);
+  await sleep(400);
+  await S.shot(page, 'bozza collegata');
+  const t = await page.locator('main').innerText();
+  S.check('bozza collegata: senza numero + link alla scartata', /senza numero/i.test(t) && /Rifà la fattura scartata n\. 2\/2026/.test(t), t.slice(0, 250));
+  const n3 = await issueCurrent(S, page, { tag: 'f3 ' });
+  S.check('nuova fattura dopo scarto = 3/2026', n3 === '3/2026', n3);
+  await go(page, `/documenti/${id2}`);
+  await sleep(300);
+  const t2 = await page.locator('main').innerText();
+  S.check('la scartata mostra il link "Rifatta come nuova fattura n. 3/2026"', /Rifatta come nuova fattura n\. 3\/2026/.test(t2), t2.slice(0, 300));
+  S.check('la scartata rifatta non offre piu "Correggi e rinvia" doppio / nuovo rifacimento', (await page.getByRole('button', { name: /Rifai con un nuovo numero|Rifai come nuova/ }).count()) === 0);
   await go(page, '/documenti');
   await S.shot(page, 'elenco');
 });
