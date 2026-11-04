@@ -1,0 +1,10 @@
+.sb { position: sticky; top: 0; z-index: 90; padding: var(--sp-3) calc(var(--sp-4) + var(--sar, 0px)) var(--sp-3) calc(var(--sp-4) + var(--sal, 0px)); border-bottom: 2px solid var(--c-warning); background: var(--c-warning-soft); color: var(--c-text); }
+.sb[data-health="unavailable"] { border-bottom-color: var(--c-danger); background: var(--c-danger-soft); }
+.sb-inner { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-2); }
+.sb-title { font-weight: 700; }
+.sb-msg { margin: 0; }
+.sb-why { margin: 0; font-size: var(--fs-sm, 0.9rem); }
+.sb-why summary { cursor: pointer; min-height: 24px; }
+.sb-why ul { margin: var(--sp-2) 0 0; padding-left: 1.2em; }
+.sb-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.sb-note { margin: 0; font-size: var(--fs-sm, 0.9rem); }

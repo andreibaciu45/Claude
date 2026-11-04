@@ -16,7 +16,8 @@ const line = z.looseObject({
 const invoice = z.looseObject({
   tipoDocumento: z.enum(['TD01', 'TD04']),
   year: z.number().int().min(2000).max(2100),
-  sectional: z.string().min(1).max(10),
+  // Maiuscole e cifre (FT, NC...): 'ft' e 'FT' sarebbero due serie distinte per l'indice UNIQUE ma la stessa serie per il contribuente.
+  sectional: z.string().regex(/^[A-Z][A-Z0-9]{0,9}$/, 'sezionale non valido (maiuscole e cifre)'),
   seq: z.number().int().positive().optional(),
   number: z.string().min(1).max(20).optional(),
   lockedAt: ts.optional(),

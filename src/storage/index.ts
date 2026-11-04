@@ -8,6 +8,7 @@ import { UNITS } from '../types';
 import type { AuditEntry, CatalogItem, DocType, ItemKind, Profile, QuoteDocument, Unit } from '../types';
 import { __resetStorageForTests, defaultProfile, getBackend, migrateDocumentV1, newAuditId, withDefaults } from './db';
 import { ImmutableDocumentError, assertSaveAllowed, __addAudit } from './invoices';
+import { BackupValidationError, validateBackupDocuments } from './backupValidation';
 import { normalizeCustomerRecord, seedCustomersFromDocuments, type StoredCustomer } from './customerModel';
 import {
   CLEAR_LOCAL_DATA_CONFIRM, type ClearLocalDataOptions, type ClearLocalDataResult, type ImportAuditResult, type StorageHooks,
@@ -20,6 +21,9 @@ export const BACKUP_VERSION = 3;
 const collator = new Intl.Collator('it', { sensitivity: 'base' });
 const byName = (a: { name: string }, b: { name: string }): number => collator.compare(a.name, b.name);
 export { defaultProfile, __resetStorageForTests };
+export { retryStorage, ensureStorageStarted, requirePersistentStorage } from './db';
+export * from './health';
+export { invoiceDueCents } from './creditResidual';
 
 // ---------------------------------------------------------------- API
 
@@ -299,16 +303,33 @@ export function parseBackup(json: string): ParsedBackup {
  * Il registro audit non si cancella: le voci attuali restano e si aggiungono quelle del backup.
  * Ritorna gli avvisi da mostrare all'utente (un backup vecchio può far perdere fatture emesse dopo la sua creazione).
  */
-export async function importBackup(json: string): Promise<{ warnings: string[] }> {
-  const b = parseBackup(json);
+export interface ImportBackupOptions {
+  /**
+   * Predefinito false: se anche UN solo documento fiscale non supera i controlli (hash dell'XML, lockedAt, numerazione,
+   * note di credito) l'intero import è RIFIUTATO con `BackupValidationError` (elenco degli errori) e non si scrive nulla.
+   * true = scelta esplicita dell'utente: i documenti non validi NON vengono ripristinati (resta la versione attuale, se c'è),
+   * il resto sì, e ogni documento scartato è elencato negli avvisi.
+   */
+  skipInvalidDocuments?: boolean;
+}
+
+export async function importBackup(json: string, opts: ImportBackupOptions = {}): Promise<{ warnings: string[]; rejected: { docId: string; number: string; message: string }[] }> {
+  const parsed = parseBackup(json);
+  const validation = await validateBackupDocuments(parsed.documents, parsed.audit);
+  if (validation.issues.length && !opts.skipInvalidDocuments) throw new BackupValidationError(validation.issues);
+  const rejectedIds = validation.rejectedIds;
+  // i contatori si calcolano su TUTTI i documenti del file (anche quelli rifiutati): mai riutilizzare un numero
+  const allDocs = parsed.documents;
+  const b = { ...parsed, documents: allDocs.filter((d) => !rejectedIds.has(d.id)) };
+  const rejected = validation.issues.map((i) => ({ docId: i.docId, number: i.number, message: i.message }));
   const warnings: string[] = [];
   await getBackend().transact('readwrite', async (t) => {
-    warnings.length = 0; // la funzione può essere rieseguita dal fallback
+    warnings.length = 0; // la funzione può essere rieseguita
     const cur = withDefaults(await t.getProfile());
     const curDocs = await t.all<QuoteDocument>('documents');
     const curAudit = await t.all<AuditEntry>('audit');
 
-    const fromDocs = maxSeqByKey(b.documents);
+    const fromDocs = maxSeqByKey(allDocs);
     const backupCounters = mergeCounters(b.profile.invoiceYearCounters);
     const curCounters = mergeCounters(cur.invoiceYearCounters, maxSeqByKey(curDocs));
     const restored = mergeCounters(backupCounters, fromDocs);
@@ -322,7 +343,11 @@ export async function importBackup(json: string): Promise<{ warnings: string[] }
       warnings.push(`Questo backup è più vecchio dei dati attuali: i contatori delle fatture (${raised.map(([k, v]) => `${k}: ${v}`).join(', ')}) sono stati mantenuti per non riutilizzare numeri già emessi.`);
     }
     const backupIds = new Set(b.documents.map((d) => d.id));
-    const lost = curDocs.filter((d) => d.invoice?.lockedAt && !backupIds.has(d.id));
+    const keptCurrent = curDocs.filter((d) => rejectedIds.has(d.id));
+    const lost = curDocs.filter((d) => d.invoice?.lockedAt && !backupIds.has(d.id) && !rejectedIds.has(d.id));
+    if (rejectedIds.size) {
+      warnings.push(`${rejectedIds.size} documento/i del backup NON ripristinat${rejectedIds.size === 1 ? 'o' : 'i'} perché non supera${rejectedIds.size === 1 ? '' : 'no'} i controlli di integrità: ${rejected.map((r) => r.message).join(' ')}${keptCurrent.length ? ` Su questo dispositivo ${keptCurrent.length === 1 ? 'è rimasta' : 'sono rimaste'} la versione attuale.` : ''}`);
+    }
     if (lost.length) {
       const one = lost.length === 1;
       warnings.push(`Attenzione: ${lost.length} fattur${one ? 'a emessa' : 'e emesse'} su questo dispositivo (${lost.map((d) => d.number).join(', ')}) non ${one ? 'è presente' : 'sono presenti'} nel backup e ${one ? 'verrà sostituita' : 'verranno sostituite'}. Ripristinare un backup vecchio può creare buchi o duplicati di numerazione: verifica con il tuo commercialista. Il registro delle operazioni (audit) è stato conservato.`);
@@ -348,6 +373,7 @@ export async function importBackup(json: string): Promise<{ warnings: string[] }
     await t.putProfile(profile);
     for (const i of b.catalog) await t.put('catalog', i);
     for (const d of b.documents) await t.put('documents', d);
+    for (const d of keptCurrent) await t.put('documents', d);
     // audit: unione per id (append-only, mai cancellato)
     const have = new Set(curAudit.map((a) => a.id));
     for (const a of b.audit) if (!have.has(a.id)) await t.add('audit', a);
@@ -356,7 +382,7 @@ export async function importBackup(json: string): Promise<{ warnings: string[] }
       detail: `Ripristino backup v${b.version}${b.exportedAt ? ` del ${b.exportedAt}` : ''}: ${b.documents.length} documenti${warnings.length ? ` | Avvisi: ${warnings.join(' ')}` : ''}`,
     } satisfies AuditEntry);
   });
-  return { warnings };
+  return { warnings, rejected };
 }
 
 // ---------------------------------------------------------------- manutenzione (cambio account, audit di altri dispositivi)
@@ -499,3 +525,4 @@ export * from './invoices';
 export * from './customers';
 export * from './integrity';
 export * from './backupSummary';
+export { BackupValidationError, validateBackupDocuments, type BackupIssue, type BackupValidation } from './backupValidation';

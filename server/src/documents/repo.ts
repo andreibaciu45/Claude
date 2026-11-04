@@ -41,16 +41,15 @@ export function listDocuments(tenantId: string, limit = 100, offset = 0) {
 }
 
 export function findInvoiceNumberOwner(tenantId: string, sectional: string, year: number, seq: number): string | undefined {
-  // Sezionale confrontato senza distinzione tra maiuscole/minuscole: 'ft' e 'FT' sono la stessa serie.
-  return one<{ id: string }>('SELECT id FROM documents WHERE tenant_id=? AND upper(inv_sectional)=upper(?) AND inv_year=? AND inv_seq=?', tenantId, sectional, year, seq)?.id;
+  return one<{ id: string }>('SELECT id FROM documents WHERE tenant_id=? AND inv_sectional=? AND inv_year=? AND inv_seq=?', tenantId, sectional, year, seq)?.id;
 }
 
-/** Altra fattura EMESSA della stessa serie (tenant, sezionale senza maiuscole, anno) che mostra uno dei numeri (testo) indicati. */
+/** Altra fattura EMESSA della stessa serie (tenant, sezionale, anno) che mostra uno dei numeri (testo) indicati. Usa l'indice parziale sul numero (migrazione 5). */
 export function findInvoiceNumberTextOwner(tenantId: string, sectional: string, year: number, numbers: (string | undefined)[], exceptId: string): string | undefined {
   for (const n of new Set(numbers.filter((x): x is string => typeof x === 'string' && x !== ''))) {
     const r = one<{ id: string }>(
-      `SELECT id FROM documents WHERE tenant_id=? AND locked_at IS NOT NULL AND deleted_at IS NULL AND id<>? AND type='fattura'
-       AND upper(inv_sectional)=upper(?) AND inv_year=? AND (number=? OR json_extract(data,'$.invoice.number')=?) LIMIT 1`, tenantId, exceptId, sectional, year, n, n);
+      `SELECT id FROM documents WHERE tenant_id=? AND locked_at IS NOT NULL AND number=? AND id<>? AND type='fattura' AND inv_sectional=? AND inv_year=? LIMIT 1`,
+      tenantId, n, exceptId, sectional, year);
     if (r) return r.id;
   }
   return undefined;

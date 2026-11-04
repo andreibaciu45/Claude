@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { AuditEntry, DocStatus, Profile, QuoteDocument } from '../types';
-import { getProfile, listAudit, listDocuments, saveDocument } from '../storage';
+import { getProfile, invoiceDueCents, listAudit, listDocuments, saveDocument } from '../storage';
 import { documentTotals, fmtDate, generateDocumentPdf } from '../pdf';
 import { Badge, Button, Card, EmptyState, Input, Money, PageHeader, Select, Sheet, Stat, useToast } from '../ui';
 import { STATUS_LABEL, STATUS_TONE, downloadBlob, fileNameFor } from './quote/shared';
@@ -71,7 +71,8 @@ export default function DocumentsPage() {
     const sign = (d: QuoteDocument) => (isCreditNote(d) ? -1 : 1);
     const netC = mine.reduce((s, d) => s + sign(d) * Math.round(documentTotals(d, forf).net * 100), 0);
     const q4 = Math.floor(new Date().getMonth() / 3) + 1;
-    const toCollectC = inv.filter((d) => d.status !== 'stornata').reduce((s, d) => s + Math.max(0, Math.round(documentTotals(d, forf).gross * 100) - d.invoice!.payments.reduce((a, p) => a + Math.round(p.amount * 100), 0)), 0);
+    // Dovuto netto (stesso calcolo di recordPayment): totale meno le note di credito efficaci, anche parziali, di qualunque anno
+    const toCollectC = inv.filter((d) => d.status !== 'stornata').reduce((s, d) => s + Math.max(0, invoiceDueCents(d, all, forf) - d.invoice!.payments.reduce((a, p) => a + Math.round(p.amount * 100), 0)), 0);
     const quarters = stampsByQuarter(all, ys, forf);
     return { ys, count: inv.length, net: netC / 100, q4, quarters, toCollect: toCollectC / 100, thr: thresholdStatus(all, ys) };
   }, [docs, year, thisYear, forf]);

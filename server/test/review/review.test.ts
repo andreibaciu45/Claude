@@ -155,12 +155,12 @@ describe('audit del client: append-only quindi limitato all\'ingresso', () => {
 });
 
 describe('numerazione fatture: duplicati non rilevati dall\'indice UNIQUE', () => {
-  it('stesso sezionale scritto in modo diverso (ft/FT) e stesso numero mostrato con seq diverso => duplicate_invoice_number', async () => {
+  it('sezionale in minuscolo (ft/FT) rifiutato; stesso numero mostrato con seq diverso => duplicate_invoice_number', async () => {
     const { token } = await login('a@x.it');
     pro(tenantOf('a@x.it'));
     expect((await push(token, [docOp(invoice('i1', 1))])).json.accepted).toHaveLength(1);
     const lower = invoice('i2', 1); (lower.invoice as any).sectional = 'ft';
-    expect((await push(token, [docOp(lower)])).json.conflicts[0]?.reason).toBe('duplicate_invoice_number');
+    expect((await push(token, [docOp(lower)])).json.conflicts[0]?.reason).toBe('invalid');
     const sameLabel = invoice('i3', 5); (sameLabel.invoice as any).number = '1/2026'; sameLabel.number = '1/2026';
     expect((await push(token, [docOp(sameLabel)])).json.conflicts[0]?.reason).toBe('duplicate_invoice_number');
     expect(one('SELECT 1 AS x FROM documents WHERE id IN (?, ?)', 'i2', 'i3')).toBeUndefined();
@@ -363,5 +363,61 @@ describe('avvio: coerenza tra chiavi e dati cifrati', () => {
   it('senza dati cifrati nessun problema, con o senza chiave', async () => {
     const db = getDb();
     expect(encryptionConfigProblem(db)).toBeNull();
+  });
+});
+
+describe('trigger SQL di immutabilità: tentativi di aggiramento diretto (guardia, già verdi)', () => {
+  it('INSERT OR REPLACE, ON CONFLICT, DELETE, UPDATE su colonne indicizzate o su JSON, REPLACE con stesso seq: tutti bloccati', async () => {
+    const { token } = await login('a@x.it'); const tid = tenantOf('a@x.it'); pro(tid);
+    await push(token, [docOp(invoice('i1', 1)), docOp(invoice('i2', 2))]);
+    const row = (id: string, seq: number, lockedAt: string) => `('${tid}','${id}','fattura','emessa','${seq}/2026',2026,'FT',${seq},${lockedAt},1000,1000,'{"x":1}')`;
+    const cols = 'tenant_id,id,type,status,number,inv_year,inv_sectional,inv_seq,locked_at,created_at,updated_at,data';
+    const blocked = [
+      `INSERT OR REPLACE INTO documents(${cols}) VALUES ${row('i1', 1, '5000')}`,
+      `INSERT OR REPLACE INTO documents(${cols}) VALUES ${row('zz', 1, '5000')}`, // altro id, stesso (sezionale, anno, seq): REPLACE cancellerebbe la emessa
+      `INSERT INTO documents(${cols}) VALUES ${row('i1', 1, '5000')} ON CONFLICT(tenant_id,id) DO UPDATE SET data=excluded.data`,
+      `INSERT OR REPLACE INTO documents(${cols}) VALUES ${row('i1', 1, 'NULL')}`,
+      "DELETE FROM documents WHERE id='i1'",
+      "UPDATE documents SET inv_seq=99 WHERE id='i1'",
+      "UPDATE documents SET data=json_set(data,'$.invoice.seq',99) WHERE id='i1'",
+      "UPDATE documents SET status='bozza' WHERE id='i1'",
+      "UPDATE documents SET locked_at=NULL WHERE id='i1'",
+      "UPDATE documents SET data=json_set(data,'$.lines[0].unitPrice',1) WHERE id='i1'",
+      "UPDATE documents SET data=json_set(data,'$.customer.name','Z') WHERE id='i1'",
+      "UPDATE documents SET data=json_set(data,'$.date','2020-01-01') WHERE id='i1'",
+      "UPDATE documents SET deleted_at=5 WHERE id='i1'",
+      "UPDATE OR REPLACE documents SET id='i2' WHERE id='i1'",
+      "UPDATE documents SET id='i3' WHERE id='i1'",
+      'DELETE FROM audit_log',
+      "INSERT OR REPLACE INTO audit_log(id,tenant_id,at,action) VALUES (1,'x',1,'y')",
+    ];
+    for (const sql of blocked) expect(() => run(sql), sql).toThrow();
+    // ammessi (per contratto): pagamenti ed esiti SDI
+    expect(() => run("UPDATE documents SET data=json_set(data,'$.invoice.payments',json('[]')) WHERE id='i1'")).not.toThrow();
+  });
+});
+
+describe('OTP: un login riuscito chiude tutti i codici attivi', () => {
+  it('dopo il login i codici precedenti della stessa email non sono più spendibili', async () => {
+    const { sent: mails } = await import('../core/helpers');
+    await call('POST', '/v1/auth/request', { body: { email: 'o@x.it' } });
+    await call('POST', '/v1/auth/request', { body: { email: 'o@x.it' } });
+    const [first, second] = mails.filter((m) => m.email === 'o@x.it').map((m) => m.code);
+    const ver = (code: string, deviceId: string) => call('POST', '/v1/auth/verify', { body: { email: 'o@x.it', code, deviceId } });
+    expect((await ver(second!, 'd1')).status).toBe(200);
+    if (first !== second) expect((await ver(first!, 'd2')).status).toBe(401); // prima: ancora valido per 10 minuti
+  });
+});
+
+describe('GDPR: cancellazione e impronte di email', () => {
+  it('l\'invito usato non conserva più l\'impronta dell\'email dopo la cancellazione dell\'account', async () => {
+    const { createInvite, redeemInvite } = await import('../../src/auth/invites');
+    const { code } = createInvite({ email: 'g@x.it' });
+    const { token, tenantId } = await login('g@x.it');
+    expect(redeemInvite(code, 'g@x.it', tenantId)).toBe(true);
+    expect(one<{ email_hash: string | null }>('SELECT email_hash FROM invite_codes WHERE used_by_tenant=?', tenantId)!.email_hash).not.toBeNull();
+    const r = await call('DELETE', '/v1/me', { token, body: { confirmEmail: 'g@x.it' } });
+    expect(r.status).toBe(200);
+    expect(one<{ email_hash: string | null; used_at: number | null }>('SELECT email_hash, used_at FROM invite_codes WHERE used_by_tenant=?', tenantId)).toMatchObject({ email_hash: null });
   });
 });

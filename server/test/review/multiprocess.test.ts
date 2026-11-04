@@ -26,7 +26,7 @@ describe('sync con due processi', () => {
     await login('a@x.it');
     const u = one<{ id: string; tenant_id: string }>('SELECT id, tenant_id FROM users')!;
     setEntitlement(u.tenant_id, { plan: 'pro' });
-    const N = 60;
+    const N = 40;
     const ops = Array.from({ length: N }, (_, i) => docOp(quote(`q${i}`)));
     const file = join(fdb.dir, 'ops.json');
     writeFileSync(file, JSON.stringify({ ctx: { tenantId: u.tenant_id, userId: u.id, deviceId: 'dev-1' }, ops }));

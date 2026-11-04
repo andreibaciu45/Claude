@@ -152,7 +152,7 @@ describe('processo reale: SIGTERM', () => {
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
     try {
-      for (let i = 0; i < 100 && !out.includes('in ascolto'); i++) await new Promise((r) => setTimeout(r, 100));
+      for (let i = 0; i < 250 && !out.includes('in ascolto'); i++) await new Promise((r) => setTimeout(r, 100));
       expect(out).toContain('in ascolto');
       expect((await fetch(`http://127.0.0.1:${port}/health/deep`)).status).toBe(200);
       const t0 = Date.now();

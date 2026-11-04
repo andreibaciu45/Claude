@@ -6,6 +6,7 @@
  */
 import type { DocLine, QuoteDocument } from '../types';
 import { lineTotalCents } from '../../shared/fiscal/money';
+import { invoiceTotalsCents } from './invoiceTotals';
 
 export const lineKey = (l: Pick<DocLine, 'description' | 'unit' | 'unitPrice' | 'discountPct'>): string =>
   `${l.description.trim()}|${l.unit}|${l.unitPrice}|${l.discountPct ?? 0}`;
@@ -43,4 +44,13 @@ export function creditResidual(original: Pick<QuoteDocument, 'lines'>, notes: Pi
   const originalCents = net(original.lines);
   const creditedCents = net(notes.flatMap((n) => n.lines));
   return { originalCents, creditedCents, residualCents: Math.max(0, originalCents - creditedCents), lines };
+}
+
+/**
+ * Dovuto di una fattura = totale documento (IVA e bollo addebitato compresi) meno l'imponibile delle note di credito efficaci
+ * (centesimi, mai negativo). UNICO calcolo per incassi (`recordPayment`), stato di pagamento ed elenco documenti ("Da incassare").
+ */
+export function invoiceDueCents(d: QuoteDocument, all: QuoteDocument[], forfettario: boolean): number {
+  const gross = invoiceTotalsCents(d.lines, { forfettario, stampChargedToCustomer: !!d.invoice?.stampDutyChargedToCustomer }).grossCents;
+  return Math.max(0, gross - creditResidual(d, effectiveCreditNotes(all, d.id)).creditedCents);
 }

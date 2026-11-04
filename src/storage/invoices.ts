@@ -12,11 +12,11 @@ import type { AuditEntry, Customer, DocLine, Profile, QuoteDocument, SdiEvent, V
 import { uid } from '../types';
 import { invoiceTotalsCents, CREDIT_NOTE_STAMP_NOTE } from './invoiceTotals';
 export { CREDIT_NOTE_STAMP_NOTE };
-import { creditResidual, effectiveCreditNotes, lineKey } from './creditResidual';
+import { creditResidual, effectiveCreditNotes, lineKey, invoiceDueCents } from './creditResidual';
 import { lineTotalCents, toCents } from '../../shared/fiscal/money';
 import * as fatturapa from '../../shared/fatturapa';
 import { generateFatturaPA, validateInvoiceForIssue } from '../../shared/fatturapa';
-import { getBackend, newAuditId, withDefaults, type Tx } from './db';
+import { getBackend, newAuditId, withDefaults, type Tx, requirePersistentStorage } from './db';
 
 // ---------------------------------------------------------------- errori
 
@@ -303,6 +303,7 @@ export async function setInvoiceCounterStart(
   if (!Number.isInteger(lastUsed) || lastUsed < 0 || lastUsed > MAX_COUNTER_VALUE) {
     throw new CounterStartError('invalid', `Indica un numero intero da 0 a ${MAX_COUNTER_VALUE.toLocaleString('it-IT')}.`);
   }
+  await requirePersistentStorage('modificare il contatore delle fatture');
   return getBackend().transact('readwrite', async (t) => {
     const profile = withDefaults(await t.getProfile());
     const docs = await t.all<QuoteDocument>('documents');
@@ -490,6 +491,7 @@ async function emit(
   auditDetail: (c: Candidate) => string,
 ): Promise<IssueResult> {
   return serialize(async () => {
+    await requirePersistentStorage('emettere il documento');
     const now = Date.now();
     for (let attempt = 0; attempt < 6; attempt++) {
       // 1) preparazione (sola lettura): numero, validazione, XML, hash. L'hash (async) sta FUORI dalla tx di scrittura.
@@ -714,7 +716,11 @@ export const createCreditNote = async (
 // ---------------------------------------------------------------- esiti SDI
 
 /** Registra un esito/invio SDI (v1 manuale): aggiorna status coerentemente. */
-export const recordSdiEvent = async (docId: string, ev: SdiEvent): Promise<QuoteDocument> =>
+export const recordSdiEvent = async (docId: string, ev: SdiEvent): Promise<QuoteDocument> => {
+  await requirePersistentStorage('registrare l\'esito SDI');
+  return recordSdiEventTx(docId, ev);
+};
+const recordSdiEventTx = (docId: string, ev: SdiEvent): Promise<QuoteDocument> =>
   getBackend().transact('readwrite', async (t) => {
     const d = await t.get<QuoteDocument>('documents', docId);
     if (!d) throw new Error('Fattura non trovata.');
@@ -790,12 +796,14 @@ export function paymentStatusFor(paidCents: number, dueCents: number): InvoiceFi
 
 /** Dovuto di una fattura = totale documento − note di credito efficaci (centesimi). */
 function dueCentsOf(d: QuoteDocument, all: QuoteDocument[], profile: Profile): number {
-  const gross = invoiceTotalsCents(d.lines, { forfettario: profile.regimeForfettario, stampChargedToCustomer: !!d.invoice?.stampDutyChargedToCustomer }).grossCents;
-  const credited = creditResidual(d, effectiveCreditNotes(all, d.id)).creditedCents;
-  return Math.max(0, gross - credited);
+  return invoiceDueCents(d, all, profile.regimeForfettario);
 }
 
-export const recordPayment = async (docId: string, p: { date: string; amount: number; method?: string }): Promise<QuoteDocument> =>
+export const recordPayment = async (docId: string, p: { date: string; amount: number; method?: string }): Promise<QuoteDocument> => {
+  await requirePersistentStorage('registrare il pagamento');
+  return recordPaymentTx(docId, p);
+};
+const recordPaymentTx = (docId: string, p: { date: string; amount: number; method?: string }): Promise<QuoteDocument> =>
   getBackend().transact('readwrite', async (t) => {
     const d = await t.get<QuoteDocument>('documents', docId);
     if (!d) throw new Error('Fattura non trovata.');
@@ -881,6 +889,7 @@ const describePatch = (p: RejectedInvoicePatch): string => {
  */
 export function reopenRejectedInvoice(docId: string, patch: RejectedInvoicePatch = {}, opts: { now?: number } = {}): Promise<QuoteDocument> {
   return serialize(async () => {
+    await requirePersistentStorage('correggere la fattura scartata');
     const now = opts.now ?? Date.now();
     for (let attempt = 0; attempt < 6; attempt++) {
       const prep = await getBackend().transact('readonly', async (t) => ({

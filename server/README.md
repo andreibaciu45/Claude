@@ -43,3 +43,12 @@ Revisione di sicurezza completa: `docs/SECURITY-REVIEW.md`.
 - **Log**: JSON su stdout, solo metadati (id richiesta, tenant pseudonimo, metodo, rotta, stato, ms). Verificato da test che non compaiano email, token, OTP, IP, contenuti. Le 500 sono registrate in `ops_errors` (solo rotta e nome dell'errore).
 - Test: `test/ops/**` (CLI, grants, metriche/salute/log, manutenzione, arresto con processo reale, inviti, migrazioni da DB vecchi, end-to-end e concorrenza multi-processo).
 - Migrazioni 200–201 (`db/ops-schema.ts`): `admin_actions`, `ops_state`, `ops_daily`, `ops_errors`, `invite_codes`.
+
+## Revisione indipendente (docs/CODE-REVIEW-SERVER.md)
+Correzioni e variabili introdotte dalla seconda revisione (test: `test/review/**`, compresa una prova con due processi sullo stesso file DB):
+- `RL_AUDIT_PER_DAY` (default 10000): tetto giornaliero di voci di audit del client per tenant. Il registro è append-only (nemmeno la cancellazione dell'account lo svuota), quindi si limita all'ingresso: si memorizzano solo i campi noti e al massimo ~6 KB a voce.
+- `SDI_JOB_STALE_MS` (default 900000): un job SDI rimasto `running` oltre questo tempo (processo morto a metà) torna in coda, o va in `dead` se ha esaurito i tentativi. Un job `dead` viene riattivato se arriva di nuovo la stessa richiesta (nuovo invio / nuova notifica del provider).
+- Avvio (`src/index.ts`): il server rifiuta di partire se il DB contiene dati cifrati e `APP_ENCRYPTION_KEY` manca o non copre le chiavi usate (`APP_ENCRYPTION_OLD_KEYS`), invece di scrivere in chiaro i nuovi dati.
+- Numerazione: oltre all'indice UNIQUE (tenant, sezionale, anno, seq), il server rifiuta un secondo numero identico (testo) nella stessa serie e confronta il sezionale senza distinguere maiuscole/minuscole.
+- Una fattura già `consegnata`, `stornata` o `pagato` non può essere dichiarata `scartata` dal client (lo stato `scartata` apre il rinvio con contenuto corretto); un NS tardivo del provider si registra ma non cambia lo stato di una fattura consegnata.
+- Testi (`notes`, `transcript`, `invoice.xml`) che iniziano con `enc:v1:` sono rifiutati (`invalid`): verrebbero scambiati per valori già cifrati.

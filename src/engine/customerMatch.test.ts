@@ -107,8 +107,14 @@ describe('parseDictationWithContext', () => {
   });
   it('rubrica grande: veloce', () => {
     const big = Array.from({ length: 5000 }, (_, i) => ({ id: `k${i}`, name: `Nome${i} Cognome${i % 700}` }));
-    const t0 = performance.now();
-    parseDictationWithContext('per Nome42 Cognome42 due prese', DEFAULT_CATALOG, { customers: big });
-    expect(performance.now() - t0).toBeLessThan(150);
+    // Miglior tempo su 5 prove: i picchi di carico della macchina (CI, suite in parallelo) non devono dare falsi rossi,
+    // mentre una regressione di complessità (O(n^2)) peggiora TUTTE le prove.
+    let best = Infinity;
+    for (let i = 0; i < 5; i++) {
+      const t0 = performance.now();
+      parseDictationWithContext('per Nome42 Cognome42 due prese', DEFAULT_CATALOG, { customers: big });
+      best = Math.min(best, performance.now() - t0);
+    }
+    expect(best).toBeLessThan(150);
   });
 });

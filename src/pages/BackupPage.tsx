@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Badge, Button, Card, PageHeader, Sheet, useToast } from '../ui';
-import { describeBackup, exportBackup, getStorageSummary, importBackup, parseBackup, verifyStorageIntegrity, type BackupPreview, type IntegrityReport } from '../storage';
+import { BackupValidationError, describeBackup, exportBackup, getStorageSummary, importBackup, parseBackup, validateBackupDocuments, verifyStorageIntegrity, type BackupIssue, type BackupPreview, type IntegrityReport } from '../storage';
 import { downloadText } from './catalog/download';
 import './catalog/catalog.css';
 
@@ -17,7 +17,9 @@ function writeLast(t: number) {
 export default function BackupPage() {
   const toast = useToast();
   const [last, setLast] = useState<number | null>(readLast);
-  const [pending, setPending] = useState<{ json: string; preview: BackupPreview } | null>(null);
+  const [pending, setPending] = useState<{ json: string; preview: BackupPreview; issues: BackupIssue[] } | null>(null);
+  const [acceptInvalid, setAcceptInvalid] = useState(false);
+  const [rejectedIssues, setRejectedIssues] = useState<BackupIssue[]>([]);
   const [understood, setUnderstood] = useState(false);
   const [report, setReport] = useState<IntegrityReport | null>(null);
   const [checkError, setCheckError] = useState('');
@@ -48,8 +50,10 @@ export default function BackupPage() {
       const json = await f.text();
       const b = parseBackup(json);
       const current = await getStorageSummary().catch(() => null);
+      const { issues } = await validateBackupDocuments(b.documents, b.audit);
       setUnderstood(false);
-      setPending({ json, preview: describeBackup(b, current) });
+      setAcceptInvalid(false);
+      setPending({ json, preview: describeBackup(b, current), issues });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'File non valido');
     }
@@ -67,14 +71,18 @@ export default function BackupPage() {
     if (!pending) return;
     setBusy(true);
     try {
-      const res = await importBackup(pending.json);
+      const res = await importBackup(pending.json, { skipInvalidDocuments: acceptInvalid });
       setPending(null);
       setReport(null);
       setWarnings(res?.warnings ?? []);
+      setRejectedIssues([]);
       toast(res?.warnings?.length ? 'Dati ripristinati (con avvisi)' : 'Dati ripristinati');
     } catch (e) {
       setPending(null);
-      setError(e instanceof Error ? e.message : 'Ripristino non riuscito');
+      if (e instanceof BackupValidationError) {
+        setRejectedIssues(e.issues);
+        setError('Ripristino rifiutato: il file contiene fatture emesse che non superano i controlli di integrità. Non è stato modificato nessun dato.');
+      } else setError(e instanceof Error ? e.message : 'Ripristino non riuscito');
     } finally { setBusy(false); }
   };
 
@@ -120,6 +128,11 @@ export default function BackupPage() {
             <input ref={fileRef} type="file" accept=".json,application/json" hidden aria-label="File di backup" onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ''; }} />
             <Button size="lg" variant="secondary" onClick={() => fileRef.current?.click()} disabled={busy}>Scegli file di backup…</Button>
             {error && <p role="alert" className="cat-error">{error}</p>}
+            {rejectedIssues.length > 0 && (
+              <ul aria-label="Problemi trovati nel backup">
+                {rejectedIssues.map((i, k) => <li key={k}>{i.message}</li>)}
+              </ul>
+            )}
           </div>
         </Card>
         <Card>
@@ -155,6 +168,17 @@ export default function BackupPage() {
                 {pending.preview.versionNotes.map((n, i) => <p key={i}>{n}</p>)}
               </div>
             )}
+            {pending.issues.length > 0 && (
+              <div role="alert" className="cat-col" aria-label="Controllo di integrità del backup">
+                <strong>Il backup non supera i controlli di integrità ({pending.issues.length})</strong>
+                <p>Qualche fattura emessa nel file sembra modificata o incoerente. Per sicurezza il ripristino è bloccato.</p>
+                <ul>{pending.issues.map((i, k) => <li key={k}>{i.message}</li>)}</ul>
+                <label className="cat-row">
+                  <input type="checkbox" checked={acceptInvalid} onChange={(e) => setAcceptInvalid(e.target.checked)} />
+                  <span>Ripristina comunque tutto il resto e salta i documenti non validi (restano quelli attuali, se ci sono)</span>
+                </label>
+              </div>
+            )}
             {pending.preview.replacesExisting ? (
               <div role="alert" className="cat-col">
                 <strong>Cosa verrà sostituito</strong>
@@ -169,7 +193,7 @@ export default function BackupPage() {
             ) : (
               <p>Su questo dispositivo non ci sono dati: il backup verrà semplicemente caricato.</p>
             )}
-            <Button variant="danger" size="lg" disabled={busy || (pending.preview.replacesExisting && !understood)} onClick={() => void doImport()}>
+            <Button variant="danger" size="lg" disabled={busy || (pending.preview.replacesExisting && !understood) || (pending.issues.length > 0 && !acceptInvalid)} onClick={() => void doImport()}>
               {pending.preview.replacesExisting ? 'Sì, sostituisci i dati' : 'Ripristina i dati'}
             </Button>
             <Button variant="secondary" size="lg" onClick={() => setPending(null)}>Annulla</Button>

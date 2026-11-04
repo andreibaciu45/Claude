@@ -259,6 +259,11 @@ WHEN OLD.locked_at IS NOT NULL AND NOT (
 BEGIN SELECT RAISE(ABORT, 'documento_bloccato: modifica vietata'); END;
 `);
 
+registerMigration(5, 'issued_number_index', `
+-- Ricerca del numero (testo) tra le fatture emesse di un tenant: senza indice ogni emissione scandirebbe tutte le emesse (O(n) per operazione).
+CREATE INDEX idx_documents_issued_number ON documents(tenant_id, number) WHERE locked_at IS NOT NULL;
+`);
+
 /** Elenco (ordinato) delle migrazioni registrate: serve ai test di upgrade e a /health/deep. */
 export const listMigrations = (): Migration[] => [...migrations].sort((a, b) => a.version - b.version);
 

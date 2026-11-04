@@ -4,6 +4,7 @@ import { Icon, Skeleton, ToastProvider } from './ui';
 import type { IconName } from './ui';
 import NewQuotePage from './pages/NewQuotePage';
 import { attachSync, SyncBadge } from './sync';
+import { StorageBanner } from './ui/StorageBanner';
 import './app.css';
 import './pages/customers/nav.css';
 
@@ -132,6 +133,7 @@ export default function App() {
   return (
     <ToastProvider>
       <div className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{announcement}</div>
+      <StorageBanner />
       <HashRouter>
         <RouteEffects onAnnounce={setAnnouncement} />
         <Routes>

@@ -43,7 +43,10 @@
 	# --- Asset con hash nel nome (Vite): immutabili, cache 1 anno. 404 vero se mancano ---
 	handle /assets/* {
 		root * /opt/vocepreventivo/current/dist
-		header Cache-Control "public, max-age=31536000, immutable"
+		# "immutable" SOLO se il file esiste: un 404 con max-age di un anno resterebbe nella cache del browser/CDN
+		# (caso tipico: index.html nuovo servito prima che gli asset siano stati copiati).
+		@found file {path}
+		header @found Cache-Control "public, max-age=31536000, immutable"
 		file_server
 	}
 
@@ -57,12 +60,24 @@
 	# --- Resto della PWA: HashRouter, quindi il fallback e' sempre index.html ---
 	handle {
 		root * /opt/vocepreventivo/current/dist
-		# default: no-cache (rivalidazione con ETag) per index.html, offline.html, pagine legali/guide e ogni altro HTML;
-		# solo icone e manifest hanno una cache breve (1 giorno).
-		header Cache-Control "no-cache"
+		# no-cache (rivalidazione con ETag) per index.html, offline.html, pagine legali/guide e ogni altro HTML (anche il
+		# fallback su index.html); solo icone e manifest hanno una cache breve (1 giorno). Due matcher espliciti perche'
+		# Caddy NON garantisce l'ordine tra un `header` senza matcher e uno con matcher.
 		@static path /manifest.webmanifest /icon*.png /icon*.svg /apple-touch-icon.png
+		@dynamic not path /manifest.webmanifest /icon*.png /icon*.svg /apple-touch-icon.png
+		header @dynamic Cache-Control "no-cache"
 		header @static Cache-Control "public, max-age=86400"
 		try_files {path} {path}/index.html /index.html
 		file_server
+	}
+
+	# --- Errori (404 dei file, 502 se il server e' giu'): Caddy NON applica il blocco `header` di sopra alle risposte
+	# d'errore (verificato con Caddy 2.8.4), quindi i minimi di sicurezza vanno ripetuti qui. Mai in cache.
+	handle_errors {
+		header Cache-Control "no-store"
+		header X-Content-Type-Options "nosniff"
+		header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+		header -Server
+		respond "{err.status_code} {err.status_text}"
 	}
 }

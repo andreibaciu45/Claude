@@ -35,12 +35,13 @@ function parseCaddyfile(text) {
   }
   const grab = (re) => { const m = re.exec(text); return m ? m[1] : null; };
   out.cache.api = grab(/handle @api \{[\s\S]*?header Cache-Control "([^"]+)"/);
-  out.cache.assets = grab(/handle \/assets\/\* \{[\s\S]*?header Cache-Control "([^"]+)"/);
+  out.cache.assets = grab(/handle \/assets\/\* \{[\s\S]*?header @found Cache-Control "([^"]+)"/);
   out.cache.sw = grab(/handle \/sw\.js \{[\s\S]*?header Cache-Control "([^"]+)"/);
-  out.cache.html = grab(/handle \{\s*root \* \S+[\s\S]*?\n\t\theader Cache-Control "([^"]+)"/); // default del blocco finale
+  out.cache.html = grab(/header @dynamic Cache-Control "([^"]+)"/);
   out.cache.static = grab(/header @static Cache-Control "([^"]+)"/);
   const sp = grab(/@static path ([^\n]+)/);
   out.staticPattern = sp ? sp.trim().split(/\s+/) : [];
+  out.errorCsp = grab(/handle_errors \{[\s\S]*?header Content-Security-Policy "([^"]+)"/);
   out.root = grab(/handle \/assets\/\* \{\s*root \* (\S+)/);
   out.upstream = grab(/reverse_proxy (\S+)/);
   return out;
@@ -88,7 +89,13 @@ function createServer({ dist, cfg, api }) {
     let cache = null;
     if (p.startsWith('/assets/')) {
       cache = cfg.cache.assets;
-      if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.setHeader('Cache-Control', 'no-store'); res.writeHead(404); return res.end('not found'); }
+      if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) {
+        // come handle_errors di Caddy: gli header di sicurezza del sito NON si applicano agli errori
+        for (const [k] of cfg.headers) res.removeHeader(k);
+        res.setHeader('Cache-Control', 'no-store'); res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Content-Security-Policy', cfg.errorCsp || "default-src 'none'; frame-ancestors 'none'");
+        res.writeHead(404); return res.end('404 Not Found');
+      }
     } else if (p === '/sw.js') {
       cache = cfg.cache.sw;
     } else {

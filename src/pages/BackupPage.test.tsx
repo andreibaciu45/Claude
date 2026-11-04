@@ -19,6 +19,16 @@ if (!globalThis.crypto?.subtle) Object.defineProperty(globalThis, 'crypto', { va
 let host: HTMLDivElement;
 let root: Root;
 const flush = async () => { for (let i = 0; i < 12; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
+/** Attende (con act) che la condizione diventi vera: niente attese fisse, regge i picchi di carico della macchina. */
+const until = async <T,>(fn: () => T | null | undefined | false, ms = 8000): Promise<T> => {
+  const end = Date.now() + ms;
+  for (;;) {
+    const v = fn();
+    if (v) return v;
+    if (Date.now() > end) throw new Error('until: condizione non raggiunta entro ' + ms + ' ms');
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+  }
+};
 const btn = (t: string) => [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent!.includes(t));
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
 const dialog = () => document.body.querySelector('[role="dialog"]');
@@ -154,8 +164,7 @@ describe('Backup: sezione "Controllo dati"', () => {
     await mount();
     expect(host.textContent).toContain('Controllo dati');
     await click(btn('Controlla i dati')!);
-    await flush();
-    const r = host.querySelector('[aria-label="Esito del controllo dati"]')!;
+    const r = await until(() => host.querySelector('[aria-label="Esito del controllo dati"]'));
     expect(r.textContent).toContain('Tutto in ordine');
     expect(r.textContent).toContain('Controllati 2 documenti');
   });
@@ -166,8 +175,7 @@ describe('Backup: sezione "Controllo dati"', () => {
     await getBackend().transact('readwrite', (t) => t.del('documents', 'b'));
     await mount();
     await click(btn('Controlla i dati')!);
-    await flush();
-    const r = host.querySelector('[aria-label="Esito del controllo dati"]')!.textContent!;
+    const r = (await until(() => host.querySelector('[aria-label="Esito del controllo dati"]'))).textContent!;
     expect(r).toContain('Problemi trovati');
     expect(r).toContain('mancano i numeri 2/');
     expect(r).toContain('commercialista');
