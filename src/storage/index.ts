@@ -9,6 +9,10 @@ import type { AuditEntry, CatalogItem, DocType, ItemKind, Profile, QuoteDocument
 import { __resetStorageForTests, defaultProfile, getBackend, migrateDocumentV1, newAuditId, withDefaults } from './db';
 import { ImmutableDocumentError, assertSaveAllowed, __addAudit } from './invoices';
 import { normalizeCustomerRecord, seedCustomersFromDocuments, type StoredCustomer } from './customerModel';
+import {
+  CLEAR_LOCAL_DATA_CONFIRM, type ClearLocalDataOptions, type ClearLocalDataResult, type ImportAuditResult, type StorageHooks,
+} from './hooks';
+import type { Tx } from './db';
 
 export const BACKUP_VERSION = 3;
 export { defaultProfile, __resetStorageForTests };
@@ -133,19 +137,22 @@ export const nextDocumentNumber = async (type: DocType): Promise<string> =>
 
 // ---------------------------------------------------------------- backup
 
-export async function exportBackup(): Promise<string> {
-  const { profile, catalog, documents, audit, customers } = await getBackend().transact('readonly', async (t) => ({
-    profile: withDefaults(await t.getProfile()),
-    catalog: await t.all<CatalogItem>('catalog'),
-    customers: await t.all<StoredCustomer>('customers'),
-    documents: await t.all<QuoteDocument>('documents'),
-    audit: await t.all<AuditEntry>('audit'),
-  }));
+/** Serializza l'intero archivio leggendolo dalla transazione data (lo stesso JSON di `exportBackup`). */
+async function backupJson(t: Tx): Promise<string> {
+  const profile = withDefaults(await t.getProfile());
+  const catalog = await t.all<CatalogItem>('catalog');
+  const customers = await t.all<StoredCustomer>('customers');
+  const documents = await t.all<QuoteDocument>('documents');
+  const audit = await t.all<AuditEntry>('audit');
   catalog.sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
   documents.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt));
   audit.sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
   customers.sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
   return JSON.stringify({ version: BACKUP_VERSION, exportedAt: new Date().toISOString(), profile, catalog, customers, documents, audit }, null, 2);
+}
+
+export async function exportBackup(): Promise<string> {
+  return getBackend().transact('readonly', (t) => backupJson(t));
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -348,5 +355,143 @@ export async function importBackup(json: string): Promise<{ warnings: string[] }
   return { warnings };
 }
 
+// ---------------------------------------------------------------- manutenzione (cambio account, audit di altri dispositivi)
+
+export { CLEAR_LOCAL_DATA_CONFIRM };
+export type { ClearLocalDataOptions, ClearLocalDataResult, ImportAuditResult, StorageHooks };
+
+/** Chiave della bozza locale del preventivo in corso (vedi src/pages/quote/draft.ts): contiene dati del cliente. */
+const LOCAL_DRAFT_KEY = 'vocepreventivo:draft:v1';
+
+export class ClearLocalDataError extends Error {
+  constructor(message: string) { super(message); this.name = 'ClearLocalDataError'; }
+}
+
+/**
+ * PERICOLOSA: svuota profilo (torna ai default, contatori compresi), catalogo, documenti (anche le fatture emesse),
+ * rubrica clienti e, salvo `keepAudit`, il registro audit. Serve al cambio account su un dispositivo condiviso:
+ * i dati dell'utente precedente non devono finire nell'account nuovo.
+ *  - NON cancella mai se `confirm !== 'CANCELLA-DATI-LOCALI'` (lancia `ClearLocalDataError`, nessuna scrittura).
+ *  - `keepBackupCopy` (predefinito true): il backup di sicurezza (exportBackup: fatture emesse con XML incluse) è letto
+ *    nella STESSA transazione della cancellazione e restituito in `backupJson`. Con false i dati sono persi.
+ *  - Con `keepAudit` il registro resta e si aggiunge UNA voce 'edit'; senza, il registro è vuoto e non si scrive nulla.
+ *  - Cancella anche la bozza locale del preventivo in corso (localStorage).
+ * Operazione atomica: se qualcosa fallisce non cambia nulla.
+ */
+export async function clearLocalData(opts: ClearLocalDataOptions): Promise<ClearLocalDataResult> {
+  if (!opts || opts.confirm !== CLEAR_LOCAL_DATA_CONFIRM) {
+    throw new ClearLocalDataError(`Cancellazione rifiutata: manca la conferma esplicita (confirm: '${CLEAR_LOCAL_DATA_CONFIRM}').`);
+  }
+  const keepBackup = opts.keepBackupCopy !== false;
+  const keepAudit = opts.keepAudit === true;
+  const res = await getBackend().transact('readwrite', async (t) => {
+    const backup = keepBackup ? await backupJson(t) : undefined;
+    const [catalog, docs, customers, audit] = await Promise.all([
+      t.all<CatalogItem>('catalog'), t.all<QuoteDocument>('documents'), t.all<StoredCustomer>('customers'), t.all<AuditEntry>('audit'),
+    ]);
+    const cleared = {
+      catalog: catalog.length, documents: docs.length, customers: customers.length, audit: keepAudit ? 0 : audit.length,
+      invoicesIssued: docs.filter((d) => d.type === 'fattura' && !!d.invoice?.lockedAt).length,
+    };
+    await t.clear('catalog');
+    await t.clear('documents');
+    await t.clear('customers');
+    if (!keepAudit) await t.clear('audit');
+    await t.putProfile(defaultProfile());
+    if (keepAudit) {
+      await t.add('audit', {
+        id: newAuditId(), at: Date.now(), docId: '-', action: 'edit', actor: 'user',
+        detail: `Dati locali cancellati (cambio account): ${cleared.documents} documenti di cui ${cleared.invoicesIssued} fatture/note emesse, ${cleared.catalog} voci di listino, ${cleared.customers} clienti.${keepBackup ? ' Backup di sicurezza generato.' : ' Nessun backup di sicurezza.'}`,
+      } satisfies AuditEntry);
+    }
+    return { backup, cleared };
+  });
+  try { localStorage.removeItem(LOCAL_DRAFT_KEY); } catch { /* storage non disponibile */ }
+  return { ...(res.backup !== undefined ? { backupJson: res.backup } : {}), cleared: res.cleared, auditWritten: keepAudit };
+}
+
+const AUDIT_ACTION_NAMES: readonly string[] = [
+  'create', 'edit', 'issue', 'download_xml', 'mark_sent', 'sdi_event', 'credit_note',
+  'convert_quote', 'duplicate', 'delete_draft', 'payment', 'voice_command', 'counter_start',
+];
+const AUDIT_TEXT_MAX = 20_000;
+const optText = (v: unknown): boolean => v === undefined || (typeof v === 'string' && v.length <= AUDIT_TEXT_MAX);
+
+/** Voce valida e ripulita dai campi sconosciuti, oppure null. Il contenuto non viene MAI modificato né troncato. */
+function sanitizeAuditEntry(v: unknown): AuditEntry | null {
+  if (!isObj(v)) return null;
+  if (typeof v.id !== 'string' || !v.id || v.id.length > 200) return null;
+  if (typeof v.docId !== 'string' || !v.docId || v.docId.length > 200) return null;
+  if (!isNum(v.at) || v.at <= 0) return null;
+  if (typeof v.action !== 'string' || !AUDIT_ACTION_NAMES.includes(v.action)) return null;
+  if (v.actor !== 'user') return null;
+  if (!optText(v.detail) || !optText(v.xmlSha256) || !optText(v.voiceTranscript)) return null;
+  return {
+    id: v.id, at: v.at, docId: v.docId, action: v.action as AuditEntry['action'], actor: 'user',
+    ...(v.detail !== undefined ? { detail: v.detail as string } : {}),
+    ...(v.xmlSha256 !== undefined ? { xmlSha256: v.xmlSha256 as string } : {}),
+    ...(v.voiceTranscript !== undefined ? { voiceTranscript: v.voiceTranscript as string } : {}),
+  };
+}
+
+/**
+ * Importa voci di audit create su altri dispositivi (sync). Append-only e idempotente per `id`: una voce con id già
+ * presente NON viene mai sovrascritta (nemmeno se diversa), le voci non valide sono ignorate. Una sola transazione:
+ * se fallisce non viene aggiunto nulla. Ritorna quante voci sono state aggiunte e quante ignorate.
+ */
+export async function importAuditEntries(entries: AuditEntry[]): Promise<ImportAuditResult> {
+  if (!Array.isArray(entries)) throw new TypeError('importAuditEntries: atteso un array di voci di audit.');
+  const seen = new Set<string>();
+  const valid: AuditEntry[] = [];
+  let skipped = 0;
+  for (const raw of entries) {
+    const e = sanitizeAuditEntry(raw);
+    if (!e || seen.has(e.id)) { skipped++; continue; }
+    seen.add(e.id);
+    valid.push(e);
+  }
+  if (!valid.length) return { added: 0, skipped };
+  const backend = getBackend();
+  // lettura preliminare: nessuna scrittura (e nessun evento di modifica per il sync) se è tutto già presente
+  const fresh = await backend.transact('readonly', async (t) => {
+    const out: AuditEntry[] = [];
+    for (const e of valid) if (!(await t.get('audit', e.id))) out.push(e);
+    return out;
+  });
+  if (!fresh.length) return { added: 0, skipped: skipped + valid.length };
+  const added = await backend.transact('readwrite', async (t) => {
+    let n = 0;
+    for (const e of fresh) {
+      if (await t.get('audit', e.id)) continue; // inserita nel frattempo da un'altra scheda
+      await t.add('audit', e);
+      n++;
+    }
+    return n;
+  });
+  return { added, skipped: skipped + (valid.length - added) };
+}
+
+/** Implementazione di `StorageHooks` per src/sync. */
+export const storageHooks: StorageHooks = { clearLocalData, importAuditEntries };
+
+/** Conteggi dell'archivio attuale (per mostrare cosa verrebbe sostituito da un ripristino). */
+export interface StorageSummary { catalog: number; documents: number; invoicesIssued: number; customers: number; hasProfile: boolean; lastDocumentAt?: number }
+export async function getStorageSummary(): Promise<StorageSummary> {
+  return getBackend().transact('readonly', async (t) => {
+    const docs = await t.all<QuoteDocument>('documents');
+    const p = await t.getProfile();
+    return {
+      catalog: (await t.all<CatalogItem>('catalog')).length,
+      documents: docs.length,
+      invoicesIssued: docs.filter((d) => d.type === 'fattura' && !!d.invoice?.lockedAt).length,
+      customers: (await t.all<StoredCustomer>('customers')).length,
+      hasProfile: !!(p && (p.businessName || p.vatNumber)),
+      ...(docs.length ? { lastDocumentAt: docs.reduce((m, d) => Math.max(m, d.updatedAt || 0), 0) } : {}),
+    };
+  });
+}
+
 export * from './invoices';
 export * from './customers';
+export * from './integrity';
+export * from './backupSummary';

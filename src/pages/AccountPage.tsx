@@ -18,7 +18,7 @@ export default function AccountPage() {
       <PageHeader title="Account" subtitle="Facoltativo: serve per sincronizzare più dispositivi." />
       {!st.signedIn ? <LoginForm engine={syncEngine} /> : (
         <>
-          {st.migration && <MigrationCard preview={st.migration} engine={syncEngine} />}
+          {st.migration && <MigrationCard preview={st.migration} engine={syncEngine} foreignData={st.foreignData} />}
           <AccountView engine={syncEngine} api={api} />
         </>
       )}

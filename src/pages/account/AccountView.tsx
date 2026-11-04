@@ -108,6 +108,16 @@ export function AccountView({ engine, api }: { engine: SyncEngine; api: { checko
             </p>
           )}
           {st.remoteIgnored > 0 && <p style={a.muted}>{st.remoteIgnored} modifiche arrivate dal server sono state ignorate perché riguardano documenti già emessi su questo dispositivo.</p>}
+          {st.log.length > 0 && (
+            <details data-testid="sync-log">
+              <summary style={a.muted}>Registro di sincronizzazione ({st.log.length})</summary>
+              <ul style={{ ...a.list, gap: 6, marginTop: 8 }}>
+                {[...st.log].reverse().map((l, i) => (
+                  <li key={`${l.at}-${i}`} style={a.muted}>{new Date(l.at).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })} · {l.message}</li>
+                ))}
+              </ul>
+            </details>
+          )}
           <div style={a.row}>
             <Button variant="secondary" size="sm" disabled={st.phase === 'syncing'} onClick={() => { void engine.syncNow().then(() => engine.refreshMe()); }}>Sincronizza ora</Button>
           </div>

@@ -1,12 +1,24 @@
 import { useState } from 'react';
 import { Button, Card, Field, Input } from '../../ui';
-import { ApiClientError, describeError } from '../../sync/api';
+import { ApiClientError, describeError, describeVerifyError } from '../../sync/api';
 import type { SyncEngine } from '../../sync/engine';
 import { currentAcceptance } from '../../sync/legal';
 import { a, PRIVACY_NOTICE } from './styles';
 import { TermsCheckbox } from './TermsCheckbox';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const INVITE_RE = /^[A-Za-z0-9-]{4,40}$/;
+
+/** Codice invito da un link: `?invito=CODICE` (prima o dopo il `#` dell'HashRouter). Valori non plausibili si ignorano. */
+export function inviteFromUrl(href: string = typeof window !== 'undefined' ? window.location.href : ''): string {
+  try {
+    const u = new URL(href, 'https://app.invalid');
+    const hashQuery = u.hash.includes('?') ? u.hash.slice(u.hash.indexOf('?')) : '';
+    const v = (u.searchParams.get('invito') ?? new URLSearchParams(hashQuery).get('invito') ?? '').trim();
+    return INVITE_RE.test(v) ? v.toUpperCase() : '';
+  } catch { return ''; }
+}
+
 const TERMS_NEEDED = 'Per continuare devi confermare di aver letto Termini e Privacy.';
 
 /**
@@ -22,6 +34,10 @@ export function LoginForm({ engine, reacceptEmail, onDone }: { engine: SyncEngin
   const [termsError, setTermsError] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // campo "Codice invito": compare solo se arriva da un link (?invito=) o se il server lo chiede (invite_required)
+  const [invite, setInvite] = useState(() => inviteFromUrl());
+  const [showInvite, setShowInvite] = useState(() => !!inviteFromUrl());
+  const [inviteError, setInviteError] = useState('');
 
   const send = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -35,17 +51,29 @@ export function LoginForm({ engine, reacceptEmail, onDone }: { engine: SyncEngin
     e.preventDefault();
     if (!/^\d{6}$/.test(code)) { setError('Il codice ha 6 cifre.'); return; }
     if (!accepted) { setTermsError(TERMS_NEEDED); return; }
-    setBusy(true); setError(''); setTermsError('');
+    setBusy(true); setError(''); setTermsError(''); setInviteError('');
     try {
-      await engine.verifyCode(email, code, currentAcceptance());
+      await engine.verifyCode(email, code, currentAcceptance(), invite);
       onDone?.();
     } catch (err) {
-      if (err instanceof ApiClientError && (err.code === 'terms_required' || err.code === 'terms_version_mismatch')) {
+      if (err instanceof ApiClientError && !err.isNetwork && (err.code === 'invite_required' || err.code === 'invite_invalid')) {
+        setShowInvite(true);
+        setInviteError(describeError(err));
+      } else if (err instanceof ApiClientError && (err.code === 'terms_required' || err.code === 'terms_version_mismatch')) {
         setTermsError(describeError(err));
         if (err.code === 'terms_required') setAccepted(false);
-      } else setError(describeError(err));
+      } else setError(describeVerifyError(err));
     } finally { setBusy(false); }
   };
+
+  const inviteField = showInvite && !reacceptEmail ? (
+    <Field label="Codice invito" hint="Serve solo per creare un nuovo account. Se hai già un account lascialo vuoto." error={inviteError || undefined}>
+      <Input
+        value={invite} onChange={(e) => { setInvite(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 40)); setInviteError(''); }}
+        autoComplete="off" autoCapitalize="characters" spellCheck={false} placeholder="VP-XXXX-XXXX-XXXX" aria-invalid={!!inviteError}
+      />
+    </Field>
+  ) : null;
 
   return (
     <Card>
@@ -60,6 +88,7 @@ export function LoginForm({ engine, reacceptEmail, onDone }: { engine: SyncEngin
             <Field label="Email" error={error || undefined}>
               <Input type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-invalid={!!error} readOnly={!!reacceptEmail} required />
             </Field>
+            {inviteField}
             <TermsCheckbox checked={accepted} onChange={(v) => { setAccepted(v); if (v) setTermsError(''); }} error={termsError} />
             <Button type="submit" disabled={busy}>{busy ? 'Invio…' : 'Inviami il codice'}</Button>
           </form>
@@ -72,6 +101,7 @@ export function LoginForm({ engine, reacceptEmail, onDone }: { engine: SyncEngin
                 value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} aria-invalid={!!error} data-autofocus autoFocus
               />
             </Field>
+            {inviteField}
             <TermsCheckbox checked={accepted} onChange={(v) => { setAccepted(v); if (v) setTermsError(''); }} error={termsError} />
             <Button type="submit" disabled={busy || code.length !== 6}>{busy ? 'Verifico…' : 'Accedi'}</Button>
             <div style={a.row}>

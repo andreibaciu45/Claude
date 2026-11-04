@@ -269,7 +269,8 @@ async function createInvoiceDraft(S, page, { customer = FAKE.customer, lines = [
   if (S) await S.shot(page, shotLabel || 'bozza fattura compilata');
   await page.getByRole('button', { name: 'Salva bozza fattura' }).click();
   await page.waitForURL(/#\/documenti\/[^/?#]+$/);
-  await page.getByText('BOZZA', { exact: false }).first().waitFor();
+  await page.getByRole('button', { name: 'Emetti fattura' }).waitFor();
+  await page.getByRole('button', { name: 'Elimina bozza' }).waitFor();
   return docIdOf(page);
 }
 

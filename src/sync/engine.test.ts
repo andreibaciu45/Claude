@@ -193,9 +193,9 @@ describe('conflitti', () => {
     const c = engine.getStatus().conflicts[0];
     expect(c.canKeepBoth).toBe(true);
     await engine.resolveConflict(c.opId, 'keep-both');
-    const notes = [...store.docs.values()].map((d) => d.notes);
-    expect(notes).toContain('mio');
-    expect([...store.docs.values()].some((d) => d.number.endsWith('(copia)'))).toBe(true);
+    const docs = [...store.docs.values()];
+    expect(docs.some((d) => d.notes?.includes('Copia in conflitto') && d.notes.includes('mio'))).toBe(true);
+    expect(docs.some((d) => d.number.endsWith('(copia in conflitto)'))).toBe(true);
   });
 });
 

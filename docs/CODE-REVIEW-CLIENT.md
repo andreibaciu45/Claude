@@ -58,7 +58,11 @@ Correzione: `LocalStore.saveRemoteDocument` opzionale (agganciato a `storage.sav
 
 **S7 (Media, aperto – decisione di prodotto) – Last-write-wins silenzioso sulle bozze.** ARCHITECTURE §2.3 dice che su conflitto di una bozza si avvisa e si conserva la copia locale come nuova bozza ("nessuna perdita silenziosa"); il motore (`handleConflict`, `stale`) ritenta con la base aggiornata e sovrascrive la versione dell'altro dispositivo senza avviso. È coerente con l'intestazione di `engine.ts` (LWW) ma non con il documento. Suggerimento: su `stale` per un documento, offrire "Tieni entrambe" (la UI esiste già) invece del retry automatico, oppure aggiornare ARCHITECTURE-V2.
 
+**Stato: CORRETTO (SYNC-3).** Su `stale` di una bozza (e quando il pull porta una versione più recente di una bozza con modifiche locali non inviate) il motore non sovrascrive più: crea un conflitto con le due versioni e un confronto leggibile (cliente, righe, totale, note, data, stato) in «Da controllare». Scelte: «Usa quella del server», «Tieni la mia» (sostituisce il server solo per scelta esplicita), «Tieni entrambe» (la copia locale diventa una nuova bozza «copia in conflitto», nuovo id, senza numero fiscale). Bozza eliminata qui e modificata altrove: «Usa quella del server» / «Elimina comunque». Profilo e catalogo restano last-write-wins ma ogni sovrascrittura è annotata nel «Registro di sincronizzazione» (`status.log`). Codice: `src/sync/engine.ts` (`handleConflict`, `noteDirtyRemote`, `resolveConflict`), `src/sync/conflictDiff.ts`, `src/pages/account/ConflictList.tsx`. Test: `src/sync/conflicts.test.ts`, `src/pages/account/invite.ui.test.tsx`.
+
 **S8 (Media, aperto – design) – Cambio account su dispositivo condiviso.** Dopo il cambio account i dati locali dell'utente precedente vengono offerti per il caricamento sul nuovo account (con anteprima e conferma). Non si può cancellare lo storage da questo modulo. Suggerimento: alla conferma di cambio account mostrare un avviso esplicito ("questi dati appartengono a un altro account") ed eventualmente offrire "Svuota i dati locali" (richiede una funzione in `src/storage`).
+
+**Stato: CORRETTO lato sync/UI (SYNC-3), cablato su `clearLocalData` dello storage.** Dopo il cambio account lo stato `foreignData` (persistito in `meta`) fa mostrare nella scheda «Prima sincronizzazione» l'avviso «questi dati appartengono a un altro account» e il pulsante «Svuota i dati locali» (con conferma; scarica la copia di sicurezza restituita dallo storage). Interfaccia `StorageHooks` (`src/sync/storageHooks.ts`): senza la funzione di storage il pulsante non compare e `discardLocalData()` rifiuta senza toccare nulla.
 
 ## Difetti BASSI
 
@@ -71,6 +75,8 @@ Correzione: `LocalStore.saveRemoteDocument` opzionale (agganciato a `storage.sav
 - **V8 (corretto)** `mark_paid` accettava importi `Infinity` (vedi V3).
 - **S10 (aperto, storage)** Le voci di audit create da altri dispositivi non vengono importate: `defaultLocalStore` non ha `saveAudit` e lo storage espone solo `appendAudit` (nuovo id). Il registro di un dispositivo non contiene quello degli altri. Serve una funzione `importAuditEntry` in `src/storage`.
 - **S11 (aperto, informativo)** I tombstone remoti si applicano senza circuit breaker: un server che cancellasse in blocco svuoterebbe il locale. Le fatture emesse sono comunque protette (ImmutableDocumentError). Suggerimento: stessa soglia di `detectMassDelete` sul pull.
+
+  **Stato: CORRETTO (SYNC-3), cablato su `importAuditEntries` dello storage.** `applyRemote` importa le voci di audit di altri dispositivi tramite `StorageHooks.importAuditEntries`; alla prima sincronizzazione con la funzione disponibile il cursor riparte da 0 una volta sola (`meta.auditBackfill`) per recuperare le voci saltate in passato. Senza la funzione: comportamento invariato (voci non importate, nessun errore).
 
 ## Cosa ho controllato e NON ho trovato
 

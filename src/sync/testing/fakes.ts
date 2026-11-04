@@ -31,6 +31,8 @@ export class FakeServer implements ApiClient {
   verifyBodies: AuthVerifyBody[] = [];
   deleteBodies: DeleteAccountRequest[] = [];
   deleteError: ApiClientError | null = null;
+  /** lancio privato: se non vuoto, la creazione di un account richiede uno di questi codici (403 invite_required / invite_invalid) */
+  validInvites: string[] | null = null;
   exportBlob = new Blob(['{"account":{}}'], { type: 'application/json' });
 
   private guard() {
@@ -119,6 +121,10 @@ export class FakeServer implements ApiClient {
   async authVerify(body: AuthVerifyBody): Promise<AuthVerifyResponse> {
     this.verifyBodies.push(body);
     if (body.code !== '123456') throw new ApiClientError(400, 'invalid_code', 'Codice non valido.');
+    if (this.validInvites) {
+      if (!body.inviteCode) throw new ApiClientError(403, 'invite_required', 'Serve un codice invito.');
+      if (!this.validInvites.includes(body.inviteCode)) throw new ApiClientError(403, 'invite_invalid', 'Codice invito non valido.');
+    }
     return { token: `tok-${body.email}`, expiresAt: Date.now() + 1e9, tenantId: `t-${body.email}` };
   }
   async me(): Promise<MeResponse> {

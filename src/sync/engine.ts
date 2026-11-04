@@ -1,7 +1,10 @@
 /**
  * Motore di sincronizzazione: push/pull con cursor, conflitti, migrazione iniziale, scheduler e stato osservabile.
  * Regole (docs/CONTRACT-V2.md, ARCHITECTURE-V2 §2):
- *  - last-write-wins per profilo, catalogo e bozze (un `stale` si ritenta una volta con la base aggiornata);
+ *  - last-write-wins per profilo e catalogo (un `stale` si ritenta con la base aggiornata, segnalandolo nel registro di sync);
+ *  - BOZZE: mai last-write-wins silenzioso (ARCHITECTURE §2.3). Se il server rifiuta con `stale`, o arriva una versione più recente
+ *    di una bozza con modifiche locali non inviate, si crea un conflitto con le due versioni: usa quella del server / tieni la mia /
+ *    tieni entrambe (la copia locale diventa una nuova bozza "copia in conflitto");
  *  - documenti bloccati / numeri duplicati / quota / non validi => SyncConflict mostrato all'utente, MAI perdita di dati locali;
  *  - le modifiche remote si applicano allo storage locale SOLO con le sue funzioni pubbliche;
  *    ImmutableDocumentError => la modifica remota viene ignorata e conteggiata.
@@ -9,6 +12,8 @@
 import type { MeResponse, SyncConflict, SyncOp, TermsAcceptance } from '../../shared/api';
 import type { AuditEntry, CatalogItem, Profile, QuoteDocument } from '../types';
 import { uid } from '../types';
+import { diffDrafts, isDocLike, makeConflictCopy, type ConflictDiffRow } from './conflictDiff';
+import { detectStorageHooks, StorageHookUnavailableError, type StorageHooks } from './storageHooks';
 import * as storage from '../storage';
 import { ImmutableDocumentError } from '../storage/invoices';
 import {
@@ -38,7 +43,21 @@ export interface ConflictItem {
   canUseServer: boolean;
   /** true se è possibile tenere entrambe le copie (solo documenti non bloccati) */
   canKeepBoth: boolean;
+  /** presente solo per i conflitti su bozze (`stale`): confronto leggibile delle due versioni */
+  draft?: DraftConflictInfo;
 }
+/** Conflitto su una BOZZA: le due versioni a confronto. */
+export interface DraftConflictInfo {
+  /** solo i campi diversi (cliente, righe, totale, note, data, stato) */
+  rows: ConflictDiffRow[];
+  /** true = in locale la bozza è stata eliminata, ma sul server è stata modificata da un altro dispositivo */
+  localDeleted: boolean;
+  localUpdatedAt?: number;
+  serverUpdatedAt?: number;
+}
+export interface SyncLogEntry { at: number; level: 'info' | 'warn'; message: string }
+const LOG_MAX = 50;
+
 export type ConflictChoice = 'use-server' | 'keep-local' | 'keep-both' | 'retry';
 
 export interface SyncStatus {
@@ -60,6 +79,10 @@ export interface SyncStatus {
   massDelete: { catalog: number; documents: number } | null;
   /** serverTime - ora locale (ms) all'ultimo push; null = mai misurato. Positivo = telefono indietro. */
   clockSkewMs: number | null;
+  /** dopo un cambio account: i dati locali in attesa di prima sincronizzazione appartengono a un altro account */
+  foreignData: boolean;
+  /** registro di sincronizzazione (ultime voci, solo in memoria): sovrascritture last-write-wins di profilo e catalogo, ecc. */
+  log: SyncLogEntry[];
 }
 
 /** Oltre questo sfasamento (5 minuti) mostriamo l'avviso sull'orologio. */
@@ -73,6 +96,8 @@ export interface EngineDeps {
   tokenStore: { get(): string | null; set(t: string): void; clear(): void };
   accountStore: { get(): StoredAccount | null; set(a: StoredAccount): void; clear(): void };
   now: () => number;
+  /** funzioni di storage opzionali (cancella dati locali, importa audit): predefinito = quelle di `src/storage` se esistono */
+  hooks?: StorageHooks;
 }
 
 const PUSH_BATCH = 50;
@@ -128,24 +153,49 @@ const updatedAtOf = (p: unknown): number | undefined => {
 
 export function createSyncEngine(deps: EngineDeps) {
   const { api, store } = deps;
+  const hooks: StorageHooks = deps.hooks ?? detectStorageHooks();
   let status: SyncStatus = {
     signedIn: !!deps.tokenStore.get(), email: deps.accountStore.get()?.email ?? null, phase: 'idle', lastSyncAt: null,
-    pendingOps: 0, conflicts: [], error: null, migration: null, remoteIgnored: 0, me: null, meAt: null, massDelete: null, clockSkewMs: null,
+    pendingOps: 0, conflicts: [], error: null, migration: null, remoteIgnored: 0, me: null, meAt: null, massDelete: null, clockSkewMs: null, foreignData: false, log: [],
   };
   const subs = new Set<() => void>();
   const set = (patch: Partial<SyncStatus>) => { status = { ...status, ...patch }; subs.forEach((f) => f()); };
   const subscribe = (f: () => void) => { subs.add(f); return () => { subs.delete(f); }; };
   const getStatus = () => status;
+  const addLog = (level: SyncLogEntry['level'], message: string) => set({ log: [...status.log, { at: deps.now(), level, message }].slice(-LOG_MAX) });
 
   async function refreshCounts(): Promise<void> {
     const [p, c] = await Promise.all([listPending(), listConflicts()]);
-    const items: ConflictItem[] = c.map((r) => ({
-      opId: r.opId, entity: r.entity, entityId: r.entityId, reason: r.conflict?.reason ?? 'invalid',
-      message: r.conflict?.message ?? 'Operazione non accettata dal server.', label: labelOf(r),
-      canUseServer: r.entity !== 'audit' && r.conflict?.serverVersion != null && typeof r.conflict.serverVersion === 'object',
-      canKeepBoth: r.entity === 'document' && r.op === 'upsert' && !isLockedDoc(r.payload),
-    }));
+    let forfettario = false;
+    if (c.some((r) => r.entity === 'document')) { try { forfettario = !!(await store.getProfile()).regimeForfettario; } catch { /* totali senza forfettario */ } }
+    const items: ConflictItem[] = c.map((r) => {
+      const server = r.conflict?.serverVersion;
+      const draft = isDraftStale(r) ? buildDraftInfo(r, forfettario) : undefined;
+      return {
+        opId: r.opId, entity: r.entity, entityId: r.entityId, reason: r.conflict?.reason ?? 'invalid',
+        message: r.conflict?.message ?? 'Operazione non accettata dal server.', label: labelOf(r),
+        canUseServer: r.entity !== 'audit' && server != null && typeof server === 'object',
+        canKeepBoth: r.entity === 'document' && r.op === 'upsert' && !isLockedDoc(r.payload),
+        ...(draft ? { draft } : {}),
+      };
+    });
     set({ pendingOps: p.length, conflicts: items });
+  }
+
+  /** Conflitto `stale` su una bozza (documento non bloccato, né in locale né sul server). */
+  const isDraftStale = (r: OutboxRecord): boolean =>
+    r.entity === 'document' && r.conflict?.reason === 'stale' && !isLockedDoc(r.payload) && !isLockedDoc(r.conflict.serverVersion);
+
+  function buildDraftInfo(r: OutboxRecord, forfettario: boolean): DraftConflictInfo {
+    const server = r.conflict?.serverVersion;
+    const serverDoc = isDocLike(server) ? server : undefined;
+    const localDoc = r.op === 'upsert' && isDocLike(r.payload) ? r.payload : undefined;
+    return {
+      rows: localDoc && serverDoc ? diffDrafts(localDoc, serverDoc, { forfettario }) : [],
+      localDeleted: r.op === 'delete',
+      localUpdatedAt: localDoc?.updatedAt,
+      serverUpdatedAt: serverDoc?.updatedAt,
+    };
   }
 
   // ------------------------------------------------------------ applicazione modifiche remote
@@ -176,6 +226,11 @@ export function createSyncEngine(deps: EngineDeps) {
       }
       if (op.entity === 'audit') {
         if (op.op === 'upsert' && op.payload && store.saveAudit) { await store.saveAudit(op.payload as AuditEntry); return 'applied'; }
+        // voci di altri dispositivi: servono funzioni di storage che (ancora) possono non esistere -> senza, restano non importate
+        if (op.op === 'upsert' && op.payload && hooks.available.importAuditEntries) {
+          await hooks.importAuditEntries([op.payload as AuditEntry]);
+          return 'applied';
+        }
         return 'skipped';
       }
       return 'skipped';
@@ -214,10 +269,21 @@ export function createSyncEngine(deps: EngineDeps) {
   // ------------------------------------------------------------ push
   async function handleConflict(rec: OutboxRecord, c: SyncConflict, retried: Set<string>): Promise<void> {
     const key = entityKey(rec.entity, rec.entityId);
+    const draft = rec.entity === 'document' && !isLockedDoc(rec.payload) && !isLockedDoc(c.serverVersion);
+    if (c.reason === 'stale' && draft) {
+      // BOZZA: niente last-write-wins silenzioso. La versione locale resta in coda come conflitto con la versione del server.
+      // Un eventuale conflitto precedente sulla stessa bozza viene sostituito da questo (più recente).
+      const older = (await listConflicts()).filter((r) => r.opId !== rec.opId && entityKey(r.entity, r.entityId) === key).map((r) => r.opId);
+      if (older.length) await removeOps(older);
+      await updateOp(rec.opId, { status: 'conflict', conflict: c, attempts: rec.attempts + 1 });
+      addLog('warn', `${labelOf(rec)}: modificata anche su un altro dispositivo. Scegli quale versione tenere in "Da controllare".`);
+      return;
+    }
     const lww = rec.entity !== 'audit' && !(rec.entity === 'document' && isLockedDoc(rec.payload));
     if (c.reason === 'stale' && lww && !retried.has(key)) {
-      // last-write-wins: l'ultimo push vince. Nuova operazione con la base aggiornata alla versione del server.
+      // last-write-wins (profilo, catalogo): l'ultimo push vince. Nuova operazione con la base aggiornata alla versione del server.
       retried.add(key);
+      addLog('warn', `${labelOf(rec)}: sul server c'era una versione più recente, sostituita dalla tua (vince l'ultima modifica).`);
       await removeOps([rec.opId]);
       const base = updatedAtOf(c.serverVersion) ?? rec.baseUpdatedAt;
       if (rec.op === 'delete') await enqueueDelete({ entity: rec.entity, entityId: rec.entityId, baseUpdatedAt: base });
@@ -225,6 +291,36 @@ export function createSyncEngine(deps: EngineDeps) {
       return;
     }
     await updateOp(rec.opId, { status: 'conflict', conflict: c, attempts: rec.attempts + 1 });
+  }
+
+  /**
+   * Modifica remota che tocca un'entità con modifiche locali non inviate. Profilo e catalogo: vince l'ultimo push (si segnala nel
+   * registro). Bozze: se la versione remota è più recente della base della modifica locale si crea un conflitto (nulla viene sovrascritto).
+   */
+  async function noteDirtyRemote(op: RemoteOp, snap: Snapshot, synced: Map<string, { hash: string; updatedAt?: number }>, box: OutboxRecord[]): Promise<void> {
+    if (op.op !== 'upsert' || !op.payload) return;
+    const key = entityKey(op.entity, op.entityId);
+    if (op.entity === 'profile' || op.entity === 'catalog') {
+      if (currentHashes(snap).get(key) !== hashValue(op.entity === 'profile' ? profilePayload(op.payload as Profile) : op.payload)) {
+        addLog('warn', `${op.entity === 'profile' ? 'Dati azienda' : `Voce di catalogo${(op.payload as CatalogItem).name ? `: ${(op.payload as CatalogItem).name}` : ''}`}: modificata su un altro dispositivo, ma hai modifiche locali non inviate: vince la tua (ultima modifica).`);
+      }
+      return;
+    }
+    if (op.entity !== 'document' || !isDocLike(op.payload) || isLockedDoc(op.payload)) return;
+    const local = snap.documents.find((d) => d.id === op.entityId);
+    if (!local || isLockedDoc(local) || hashValue(local) === hashValue(op.payload)) return;
+    const mine = box.filter((r) => r.entity === 'document' && r.entityId === op.entityId).pop();
+    const base = mine?.baseUpdatedAt ?? synced.get(key)?.updatedAt;
+    const remoteAt = updatedAtOf(op.payload);
+    if (remoteAt === undefined || (base !== undefined && remoteAt <= base)) return; // non più recente della base: è un'eco
+    const conflict: SyncConflict = { opId: '', reason: 'stale', message: 'La bozza è stata modificata anche su un altro dispositivo.', serverVersion: op.payload };
+    if (mine?.status === 'conflict') {
+      if (mine.conflict?.reason === 'stale') await updateOp(mine.opId, { conflict: { ...conflict, opId: mine.opId } });
+      return;
+    }
+    const rec = mine ?? await enqueueUpsert({ entity: 'document', entityId: op.entityId, payload: local, baseUpdatedAt: base, hash: hashValue(local) });
+    await updateOp(rec.opId, { status: 'conflict', conflict: { ...conflict, opId: rec.opId } });
+    addLog('warn', `${labelOf({ ...rec, payload: local })}: modificata anche su un altro dispositivo. Scegli quale versione tenere in "Da controllare".`);
   }
 
   /** incrementato a ogni uscita/cambio account: i cicli già in volo non devono più scrivere stato */
@@ -305,14 +401,15 @@ export function createSyncEngine(deps: EngineDeps) {
         const local = currentHashes(snap);
         // modifiche locali non ancora sincronizzate (anche in conflitto): non vanno sovrascritte dal pull
         const dirty = new Set(diffSnapshot(snap, synced).map((c) => entityKey(c.entity, c.entityId)));
-        for (const r of await listOutbox()) dirty.add(entityKey(r.entity, r.entityId));
+        const box = await listOutbox();
+        for (const r of box) dirty.add(entityKey(r.entity, r.entityId));
         const done: RemoteOp[] = [];
         // più operazioni sulla stessa entità nella pagina: conta solo l'ultima (le precedenti sono superate)
         const lastByKey = new Map<string, RemoteOp>();
         for (const op of res.ops) lastByKey.set(entityKey(op.entity, op.entityId), op);
         for (const op of lastByKey.values()) {
           const key = entityKey(op.entity, op.entityId);
-          if (dirty.has(key)) continue; // vincerà l'ultimo push (LWW) o l'utente risolve il conflitto
+          if (dirty.has(key)) { await noteDirtyRemote(op, snap, synced, box); continue; } // profilo/catalogo: vince l'ultimo push; bozze: conflitto
           if (op.op === 'upsert' && local.get(key) === hashValue(op.entity === 'profile' ? profilePayload(op.payload as Profile) : op.payload)) {
             done.push(op); // eco di una nostra scrittura: già identico, basta registrarlo
             continue;
@@ -347,7 +444,7 @@ export function createSyncEngine(deps: EngineDeps) {
 
   function signedOutState() {
     clearRetry();
-    set({ signedIn: false, email: null, phase: 'idle', error: null, migration: null, me: null, meAt: null, massDelete: null, conflicts: [], pendingOps: status.pendingOps, clockSkewMs: null });
+    set({ signedIn: false, email: null, phase: 'idle', error: null, migration: null, me: null, meAt: null, massDelete: null, conflicts: [], pendingOps: status.pendingOps, clockSkewMs: null, foreignData: false });
   }
 
   async function cycle(): Promise<void> {
@@ -360,12 +457,18 @@ export function createSyncEngine(deps: EngineDeps) {
     const acc = deps.accountStore.get();
     if (acc && !(await getMeta<string>('tenant'))) await setMeta('tenant', acc.tenantId);
 
+    // una volta sola, quando lo storage sa importare l'audit: rilegge dall'inizio le voci di altri dispositivi saltate in precedenza
+    if (hooks.available.importAuditEntries && !(await getMeta<boolean>('auditBackfill'))) {
+      await setMeta('auditBackfill', true);
+      if ((await getMeta<string>('cursor')) && (await getMeta<string>('cursor')) !== '0') await setMeta('cursor', '0');
+    }
+
     if (!(await getMeta<boolean>('migrated'))) {
       const prev = previewMigration(await takeSnapshot(store));
       if (isPreviewEmpty(prev)) await setMeta('migrated', true);
-      else { await refreshCounts(); set({ migration: prev, phase: 'idle', error: null }); return; }
+      else { await refreshCounts(); set({ migration: prev, phase: 'idle', error: null, foreignData: !!(await getMeta<boolean>('foreignData')) }); return; }
     }
-    if (status.migration) set({ migration: null });
+    if (status.migration) set({ migration: null, foreignData: false });
 
     set({ phase: 'syncing', error: null });
     try {
@@ -462,10 +565,14 @@ export function createSyncEngine(deps: EngineDeps) {
   const requestCode = (email: string) => api.authRequest(email.trim().toLowerCase());
 
   /** `acceptedTerms`: versioni di Termini/DPA accettate dall'utente (il server le registra con data/ora). */
-  async function verifyCode(email: string, code: string, acceptedTerms?: TermsAcceptance): Promise<void> {
+  async function verifyCode(email: string, code: string, acceptedTerms?: TermsAcceptance, inviteCode?: string): Promise<void> {
     const mail = email.trim().toLowerCase();
     const ownerP = getMeta<string>('tenant').catch(() => undefined);
-    const res = await api.authVerify({ email: mail, code: code.trim(), deviceId: getDeviceId(), ...(acceptedTerms ? { acceptedTerms } : {}) });
+    const invite = inviteCode?.replace(/\s+/g, '').toUpperCase();
+    const res = await api.authVerify({
+      email: mail, code: code.trim(), deviceId: getDeviceId(),
+      ...(acceptedTerms ? { acceptedTerms } : {}), ...(invite ? { inviteCode: invite } : {}),
+    });
     if (acceptedTerms) termsAcceptanceStore.set(acceptedTerms);
     const prev = deps.accountStore.get();
     // un altro account: lo stato di sync (cursor/hash/coda) appartiene al vecchio tenant. Dopo un'uscita `accountStore` è vuoto,
@@ -478,7 +585,11 @@ export function createSyncEngine(deps: EngineDeps) {
     set({ signedIn: true, email: mail, error: null, phase: 'idle' });
     try {
       const owner = await ownerP;
-      if ((prev && (prev.email !== mail || prev.tenantId !== res.tenantId)) || (owner && owner !== res.tenantId)) await clearSyncState();
+      if ((prev && (prev.email !== mail || prev.tenantId !== res.tenantId)) || (owner && owner !== res.tenantId)) {
+        await clearSyncState();
+        // i dati locali sono dell'account precedente: la scheda "Prima sincronizzazione" lo dice e (se lo storage lo permette) offre di svuotarli
+        await setMeta('foreignData', true);
+      }
       await setMeta('tenant', res.tenantId);
     } finally { switching = false; }
     await refreshMe();
@@ -515,8 +626,34 @@ export function createSyncEngine(deps: EngineDeps) {
   /** L'utente conferma la prima sincronizzazione: tutti i dati locali vengono caricati sull'account. */
   async function confirmMigration(): Promise<void> {
     await setMeta('migrated', true);
-    set({ migration: null });
+    await setMeta('foreignData', false);
+    set({ migration: null, foreignData: false });
     await syncNow();
+  }
+
+  /** Lo storage sa cancellare i dati locali? (altrimenti l'interfaccia non offre "Svuota i dati locali") */
+  const canDiscardLocalData = (): boolean => hooks.available.clearLocalData;
+
+  /**
+   * Dopo un cambio account: l'utente NON vuole caricare i dati dell'altro account. Svuota i dati locali (funzione di storage
+   * opzionale; lancia `StorageHookUnavailableError` se non c'è) e riparte scaricando quelli dell'account attuale.
+   * Disponibile solo mentre la prima sincronizzazione è in attesa di conferma e i dati sono "di un altro account".
+   */
+  async function discardLocalData(): Promise<{ backupJson?: string }> {
+    if (!status.migration || !status.foreignData) throw new Error('Non ci sono dati di un altro account da svuotare.');
+    if (!hooks.available.clearLocalData) throw new StorageHookUnavailableError('clearLocalData');
+    epoch++;
+    switching = true;
+    let backup: { backupJson?: string } | void = undefined;
+    try {
+      backup = await hooks.clearLocalData();
+      await clearSyncState();
+      await setMeta('tenant', deps.accountStore.get()?.tenantId);
+    } finally { switching = false; }
+    set({ migration: null, foreignData: false, massDelete: null });
+    addLog('info', 'Dati locali di un altro account svuotati su richiesta.');
+    await syncNow();
+    return backup && typeof backup === 'object' ? backup : {};
   }
 
   // ------------------------------------------------------------ risoluzione conflitti
@@ -525,8 +662,16 @@ export function createSyncEngine(deps: EngineDeps) {
     if (!rec) return;
     const server = rec.conflict?.serverVersion;
     const key = entityKey(rec.entity, rec.entityId);
+    const draftStale = isDraftStale(rec);
+    const requeue = async () => {
+      // nuova operazione con base = versione del server: ora il server la accetterà e la nostra versione prevale
+      await removeOps([rec.opId]);
+      const base = updatedAtOf(server) ?? rec.baseUpdatedAt;
+      if (rec.op === 'delete') await enqueueDelete({ entity: rec.entity, entityId: rec.entityId, baseUpdatedAt: base });
+      else await enqueueUpsert({ entity: rec.entity, entityId: rec.entityId, payload: rec.payload, baseUpdatedAt: base, hash: rec.hash });
+    };
     const useServer = async () => {
-      if (rec.op === 'upsert' && server && typeof server === 'object') {
+      if ((rec.op === 'upsert' || draftStale) && server && typeof server === 'object') {
         const out = await applyRemote({ opId: rec.opId, entity: rec.entity, entityId: rec.entityId, op: 'upsert', payload: server as SyncOp['payload'] });
         if (out === 'ignored') throw new Error('Il documento locale è già emesso e non può essere sostituito.');
         await markSyncedFromStorage([{ opId: rec.opId, entity: rec.entity, entityId: rec.entityId, op: 'upsert', payload: server as SyncOp['payload'] }]);
@@ -538,24 +683,24 @@ export function createSyncEngine(deps: EngineDeps) {
       await useServer();
     } else if (choice === 'keep-both') {
       if (rec.entity !== 'document' || !rec.payload || isLockedDoc(rec.payload)) throw new Error('Non è possibile tenere entrambe le copie.');
-      const d = rec.payload as QuoteDocument;
-      const now = deps.now();
-      await store.saveDocument({ ...d, id: uid(), number: `${d.number} (copia)`, createdAt: now, updatedAt: now });
+      // la copia locale diventa una NUOVA bozza (nuovo id, nota "copia in conflitto", nessun numero fiscale); l'originale adotta il server
+      await store.saveDocument(makeConflictCopy(rec.payload as QuoteDocument, uid(), deps.now()));
       if (server) await useServer(); else await removeOps([rec.opId]);
+    } else if (choice === 'keep-local' && draftStale) {
+      // "Tieni la mia": la bozza locale sostituisce quella del server (scelta esplicita dell'utente)
+      await requeue();
+      addLog('info', `${labelOf(rec)}: per scelta tua la versione di questo dispositivo ha sostituito quella del server.`);
     } else if (choice === 'keep-local') {
       // L'utente accetta che la copia locale resti diversa da quella del server: non verrà più inviata.
       await setSynced([[key, { hash: rec.hash ?? hashValue(rec.payload), updatedAt: updatedAtOf(server) ?? rec.baseUpdatedAt }]]);
       await removeOps([rec.opId]);
     } else {
       // retry: nuova operazione, base = versione del server (es. dopo il passaggio a Pro)
-      await removeOps([rec.opId]);
-      const base = updatedAtOf(server) ?? rec.baseUpdatedAt;
-      if (rec.op === 'delete') await enqueueDelete({ entity: rec.entity, entityId: rec.entityId, baseUpdatedAt: base });
-      else await enqueueUpsert({ entity: rec.entity, entityId: rec.entityId, payload: rec.payload, baseUpdatedAt: base, hash: rec.hash });
+      await requeue();
     }
     await refreshCounts();
     if (!status.conflicts.length && status.phase === 'conflict') set({ phase: 'idle' });
-    if (choice === 'retry') void syncNow();
+    if (choice === 'retry' || (choice === 'keep-local' && draftStale)) void syncNow();
   }
 
   // ------------------------------------------------------------ scheduler
@@ -592,6 +737,7 @@ export function createSyncEngine(deps: EngineDeps) {
   return {
     getStatus, subscribe, syncNow, scan, onLocalChange, start,
     requestCode, verifyCode, signOut, deleteAccount, refreshMe, confirmMigration, resolveConflict, refreshCounts,
+    canDiscardLocalData, discardLocalData,
     confirmMassDelete, restoreFromServer,
   };
 }

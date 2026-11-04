@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Badge, Button, Card, PageHeader, Sheet, useToast } from '../ui';
-import { exportBackup, importBackup, parseBackup } from '../storage';
+import { describeBackup, exportBackup, getStorageSummary, importBackup, parseBackup, verifyStorageIntegrity, type BackupPreview, type IntegrityReport } from '../storage';
 import { downloadText } from './catalog/download';
 import './catalog/catalog.css';
 
@@ -17,7 +17,10 @@ function writeLast(t: number) {
 export default function BackupPage() {
   const toast = useToast();
   const [last, setLast] = useState<number | null>(readLast);
-  const [pending, setPending] = useState<{ json: string; summary: string } | null>(null);
+  const [pending, setPending] = useState<{ json: string; preview: BackupPreview } | null>(null);
+  const [understood, setUnderstood] = useState(false);
+  const [report, setReport] = useState<IntegrityReport | null>(null);
+  const [checkError, setCheckError] = useState('');
   const [error, setError] = useState('');
   const [warnings, setWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -44,10 +47,20 @@ export default function BackupPage() {
     try {
       const json = await f.text();
       const b = parseBackup(json);
-      setPending({ json, summary: `${b.catalog.length} voci di listino, ${b.documents.length} documenti${b.profile.businessName ? `, azienda «${b.profile.businessName}»` : ''}` });
+      const current = await getStorageSummary().catch(() => null);
+      setUnderstood(false);
+      setPending({ json, preview: describeBackup(b, current) });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'File non valido');
     }
+  };
+
+  const runCheck = async () => {
+    setBusy(true);
+    setCheckError('');
+    try { setReport(await verifyStorageIntegrity()); }
+    catch { setReport(null); setCheckError('Il controllo non è riuscito. Riprova.'); }
+    finally { setBusy(false); }
   };
 
   const doImport = async () => {
@@ -56,6 +69,7 @@ export default function BackupPage() {
     try {
       const res = await importBackup(pending.json);
       setPending(null);
+      setReport(null);
       setWarnings(res?.warnings ?? []);
       toast(res?.warnings?.length ? 'Dati ripristinati (con avvisi)' : 'Dati ripristinati');
     } catch (e) {
@@ -108,15 +122,59 @@ export default function BackupPage() {
             {error && <p role="alert" className="cat-error">{error}</p>}
           </div>
         </Card>
+        <Card>
+          <div className="cat-col cat-card-body">
+            <strong>Controllo dati</strong>
+            <p>Verifica che l'archivio sia coerente: numerazione delle fatture senza buchi, nessun numero doppio, file XML integri, note di credito collegate, registro delle operazioni completo. Non modifica nulla.</p>
+            <Button size="lg" variant="secondary" onClick={() => void runCheck()} disabled={busy}>Controlla i dati</Button>
+            {checkError && <p role="alert" className="cat-error">{checkError}</p>}
+            {report && (
+              <div role="status" className="cat-col" aria-label="Esito del controllo dati">
+                <p>
+                  <Badge tone={report.ok ? (report.clean ? 'success' : 'warning') : 'danger'}>{report.ok ? (report.clean ? 'Tutto in ordine' : 'Da controllare') : 'Problemi trovati'}</Badge>{' '}
+                  {report.summary}
+                </p>
+                <p>Controllati {report.counts.documents} documenti ({report.counts.issuedInvoices} fatture e {report.counts.creditNotes} note di credito emesse).</p>
+                {report.issues.map((i, k) => (
+                  <p key={k}><strong>{i.severity === 'error' ? 'Problema: ' : 'Da controllare: '}</strong>{i.message}</p>
+                ))}
+                {!report.ok && <p>Scarica subito un backup e fai controllare i dati al tuo commercialista prima di emettere altre fatture.</p>}
+              </div>
+            )}
+          </div>
+        </Card>
       </div>
 
       <Sheet open={!!pending} onClose={() => setPending(null)} title="Sostituire i dati attuali?">
-        <div className="cat-col">
-          <p>Il backup contiene {pending?.summary}.</p>
-          <p>Tutti i dati presenti ora su questo dispositivo (azienda, listino, documenti) saranno sostituiti. L'operazione non si può annullare: se vuoi, scarica prima un backup di quelli attuali.</p>
-          <Button variant="danger" size="lg" disabled={busy} onClick={() => void doImport()}>Sì, sostituisci i dati</Button>
-          <Button variant="secondary" size="lg" onClick={() => setPending(null)}>Annulla</Button>
-        </div>
+        {pending && (
+          <div className="cat-col">
+            <p>Il backup contiene {pending.preview.summary}.</p>
+            {pending.preview.versionNotes.length > 0 && (
+              <div role="note" className="cat-col">
+                <strong>Sul file</strong>
+                {pending.preview.versionNotes.map((n, i) => <p key={i}>{n}</p>)}
+              </div>
+            )}
+            {pending.preview.replacesExisting ? (
+              <div role="alert" className="cat-col">
+                <strong>Cosa verrà sostituito</strong>
+                <p>Su questo dispositivo ci sono ora: {pending.preview.currentSummary}. Tutto questo sarà sostituito dal contenuto del backup. L'operazione non si può annullare.</p>
+                {pending.preview.replaceNotes.map((n, i) => <p key={i}>{n}</p>)}
+                <Button variant="secondary" size="lg" disabled={busy} onClick={() => void doExport()}>Scarica prima un backup dei dati attuali</Button>
+                <label className="cat-row">
+                  <input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} />
+                  <span>Ho capito: i dati attuali verranno sostituiti</span>
+                </label>
+              </div>
+            ) : (
+              <p>Su questo dispositivo non ci sono dati: il backup verrà semplicemente caricato.</p>
+            )}
+            <Button variant="danger" size="lg" disabled={busy || (pending.preview.replacesExisting && !understood)} onClick={() => void doImport()}>
+              {pending.preview.replacesExisting ? 'Sì, sostituisci i dati' : 'Ripristina i dati'}
+            </Button>
+            <Button variant="secondary" size="lg" onClick={() => setPending(null)}>Annulla</Button>
+          </div>
+        )}
       </Sheet>
     </div>
   );

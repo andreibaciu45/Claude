@@ -194,6 +194,16 @@ export function waitPhrase(sec: number): string {
   return `${h} ${h === 1 ? 'ora' : 'ore'}`;
 }
 
+/** Come `describeError`, ma per i tentativi di accesso: un 429 su `/auth/verify` significa troppi tentativi errati. */
+export function describeVerifyError(e: unknown): string {
+  if (e instanceof ApiClientError && !e.isNetwork && e.status === 429) {
+    return e.retryAfterSec
+      ? `Troppi tentativi errati. Per sicurezza attendi ${waitPhrase(e.retryAfterSec)} prima di riprovare.`
+      : 'Troppi tentativi errati. Per sicurezza attendi qualche minuto prima di riprovare.';
+  }
+  return describeError(e);
+}
+
 /** Messaggio italiano leggibile per qualsiasi errore (rete, limiti, codici noti del server). */
 export function describeError(e: unknown): string {
   if (e instanceof ApiClientError) {
@@ -205,6 +215,8 @@ export function describeError(e: unknown): string {
     switch (e.code) {
       case 'terms_required': return 'Per creare l\u2019account devi accettare i Termini di servizio, l\u2019Informativa privacy e il DPA.';
       case 'terms_version_mismatch': return 'I Termini sono stati aggiornati. Ricarica l\u2019app per avere la versione pi\u00f9 recente, poi accetta di nuovo.';
+      case 'invite_required': return 'Per creare un account serve un codice invito. Scrivilo nel campo \u00abCodice invito\u00bb.';
+      case 'invite_invalid': return 'Il codice invito non \u00e8 valido, \u00e8 gi\u00e0 stato usato o \u00e8 scaduto. Controlla di averlo scritto bene, oppure chiedine uno nuovo.';
       case 'confirmation_mismatch': return 'L\u2019email scritta non coincide con quella dell\u2019account. Controlla e riprova.';
       case 'active_subscription': return 'Hai un abbonamento attivo: annullalo dal portale di fatturazione prima di cancellare l\u2019account.';
       default: break;
