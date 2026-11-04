@@ -150,6 +150,13 @@ export class MemStore implements LocalStore {
   async listDocuments() { return [...this.docs.values()].map((x) => structuredClone(x)); }
   async saveDocument(d: QuoteDocument) {
     if (this.docs.get(d.id)?.invoice?.lockedAt) throw new ImmutableDocumentError('immutabile');
+    // come lo storage vero: una fattura si blocca solo emettendola, non salvandola
+    if (d.invoice?.lockedAt && !this.docs.has(d.id)) throw new ImmutableDocumentError('si blocca solo emettendo');
+    this.docs.set(d.id, structuredClone(d));
+  }
+  /** come `saveSyncedDocument` dello storage: crea anche documenti già emessi altrove */
+  async saveRemoteDocument(d: QuoteDocument) {
+    if (this.docs.get(d.id)?.invoice?.lockedAt) throw new ImmutableDocumentError('immutabile');
     this.docs.set(d.id, structuredClone(d));
   }
   async deleteDocument(id: string) {

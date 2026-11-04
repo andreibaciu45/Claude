@@ -374,7 +374,7 @@ describe('backup v2', () => {
     await createCreditNote('a', { reason: 'x', lines: [line('p', 10)] });
     const json = await exportBackup();
     const parsed = JSON.parse(json);
-    expect(parsed.version).toBe(2);
+    expect(parsed.version).toBe(3);
     expect(parsed.audit.length).toBeGreaterThan(2);
     await __resetStorageForTests();
     await deleteDB('vocepreventivo');

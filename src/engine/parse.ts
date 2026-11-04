@@ -10,7 +10,7 @@ import type { CatalogItem, DocLine, ParseResult, Unit } from '../types';
 import { uid } from '../types';
 import { CONJ, extractCustomer, FILLER } from './customer';
 import { matchCustomer, type CustomerCandidate, type CustomerMatch, type CustomerRef } from './customerMatch';
-import { LOCATION_GLUE, LOCATION_WORDS, NOTE_NOISE } from './lexicon';
+import { ACTION_WORDS, LOCATION_GLUE, LOCATION_WORDS, NOTE_NOISE } from './lexicon';
 import { getMatcher, matchTokens, MATCH_MIN, REVIEW_BELOW, type MatchOpts, type MatchResult, type Matcher } from './match';
 import { extractModifiers, type Discount } from './modifiers';
 import { fmtNum, isHalfWord, readNumber } from './numbers';
@@ -475,12 +475,14 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
     const a = matcher.best(txt, opts);
     const words = txt.split(' ');
     const noLoc = words.filter((w) => !LOCATION_WORDS.has(w));
-    const noNoise = words.filter((w) => !NOTE_NOISE.has(w));
-    const noBoth = noLoc.filter((w) => !NOTE_NOISE.has(w));
+    // le parole d'azione si ignorano solo se il catalogo non le conosce: "tinteggiare" è un alias, "sostituzione" no
+    const isNoise = (w: string) => NOTE_NOISE.has(w) && !(ACTION_WORDS.has(w) && matcher.vocab.has(stem(w)));
+    const noNoise = words.filter((w) => !isNoise(w));
+    const noBoth = noLoc.filter((w) => !isNoise(w));
     let other: MatchResult | null = null;
     let content: string[] = [];
     for (const v of [noLoc, noNoise, noBoth]) {
-      const cw = v.filter((w) => !/^\d/.test(w) && !LOCATION_WORDS.has(w) && !NOTE_NOISE.has(w)).map(stem);
+      const cw = v.filter((w) => !/^\d/.test(w) && !LOCATION_WORDS.has(w) && !isNoise(w)).map(stem);
       if (v.length === words.length || !cw.length) continue; // senza almeno una parola di contenuto non si cerca
       const r = matcher.best(v.join(' '), opts);
       if (r && (!other || r.score > other.score)) {

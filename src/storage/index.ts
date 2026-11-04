@@ -1,5 +1,5 @@
 /**
- * Storage locale (IndexedDB via `idb`, schema v2) con fallback in memoria se IndexedDB non è disponibile.
+ * Storage locale (IndexedDB via `idb`, schema v3: + rubrica clienti, vedi ./customers) con fallback in memoria se IndexedDB non è disponibile.
  * Firme fisse: vedi docs/ARCHITECTURE.md e docs/CONTRACT-V2.md.
  * - persistenza/transazioni/migrazione: ./db
  * - fatturazione (emissione, note di credito, SDI, pagamenti, audit): ./invoices
@@ -8,8 +8,9 @@ import { UNITS } from '../types';
 import type { AuditEntry, CatalogItem, DocType, ItemKind, Profile, QuoteDocument, Unit } from '../types';
 import { __resetStorageForTests, defaultProfile, getBackend, migrateDocumentV1, newAuditId, withDefaults } from './db';
 import { ImmutableDocumentError, assertSaveAllowed, __addAudit } from './invoices';
+import { normalizeCustomerRecord, seedCustomersFromDocuments, type StoredCustomer } from './customerModel';
 
-export const BACKUP_VERSION = 2;
+export const BACKUP_VERSION = 3;
 export { defaultProfile, __resetStorageForTests };
 
 // ---------------------------------------------------------------- API
@@ -133,16 +134,18 @@ export const nextDocumentNumber = async (type: DocType): Promise<string> =>
 // ---------------------------------------------------------------- backup
 
 export async function exportBackup(): Promise<string> {
-  const { profile, catalog, documents, audit } = await getBackend().transact('readonly', async (t) => ({
+  const { profile, catalog, documents, audit, customers } = await getBackend().transact('readonly', async (t) => ({
     profile: withDefaults(await t.getProfile()),
     catalog: await t.all<CatalogItem>('catalog'),
+    customers: await t.all<StoredCustomer>('customers'),
     documents: await t.all<QuoteDocument>('documents'),
     audit: await t.all<AuditEntry>('audit'),
   }));
   catalog.sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
   documents.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt));
   audit.sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
-  return JSON.stringify({ version: BACKUP_VERSION, exportedAt: new Date().toISOString(), profile, catalog, documents, audit }, null, 2);
+  customers.sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
+  return JSON.stringify({ version: BACKUP_VERSION, exportedAt: new Date().toISOString(), profile, catalog, customers, documents, audit }, null, 2);
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -182,6 +185,18 @@ function checkDocument(v: unknown, idx: number): QuoteDocument {
   return v as unknown as QuoteDocument;
 }
 
+function checkCustomer(v: unknown, idx: number): StoredCustomer {
+  if (!isObj(v)) fail(`cliente #${idx + 1} non è un oggetto`);
+  if (typeof v.id !== 'string' || !v.id) fail(`cliente #${idx + 1} senza id`);
+  if (typeof v.name !== 'string' || !v.name.trim()) fail(`cliente #${idx + 1} senza nome`);
+  const now = Date.now();
+  return {
+    ...normalizeCustomerRecord(v as unknown as StoredCustomer),
+    createdAt: isNum(v.createdAt) ? v.createdAt : now,
+    updatedAt: isNum(v.updatedAt) ? v.updatedAt : now,
+  };
+}
+
 function checkAudit(v: unknown, idx: number): AuditEntry {
   if (!isObj(v) || typeof v.id !== 'string' || !v.id || typeof v.docId !== 'string' || !isNum(v.at) || typeof v.action !== 'string') {
     fail(`voce di audit #${idx + 1} non valida`);
@@ -192,6 +207,10 @@ function checkAudit(v: unknown, idx: number): AuditEntry {
 export interface ParsedBackup {
   profile: Profile;
   catalog: CatalogItem[];
+  /** Rubrica clienti. Nei backup v1/v2 (senza rubrica) è ricavata dai clienti dei documenti. */
+  customers: StoredCustomer[];
+  /** true = la rubrica non era nel file ed è stata ricavata dai documenti. */
+  customersDerived: boolean;
   documents: QuoteDocument[];
   audit: AuditEntry[];
   version: number;
@@ -210,7 +229,7 @@ export function maxSeqByKey(docs: QuoteDocument[]): Record<string, number> {
   return r;
 }
 
-/** Valida e normalizza il JSON di un backup (v1 o v2); lancia Error con messaggio in italiano. */
+/** Valida e normalizza il JSON di un backup (v1, v2 o v3); lancia Error con messaggio in italiano. */
 export function parseBackup(json: string): ParsedBackup {
   let data: unknown;
   try { data = JSON.parse(json); } catch { fail('il file non è un JSON valido'); }
@@ -221,6 +240,7 @@ export function parseBackup(json: string): ParsedBackup {
   if (!Array.isArray(data.catalog)) fail('manca il catalogo');
   if (!Array.isArray(data.documents)) fail('mancano i documenti');
   if (data.audit !== undefined && !Array.isArray(data.audit)) fail('registro audit non valido');
+  if (data.customers !== undefined && !Array.isArray(data.customers)) fail('rubrica clienti non valida');
   const catalog = data.catalog.map(checkCatalogItem);
   const audit = ((data.audit as unknown[] | undefined) ?? []).map(checkAudit);
   const documents = data.documents.map(checkDocument).map((d) => {
@@ -230,6 +250,10 @@ export function parseBackup(json: string): ParsedBackup {
     if (m.audit) audit.push(m.audit);
     return m.doc;
   });
+  const customersDerived = data.customers === undefined;
+  const customers = customersDerived ? seedCustomersFromDocuments(documents, []) : (data.customers as unknown[]).map(checkCustomer);
+  const cids = new Set<string>();
+  for (const c of customers) { if (cids.has(c.id)) fail(`id cliente duplicato (${c.id})`); cids.add(c.id); }
   const ids = new Set<string>();
   for (const c of catalog) { if (ids.has(c.id)) fail(`id catalogo duplicato (${c.id})`); ids.add(c.id); }
   const dids = new Set<string>();
@@ -249,6 +273,8 @@ export function parseBackup(json: string): ParsedBackup {
   return {
     profile: withDefaults(data.profile as Partial<Profile>),
     catalog,
+    customers,
+    customersDerived,
     documents,
     audit,
     version: data.version,
@@ -257,7 +283,7 @@ export function parseBackup(json: string): ParsedBackup {
 }
 
 /**
- * Importa un backup (v1 o v2) in modalità sostituzione. NON riduce mai i contatori: per ogni chiave vince il massimo tra
+ * Importa un backup (v1, v2 o v3) in modalità sostituzione. NON riduce mai i contatori: per ogni chiave vince il massimo tra
  * contatore del backup, massimo `seq` presente nei documenti del backup e contatore attuale del dispositivo.
  * Il registro audit non si cancella: le voci attuali restano e si aggiungono quelle del backup.
  * Ritorna gli avvisi da mostrare all'utente (un backup vecchio può far perdere fatture emesse dopo la sua creazione).
@@ -294,6 +320,10 @@ export async function importBackup(json: string): Promise<{ warnings: string[] }
       warnings.push('Backup in formato v1: le fatture contenute sono state marcate "di cortesia" (non fiscali, senza numero fiscale).');
     }
 
+    if (b.customersDerived) {
+      warnings.push(`Il backup non contiene la rubrica clienti (formato v${b.version}): ne ho creata una dai clienti dei documenti (${b.customers.length}).`);
+    }
+
     const profile: Profile = {
       ...b.profile,
       invoiceYearCounters: counters,
@@ -302,6 +332,8 @@ export async function importBackup(json: string): Promise<{ warnings: string[] }
     };
     await t.clear('catalog');
     await t.clear('documents');
+    await t.clear('customers');
+    for (const c of b.customers) await t.put('customers', c);
     await t.putProfile(profile);
     for (const i of b.catalog) await t.put('catalog', i);
     for (const d of b.documents) await t.put('documents', d);
@@ -317,3 +349,4 @@ export async function importBackup(json: string): Promise<{ warnings: string[] }
 }
 
 export * from './invoices';
+export * from './customers';

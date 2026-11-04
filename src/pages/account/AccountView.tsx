@@ -14,16 +14,11 @@ import { useDocumentAllowance } from '../../billing/useAllowance';
 import { useCheckoutReturn } from '../../billing/useCheckoutReturn';
 import { usePlan } from '../../billing/usePlan';
 import { isNativeApp } from '../../billing/platform';
+import { openPaymentUrl } from '../../billing/safeUrl';
+import { MassDeleteCard } from './MassDeleteCard';
 import { PRO_PRICE_MONTH, PRO_PRICE_YEAR, PRO_YEARLY_SAVING, formatEur } from '../../billing/pricing';
 
-/** Apre solo URL https (checkout/portale restituiti dal server). */
-function openUrl(url: string): void {
-  try {
-    const u = new URL(url, window.location.href);
-    if (u.protocol !== 'https:' && u.hostname !== 'localhost') throw new Error('URL non sicuro');
-    window.location.assign(u.toString());
-  } catch { throw new Error('Indirizzo di pagamento non valido.'); }
-}
+const openUrl = (url: string): void => openPaymentUrl(url);
 
 export function AccountView({ engine, api }: { engine: SyncEngine; api: { checkout(p: 'month' | 'year'): Promise<{ url: string }>; portal(): Promise<{ url: string }>; exportData(): Promise<Blob> } }) {
   const st = useSyncStatus(engine);
@@ -49,6 +44,8 @@ export function AccountView({ engine, api }: { engine: SyncEngine; api: { checko
   return (
     <>
       {!termsOk && st.signedIn && <LoginForm engine={engine} reacceptEmail={st.email ?? me?.email ?? ''} onDone={() => setTermsOk(true)} />}
+
+      {st.massDelete && <MassDeleteCard alert={st.massDelete} engine={engine} />}
 
       <Card>
         <div style={a.stack}>

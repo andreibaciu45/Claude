@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { CatalogItem } from '../types';
 import { levBounded, matchCatalog } from './match';
 import { levenshtein } from './text';
 import { DEFAULT_CATALOG } from './cases';
@@ -27,12 +28,10 @@ describe('levBounded', () => {
 
 describe('matchCatalog', () => {
   it('la s privativa non confonde (smontaggio != montaggio, scarico != carico)', () => {
-    const cat = [
-      { id: 'a', name: 'Montaggio finestra', aliases: [], unit: 'pz', price: 1, vat: 22, kind: 'servizio', createdAt: 0, updatedAt: 0 },
-      { id: 'b', name: 'Smontaggio finestra', aliases: [], unit: 'pz', price: 1, vat: 22, kind: 'servizio', createdAt: 0, updatedAt: 0 },
-    ] as const;
-    expect(matchCatalog('smontaggio finestre', [...cat])?.item.id).toBe('b');
-    expect(matchCatalog('montaggio finestre', [...cat])?.item.id).toBe('a');
+    const mk = (id: string, name: string): CatalogItem => ({ id, name, aliases: [], unit: 'pz', price: 1, vat: 22, kind: 'servizio', createdAt: 0, updatedAt: 0 });
+    const cat = [mk('a', 'Montaggio finestra'), mk('b', 'Smontaggio finestra')];
+    expect(matchCatalog('smontaggio finestre', cat)?.item.id).toBe('b');
+    expect(matchCatalog('montaggio finestre', cat)?.item.id).toBe('a');
   });
   it('restituisce il prezzo del catalogo passato, non quello dell\'indice in cache', () => {
     matchCatalog('un sifone', DEFAULT_CATALOG);

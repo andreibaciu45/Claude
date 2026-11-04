@@ -85,7 +85,7 @@ describe('backup', () => {
     await saveDocument(doc('d1', '2025-01-01'));
     const json = await exportBackup();
     const parsed = JSON.parse(json);
-    expect(parsed.version).toBe(2);
+    expect(parsed.version).toBe(3);
     expect(Array.isArray(parsed.audit)).toBe(true);
     expect(parsed.exportedAt).toBeTruthy();
 

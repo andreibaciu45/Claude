@@ -20,6 +20,11 @@ describe('stessa voce su più righe -> righe distinte con nota', () => {
     expect(r.lineMeta![r.lines[1].id].note).toBe('camera');
     expect(r.leftovers).toEqual([]);
   });
+  it('"le pareti del soggiorno ... e della camera"', () => {
+    const r = P('tinteggiare le pareti del soggiorno cinquanta mq e della camera trenta mq', CAT_IMBIANCHINO);
+    expect(r.lines.map((l) => [l.catalogItemId, l.qty])).toEqual([['m-tint-pareti', 50], ['m-tint-pareti', 30]]);
+    expect(r.lines[1].description).toMatch(/camera/);
+  });
   it('tre stanze senza congiunzioni', () => {
     const r = P('tinteggiatura salone 60 mq camera da letto 25 mq bagno 10 mq', CAT_IMBIANCHINO);
     expect(r.lines.map((l) => l.qty)).toEqual([60, 25, 10]);

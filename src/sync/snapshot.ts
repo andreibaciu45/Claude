@@ -16,6 +16,11 @@ export interface LocalStore {
   deleteCatalogItem(id: string): Promise<void>;
   listDocuments(): Promise<QuoteDocument[]>;
   saveDocument(d: QuoteDocument): Promise<void>;
+  /**
+   * Opzionale: salvataggio di un documento che arriva dal server (può essere una fattura già emessa, `lockedAt`, su un altro
+   * dispositivo). Lo storage espone `saveSyncedDocument` proprio per questo: `saveDocument` rifiuta di creare fatture bloccate.
+   */
+  saveRemoteDocument?(d: QuoteDocument): Promise<void>;
   deleteDocument(id: string): Promise<void>;
   /** Opzionale: lo storage fatture può non averla (o lanciare "non implementato"). */
   listAudit?(): Promise<AuditEntry[]>;
@@ -98,8 +103,9 @@ export function diffSnapshot(snap: Snapshot, synced: Map<string, SyncedEntry>): 
     out.push({ entity, entityId, op: 'upsert', payload, hash, updatedAt, baseUpdatedAt: prev?.updatedAt });
   };
 
-  const prevProfile = synced.get(entityKey('profile', 'profile'));
-  if (prevProfile || !isProfileEmpty(snap.profile)) consider('profile', 'profile', profilePayload(snap.profile));
+  // Un profilo vuoto (storage svuotato/ripristinato ai default) NON si carica mai, nemmeno se il server ne ha già uno:
+  // sovrascriverebbe i dati azienda dell'account con un modulo bianco (last-write-wins).
+  if (!isProfileEmpty(snap.profile)) consider('profile', 'profile', profilePayload(snap.profile));
   else seen.add(entityKey('profile', 'profile'));
   for (const c of snap.catalog) consider('catalog', c.id, c, c.updatedAt);
   for (const d of snap.documents) consider('document', d.id, d, d.updatedAt);
@@ -115,19 +121,73 @@ export function diffSnapshot(snap: Snapshot, synced: Map<string, SyncedEntry>): 
   return out;
 }
 
+// ---------------------------------------------------------------- circuit breaker cancellazioni di massa
+
+/** Sotto questa soglia le cancellazioni normali (una voce, un documento) passano sempre senza conferma. */
+export const MASS_DELETE_MIN = 5;
+/** Quota di elementi sincronizzati la cui scomparsa locale è considerata sospetta. */
+export const MASS_DELETE_RATIO = 0.5;
+
+export interface MassDeleteAlert {
+  catalog: number;
+  documents: number;
+  /** chiavi `entity:id` delle cancellazioni trattenute */
+  keys: string[];
+}
+
+/**
+ * Circuit breaker: se in locale sono spariti molti elementi già sincronizzati (storage svuotato, dati del browser cancellati,
+ * database non ancora aperto, bug) NON si propaga la cancellazione al server: si chiede conferma all'utente.
+ * Sospetto = (>= MASS_DELETE_MIN cancellazioni E >= 50% degli elementi sincronizzati di quel tipo)
+ *            oppure (spariti TUTTI, con almeno 3 elementi sincronizzati)
+ *            oppure (archivio locale completamente vuoto: nessun documento, nessuna voce, profilo vuoto, ma il server ne ha almeno 2).
+ */
+export function detectMassDelete(snap: Snapshot, changes: Change[], synced: Map<string, SyncedEntry>): MassDeleteAlert | null {
+  const total = { catalog: 0, document: 0 };
+  for (const k of synced.keys()) {
+    if (k.startsWith('catalog:')) total.catalog++;
+    else if (k.startsWith('document:')) total.document++;
+  }
+  const dels = { catalog: [] as string[], document: [] as string[] };
+  for (const c of changes) {
+    if (c.op !== 'delete') continue;
+    if (c.entity === 'catalog' || c.entity === 'document') dels[c.entity].push(entityKey(c.entity, c.entityId));
+  }
+  const wiped = !snap.documents.length && !snap.catalog.length && isProfileEmpty(snap.profile) && total.catalog + total.document >= 2;
+  const bad = (n: number, t: number) => n > 0 && (wiped || (n >= MASS_DELETE_MIN && n / t >= MASS_DELETE_RATIO) || (t >= 3 && n === t));
+  const keys: string[] = [];
+  if (bad(dels.catalog.length, total.catalog)) keys.push(...dels.catalog);
+  if (bad(dels.document.length, total.document)) keys.push(...dels.document);
+  if (!keys.length) return null;
+  return {
+    catalog: keys.filter((k) => k.startsWith('catalog:')).length,
+    documents: keys.filter((k) => k.startsWith('document:')).length,
+    keys,
+  };
+}
+
+export interface ScanResult { queued: number; massDelete: MassDeleteAlert | null }
+
 /**
  * Accoda le operazioni per le modifiche locali non ancora in coda. Idempotente: se la stessa versione
- * (stesso hash) è già in outbox non la riaccoda. Ritorna il numero di operazioni create.
+ * (stesso hash) è già in outbox non la riaccoda. Le cancellazioni di massa sospette NON vengono accodate
+ * (vedi `detectMassDelete`) salvo `allowMassDelete`.
  */
-export async function scanLocalChanges(store: LocalStore, synced: Map<string, SyncedEntry>): Promise<number> {
-  const changes = diffSnapshot(await takeSnapshot(store), synced);
-  const changedKeys = new Set(changes.map((c) => entityKey(c.entity, c.entityId)));
+export async function scanLocalChangesDetailed(store: LocalStore, synced: Map<string, SyncedEntry>, opts: { allowMassDelete?: boolean } = {}): Promise<ScanResult> {
+  const snap = await takeSnapshot(store);
+  let changes = diffSnapshot(snap, synced);
   const outbox = await listOutbox();
+  // cancellazioni già accodate (e quindi già autorizzate) non vanno rivalutate dal circuit breaker
+  const queuedDeletes = new Set(outbox.filter((r) => r.status === 'pending' && r.op === 'delete').map((r) => entityKey(r.entity, r.entityId)));
+  const massDelete = opts.allowMassDelete ? null : detectMassDelete(snap, changes.filter((c) => !(c.op === 'delete' && queuedDeletes.has(entityKey(c.entity, c.entityId)))), synced);
+  const held = new Set(massDelete?.keys ?? []);
+  const changedKeys = new Set(changes.map((c) => entityKey(c.entity, c.entityId)));
+  changes = changes.filter((c) => !(c.op === 'delete' && held.has(entityKey(c.entity, c.entityId))));
   // upsert in attesa che non corrispondono più a nessuna differenza (modifica annullata, o creato ed
   // eliminato prima del sync): vanno scartati, altrimenti il server riceverebbe uno stato superato.
   const stale = outbox.filter((r) => r.status === 'pending' && r.op === 'upsert' && r.entity !== 'audit' && !changedKeys.has(entityKey(r.entity, r.entityId)));
   if (stale.length) await removeOps(stale.map((r) => r.opId));
-  if (!changes.length) return 0;
+  if (!changes.length) return { queued: 0, massDelete };
   const staleIds = new Set(stale.map((r) => r.opId));
   const latest = new Map<string, { op: string; hash?: string }>();
   for (const r of outbox) if (!staleIds.has(r.opId)) latest.set(entityKey(r.entity, r.entityId), { op: r.op, hash: r.hash });
@@ -143,7 +203,12 @@ export async function scanLocalChanges(store: LocalStore, synced: Map<string, Sy
     }
     n++;
   }
-  return n;
+  return { queued: n, massDelete };
+}
+
+/** Come `scanLocalChangesDetailed`, ritorna solo il numero di operazioni create. */
+export async function scanLocalChanges(store: LocalStore, synced: Map<string, SyncedEntry>): Promise<number> {
+  return (await scanLocalChangesDetailed(store, synced)).queued;
 }
 
 /** Anteprima migrazione ("N documenti, M voci a catalogo"). */

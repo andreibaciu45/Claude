@@ -24,7 +24,7 @@ export interface OutboxRecord extends SyncOp {
   hash?: string;
 }
 export interface SyncedEntry { hash: string; updatedAt?: number }
-export type MetaKey = 'cursor' | 'lastSyncAt' | 'migrated' | 'email';
+export type MetaKey = 'cursor' | 'lastSyncAt' | 'migrated' | 'email' | 'tenant';
 
 export const entityKey = (entity: SyncEntity, id: string): string => `${entity}:${id}`;
 

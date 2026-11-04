@@ -348,7 +348,8 @@ export function createMatcher(catalog: CatalogItem[]): Matcher {
 export function catalogSignature(catalog: CatalogItem[]): string {
   let h1 = 0x811c9dc5;
   let h2 = 0x1b873593;
-  const feed = (s: string) => {
+  const feed = (v: unknown) => {
+    const s = typeof v === 'string' ? v : '';
     for (let i = 0; i < s.length; i++) {
       const c = s.charCodeAt(i);
       h1 = Math.imul(h1 ^ c, 16777619);
@@ -361,7 +362,7 @@ export function catalogSignature(catalog: CatalogItem[]): string {
     feed(it.name);
     feed(it.unit);
     feed(it.kind);
-    if (it.aliases) for (const a of it.aliases) feed(a);
+    if (Array.isArray(it.aliases)) for (const a of it.aliases) feed(a);
     feed('|');
   }
   return `${catalog.length}:${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}`;

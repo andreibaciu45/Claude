@@ -1,3 +1,5 @@
+# Set FINALE (80 frasi, scritte dopo le correzioni): PRIMO passaggio, prima di qualsiasi correzione guidata da queste frasi.
+# La sezione CIECO qui sotto e' il set cieco dopo le correzioni (non piu' indipendente).
 == CIECO: frasi 293/293 (100.0%), righe 373/373 (100.0%)
    per mestiere: idraulico 46/46, elettricista 49/49, imbianchino 50/50, serramentista 48/48, muratore 48/48, manutentore 52/52
    per categoria: base 195/195, prezzo 21/21, cliente 20/20, sconto 12/12, iva 13/13, unita 11/11, prev 5/5, doppia 6/6, refuso 3/3, mani 5/5, misure 2/2

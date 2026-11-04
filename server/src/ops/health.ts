@@ -13,10 +13,19 @@ export interface DeepHealth { status: 'ok' | 'degraded' | 'fail'; checks: Record
 
 const envNum = (name: string, def: number) => { const n = Number(process.env[name]); return Number.isFinite(n) && n > 0 ? n : def; };
 
+/** BACKUP_DIR, oppure (se esiste) la cartella `backups` accanto al database: dove scrivono sia il timer di backup sia `admin.ts backup`. */
+export function backupDir(): string | null {
+  if (process.env.BACKUP_DIR) return process.env.BACKUP_DIR;
+  const db = process.env.DB_PATH || './data/app.sqlite';
+  if (db === ':memory:') return null;
+  const d = join(dirname(db), 'backups');
+  try { return statSync(d).isDirectory() ? d : null; } catch { return null; }
+}
+
 let backupCache: { at: number; value: number | null } | null = null;
 /** Istante (ms) dell'ultimo file in BACKUP_DIR (qualunque file non nascosto), oppure null se non configurato o vuoto. */
 export function lastBackupAt(): number | null {
-  const dir = process.env.BACKUP_DIR;
+  const dir = backupDir();
   if (!dir) return null;
   const t = Date.now();
   if (backupCache && t - backupCache.at < 30_000) return backupCache.value;
@@ -69,7 +78,7 @@ function checkDisk(): Check {
 }
 
 function checkBackup(): Check {
-  if (!process.env.BACKUP_DIR) return { status: 'ok', detail: { note: 'BACKUP_DIR non impostata: eta\' del backup non verificabile' } };
+  if (!backupDir()) return { status: 'ok', detail: { note: 'cartella dei backup non nota (imposta BACKUP_DIR): eta\' non verificabile' } };
   const at = lastBackupAt();
   if (at === null) return { status: 'warn', detail: { error: 'nessun file di backup trovato' } };
   const ageH = (Date.now() - at) / 3_600_000;
@@ -85,9 +94,12 @@ function checkMaintenance(): Check {
   return { status: ageH > 3 && upH > 3 ? 'warn' : 'ok', detail: { ageHours: Math.round(ageH * 10) / 10, lastVacuum: getState('last_vacuum_at') ?? null } };
 }
 
+/** Un controllo che lancia non deve mai far cadere l'endpoint: diventa un 'fail'. */
+const guard = (fn: () => Check): Check => { try { return fn(); } catch { return { status: 'fail', detail: { error: 'controllo non eseguibile' } }; } };
+
 export function deepHealth(): DeepHealth {
   const checks: Record<string, Check> = {
-    db_write: checkDbWrite(), migrations: checkMigrations(), disk: checkDisk(), backup: checkBackup(), maintenance: checkMaintenance(),
+    db_write: guard(checkDbWrite), migrations: guard(checkMigrations), disk: guard(checkDisk), backup: guard(checkBackup), maintenance: guard(checkMaintenance),
   };
   if (isDraining()) checks.shutdown = { status: 'fail', detail: { note: 'arresto in corso' } };
   const sts = Object.values(checks).map((c) => c.status);

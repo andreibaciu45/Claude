@@ -107,7 +107,7 @@ describe('robustezza: numeri estremi', () => {
     expect(P('0 metri di cavo').lines[0]).toMatchObject({ qty: 1, needsReview: true });
     const r = P('NaN prese Infinity metri undefined null');
     expect(sane(r)).toBe(true);
-    expect(JSON.stringify(r)).not.toMatch(/NaN|Infinity|null/i.source === 'x' ? /$^/ : /"(qty|unitPrice|vat)":(null|"NaN")/);
+    expect(r.lines.every((l) => typeof l.qty === 'number' && typeof l.unitPrice === 'number' && typeof l.vat === 'number')).toBe(true);
   });
   it('i risultati alimentano computeTotals senza NaN', () => {
     for (const t of ['99999999999999999999 prese a 99999999999999999999 euro', '-5 prese sconto 99999999999 euro', 'due prese sconto del 500 per cento', '3 prese iva al 100']) {

@@ -2,16 +2,18 @@
  * Livello di persistenza: IndexedDB (idb) con fallback in memoria.
  * Tutta la logica "di dominio" passa da `transact`: UNA transazione su profile+catalog+documents+audit.
  * Schema v2: nuovo store `audit` (append-only) + indici su `documents`; migrazione dei documenti v1.
+ * Schema v3: nuovo store `customers` (rubrica clienti, solo locale), popolato UNA volta dai clienti dei documenti.
  */
 import { openDB, type IDBPDatabase, type IDBPTransaction } from 'idb';
 import type { AuditEntry, CatalogItem, InvoiceFiscal, Profile, QuoteDocument } from '../types';
 import { uid } from '../types';
+import { seedCustomersFromDocuments } from './customerModel';
 
 export const DB_NAME = 'vocepreventivo';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const PROFILE_KEY = 'main';
 
-export type StoreName = 'catalog' | 'documents' | 'audit';
+export type StoreName = 'catalog' | 'documents' | 'audit' | 'customers';
 
 export const defaultProfile = (): Profile => ({
   businessName: '',
@@ -87,7 +89,7 @@ const numberKey = (d: { invoice?: Partial<InvoiceFiscal> }): string | null => {
 
 function memoryBackend(): Backend {
   let profile: Partial<Profile> | undefined;
-  let stores: Record<StoreName, Map<string, unknown>> = { catalog: new Map(), documents: new Map(), audit: new Map() };
+  let stores: Record<StoreName, Map<string, unknown>> = { catalog: new Map(), documents: new Map(), audit: new Map(), customers: new Map() };
   let chain: Promise<unknown> = Promise.resolve();
   return {
     transact<R>(mode: 'readonly' | 'readwrite', fn: (t: Tx) => Promise<R>): Promise<R> {
@@ -95,7 +97,7 @@ function memoryBackend(): Backend {
         // copia di lavoro: si committa solo se `fn` termina senza errori (rollback = scartare la copia)
         let wp = profile && clone(profile);
         const ws: Record<StoreName, Map<string, unknown>> = {
-          catalog: new Map(stores.catalog), documents: new Map(stores.documents), audit: new Map(stores.audit),
+          catalog: new Map(stores.catalog), documents: new Map(stores.documents), audit: new Map(stores.audit), customers: new Map(stores.customers),
         };
         const t: Tx = {
           async getProfile() { return wp && clone(wp); },
@@ -212,11 +214,21 @@ async function upgrade(db: IDBPDatabase, oldVersion: number, tx: UpgradeTx): Pro
       }
     }
   }
+  if (oldVersion < 3) {
+    db.createObjectStore('customers', { keyPath: 'id' });
+    // Popolamento iniziale (una tantum, per costruzione: l'upgrade a v3 avviene una sola volta) dai clienti dei documenti.
+    // Nessun documento viene toccato. Una nuova installazione (oldVersion 0) parte con la rubrica vuota.
+    if (oldVersion >= 1) {
+      const docs = (await tx.objectStore('documents').getAll()) as QuoteDocument[];
+      const customers = tx.objectStore('customers');
+      for (const c of seedCustomersFromDocuments(docs, [])) await customers.put(c);
+    }
+  }
 }
 
 // ---------------------------------------------------------------- idb
 
-const ALL_STORES = ['profile', 'catalog', 'documents', 'audit'] as const;
+const ALL_STORES = ['profile', 'catalog', 'documents', 'audit', 'customers'] as const;
 
 function idbBackend(dbp: Promise<IDBPDatabase>): Backend {
   return {

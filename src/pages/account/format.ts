@@ -15,9 +15,10 @@ export function relativeTime(ts: number | null, now = Date.now()): string {
 export interface BadgeView { label: string; tone: 'neutral' | 'success' | 'warning' | 'danger' | 'info' }
 
 /** Etichetta e tono del badge per uno stato di sync (testabile). Null = non connesso. */
-export function badgeView(s: Pick<SyncStatus, 'signedIn' | 'phase' | 'pendingOps' | 'conflicts' | 'migration'>): BadgeView | null {
+export function badgeView(s: Pick<SyncStatus, 'signedIn' | 'phase' | 'pendingOps' | 'conflicts' | 'migration'> & { massDelete?: SyncStatus['massDelete'] }): BadgeView | null {
   if (!s.signedIn) return null;
   if (s.migration) return { label: 'Da avviare', tone: 'info' };
+  if (s.massDelete) return { label: 'Da confermare', tone: 'warning' };
   switch (s.phase) {
     case 'syncing': return { label: 'Sincronizzo…', tone: 'info' };
     case 'offline': return { label: s.pendingOps ? `Offline · ${s.pendingOps} in coda` : 'Offline', tone: 'warning' };

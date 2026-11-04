@@ -26,3 +26,10 @@ export const NOTE_NOISE = new Set([
   'sostituire', 'montare', 'installare', 'fare', 'rifare', 'cambiare', 'cambio', 'da', 'per', 'su', 'con', 'senza',
   'euro', 'cadauno', 'cadauna', 'ciascuno', 'ciascuna', 'uno', 'una', 'un',
 ]);
+
+/** Tra le parole sopra, le azioni: se il catalogo le usa (alias come "tinteggiare", "posa") sono contenuto, non rumore. */
+export const ACTION_WORDS = new Set([
+  'installazione', 'sostituzione', 'fornitura', 'montaggio', 'posa', 'rifacimento', 'tinteggiare', 'imbiancare', 'pitturare',
+  'dipingere', 'verniciare', 'stuccare', 'rasare', 'intonacare', 'demolire', 'sostituire', 'montare', 'installare', 'fare',
+  'rifare', 'cambiare', 'cambio', 'lavori', 'lavoro',
+]);

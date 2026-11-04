@@ -3,6 +3,7 @@ import { Button, Card, Field, Input, useToast } from '../../ui';
 import { ApiClientError, describeError, type DeleteAccountResult } from '../../sync/api';
 import type { SyncEngine } from '../../sync/engine';
 import { useSyncStatus } from '../../sync/useSyncStatus';
+import { openPaymentUrl } from '../../billing/safeUrl';
 import { downloadBlob } from '../quote/shared';
 import { a } from './styles';
 
@@ -17,14 +18,7 @@ export function exportFileName(d: Date = new Date()): string {
   return `vocepreventivo-miei-dati-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}.json`;
 }
 
-/** Apre solo URL https (portale di fatturazione). */
-function openUrl(url: string): void {
-  try {
-    const u = new URL(url, window.location.href);
-    if (u.protocol !== 'https:' && u.hostname !== 'localhost') throw new Error('URL non sicuro');
-    window.location.assign(u.toString());
-  } catch { throw new Error('Indirizzo del portale non valido.'); }
-}
+const openUrl = (url: string): void => openPaymentUrl(url, 'del portale');
 
 type Step = 'idle' | 'info' | 'confirm';
 
