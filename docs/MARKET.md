@@ -1,3 +1,5 @@
+> **AGGIORNAMENTO (04/11/2026):** la sezione «Gap» qui sotto è SUPERATA da `docs/MARKET-2.md`: esiste almeno un'app italiana concorrente diretta con preventivi da voce (PrevAI) e altre in inglese. NON usare il claim «non esiste niente di simile» in nessun testo di marketing.
+
 # Analisi di mercato (prima passata, 04/11/2026)
 
 Fonti: ricerche web; dati di prezzo/recensioni NON verificati. Da approfondire dalle schede ufficiali.

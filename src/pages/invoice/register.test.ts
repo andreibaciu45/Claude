@@ -134,3 +134,23 @@ describe('cronologia e anteprima numero', () => {
     expect(previewNumber(d, { invoiceYearCounters: { 'FT-2026': 9 } })).toBe('1/2027');
   });
 });
+
+describe('REV: CSV, ZIP e stile (revisione indipendente)', () => {
+  it('REV-H1: l\'impronta XML nel CSV del registro attività non può iniettare formule', async () => {
+    const { activityCsv } = await import('./activity');
+    const csv = activityCsv([{ id: 'x', at: 1, docId: 'd', action: 'issue', actor: 'user', xmlSha256: '=HYPERLINK("http://x")' }], []);
+    expect(csv).not.toMatch(/;=HYPERLINK/);
+    expect(csv).toContain("'=HYPERLINK");
+  });
+  it('REV-H2: lettere di unità disco nei nomi ZIP rimosse', async () => {
+    const { safeZipName } = await import('./zip');
+    expect(safeZipName('C:\\Windows\\x.xml')).toBe('Windows/x.xml');
+    expect(safeZipName('D:evil.xml')).toBe('evil.xml');
+  });
+  it('QA BUG-03/05: filigrana contenuta e casella "Storna riga" >= 44 px', async () => {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync('src/pages/invoice/invoice.css', 'utf8');
+    expect(css).toMatch(/\.dv-paper\[data-draft="true"\]\s*\{[^}]*overflow:\s*hidden/);
+    expect(css).toMatch(/\.iv-credit-line input\[type="checkbox"\]\s*\{[^}]*width:\s*44px;\s*height:\s*44px/);
+  });
+});
