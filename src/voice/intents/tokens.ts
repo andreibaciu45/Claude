@@ -45,17 +45,17 @@ export function tokenize(input: string): Tok[] {
   return out;
 }
 
-/** Sostituisce con la parola chiave più vicina (distanza 1, o 2 per parole lunghe) i token non riconosciuti. */
+/** Sostituisce con la parola chiave più vicina (distanza 1, stessa iniziale) i token non riconosciuti. */
 export function canonicalize(toks: Tok[], keywords: ReadonlySet<string>): Tok[] {
   const list = [...keywords].filter((k) => k.length >= 5);
   return toks.map((t) => {
     if (t.n !== undefined || keywords.has(t.w) || t.w.length < 5 || /\d/.test(t.w)) return t;
-    const max = t.w.length >= 9 ? 2 : 1;
+    const max = 1;
     let best: string | null = null;
     let bestD = max + 1;
     let tie = false;
     for (const k of list) {
-      if (Math.abs(k.length - t.w.length) > max) continue;
+      if (k[0] !== t.w[0] || Math.abs(k.length - t.w.length) > max) continue;
       const d = levenshtein(t.w, k);
       if (d < bestD) { bestD = d; best = k; tie = false; }
       else if (d === bestD) tie = true;
