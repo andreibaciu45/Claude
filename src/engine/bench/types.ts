@@ -88,8 +88,11 @@ export interface Outcome {
   lineTotal: number;
 }
 
-export function judge(c: BCase, r: import('../../types').ParseResult & Ext): Outcome {
+export function judge(c: BCase, r0: import('../../types').ParseResult & Ext): Outcome {
   const errs: string[] = [];
+  // la riga "Sconto" a prezzo negativo non è una voce dettata
+  const r = c.disc?.amount !== undefined ? { ...r0, lines: r0.lines.filter((l) => !(l.unitPrice < 0 && l.description === 'Sconto')) } : r0;
+  const full = r0.lines;
   let lineOk = 0;
   if (c.cust !== undefined && (r.customerName ?? null) !== c.cust) errs.push(`cliente ${r.customerName ?? null} != ${c.cust}`);
   if (r.lines.length !== c.lines.length) errs.push(`numero righe ${r.lines.length} != ${c.lines.length}`);
@@ -103,9 +106,9 @@ export function judge(c: BCase, r: import('../../types').ParseResult & Ext): Out
     if (!r.lines.length || !r.lines.every((l) => l.discountPct === c.disc!.pct)) errs.push(`sconto % atteso ${c.disc.pct}`);
   }
   if (c.disc?.amount !== undefined) {
-    const pos = r.lines.filter((l) => l.unitPrice >= 0);
+    const pos = full.filter((l) => l.unitPrice >= 0);
     const gross = computeTotals(pos, { forfettario: true, type: 'preventivo' }).net;
-    const net = computeTotals(r.lines, { forfettario: true, type: 'preventivo' }).net;
+    const net = computeTotals(full, { forfettario: true, type: 'preventivo' }).net;
     if (r.discount?.amount !== c.disc.amount || Math.abs(gross - net - c.disc.amount) > 0.011) errs.push(`sconto € atteso ${c.disc.amount}`);
   }
   if (c.vat !== undefined) {

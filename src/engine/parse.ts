@@ -60,7 +60,7 @@ export const MAX_PRICE = 1e7;
 
 /* ------------------------------------------------------------------ token */
 
-type QtyTok = { k: 'qty'; v: number; u: Unit | null; art: boolean; inferred?: boolean; neg?: boolean; conv?: { from: string; exact: boolean; orig: number } };
+type QtyTok = { k: 'qty'; v: number; u: Unit | null; art: boolean; inferred?: boolean; neg?: boolean; side?: 'before' | 'both'; conv?: { from: string; exact: boolean; orig: number } };
 type WordTok = { k: 'w'; w: string; raw: string; num?: number };
 type Tok =
   | QtyTok
@@ -291,7 +291,8 @@ function toTokens(R: RawTok[], matcher: Matcher): Tok[] {
       trailingQty = nr.spoken && !/^\d/.test(t.w) ? v <= 99 && !matcher.cooccur([p.w], v) : v >= 1 && v <= 20 && !matcher.nums.has(v);
     }
     if ((nextIsWord && !prevPrep && (prevBoundary || prevSpecNum || artAfterWord || nounThenQty)) || softPrepQty || trailingQty) {
-      out.push({ k: 'qty', v, u: null, art: nr.art, neg });
+      // il nome quantificato sta PRIMA del numero ("sensori di movimento tre") o attorno ("sostituzione di tre vetri")
+      out.push({ k: 'qty', v, u: null, art: nr.art, neg, ...(trailingQty ? { side: 'before' as const } : softPrepQty ? { side: 'both' as const } : {}) });
     } else if (nr.art) {
       out.push({ k: 'w', w: t.w, raw: t.raw });
     } else {
@@ -455,12 +456,26 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
   for (const it of cat) if (!live.has(it.id)) live.set(it.id, it);
   const resolve = (it: CatalogItem): CatalogItem => live.get(it.id) ?? it;
 
+  const itemStems = new Map<string, Set<string>>();
+  const stemsOf = (it: CatalogItem): Set<string> => {
+    let st = itemStems.get(it.id);
+    if (!st) itemStems.set(it.id, (st = new Set(matchTokens([it.name, ...(it.aliases ?? [])].join(' ')).map(stem))));
+    return st;
+  };
+  /** match con e senza le parole di luogo: "intonaco bagno" è l'intonaco, non il rivestimento del bagno */
   const bestLoc = (txt: string, opts: MatchOpts): MatchResult | null => {
     const a = matcher.best(txt, opts);
     const stripped = stripLocation(txt);
     if (stripped === txt || !stripped.trim()) return a;
     const b = matcher.best(stripped, opts);
-    return b && (!a || b.score > a.score + 0.05) ? b : a;
+    if (!b) return a;
+    if (!a || b.score > a.score + 0.05) return b;
+    if (b.score >= MATCH_MIN && b.item.id !== a.item.id) {
+      const content = stripped.split(' ').filter((w) => !/^\d/.test(w)).map(stem);
+      const st = stemsOf(a.item);
+      if (content.length && !content.some((q) => st.has(q))) return b; // la voce `a` è sostenuta solo dal luogo
+    }
+    return a;
   };
 
   const R0 = lex(text);
@@ -468,7 +483,7 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
   const known = new Set<string>();
   for (const c of ctx.customers ?? []) for (const w of lex(c.name)) if (w.kind === 'word') known.add(w.w);
   const isCatalogWord = (w: string) =>
-    !known.has(w) && (matcher.vocab.has(w) || matcher.vocab.has(w.length >= 4 ? w.replace(/[aeio]$/, '') : w));
+    !known.has(w) && (matcher.vocab.has(w) || matcher.vocab.has(stem(w)));
   const { name: customerName, rest } = extractCustomer(mods.rest, isCatalogWord);
 
   const all = toTokens(rest, matcher);
@@ -540,7 +555,8 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
     if (!gp || gp.startsB || !gp.pieces.length) return false;
     return meaningful(gp.pieces[0].toks).length > 0;
   };
-  const leadAllowed = (j: number): boolean => drafts[j].anchor.u !== null && !trailExists(j);
+  const leadAllowed = (j: number): boolean =>
+    (drafts[j].anchor.u !== null && !trailExists(j)) || drafts[j].anchor.side === 'before' || drafts[j].anchor.side === 'both';
 
   const scoreText = scoreTextRaw;
 
@@ -614,6 +630,25 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
       else if (adjR && (leadAllowed(right) || strongLead(pc.toks, right))) drafts[right].lead.push(...pc.toks);
       else orphans.push({ toks: pc.toks, pos: pc.start });
     });
+  }
+
+  // testo davanti/dietro una quantità con più voci ("scaldabagno ... compresa manodopera tre ore",
+  // "cassetta di scarico con placca"): la quantità resta alla voce più vicina, le altre diventano righe a parte
+  for (const d of drafts) {
+    if (d.lead.length > 2 && d.lead.every(isW)) {
+      const parts = splitOrphan(d.lead, scoreText);
+      if (parts.length > 1) {
+        parts.slice(0, -1).forEach((pt, k) => orphans.push({ toks: pt, pos: d.pos - 0.5 + k * 0.01 }));
+        d.lead = parts[parts.length - 1];
+      }
+    }
+    if (d.trail.length > 2 && d.trail.every(isW)) {
+      const parts = splitOrphan(d.trail, scoreText);
+      if (parts.length > 1) {
+        parts.slice(1).forEach((pt, k) => orphans.push({ toks: pt, pos: d.pos + 0.5 + k * 0.01 }));
+        d.trail = parts[0];
+      }
+    }
   }
 
   /* ---- da bozze a righe ---- */
@@ -729,8 +764,11 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
       } else if (anchor?.conv && anchor.u === it.unit) {
         converted = `${fmtNum(anchor.conv.orig)} ${anchor.conv.from} = ${fmtNum(qty)} ${it.unit}`;
       }
+      // "a corpo" su una voce a misura: riga a corpo (1) col prezzo detto; senza prezzo resta da rivedere
+      const lump = !!anchor && anchor.u === 'corpo' && it.unit !== 'corpo';
+      if (lump && price === undefined) flags.review = true;
       qty = clampQty(qty, flags);
-      const unitMismatch = !!anchor && anchor.u !== null && anchor.u !== it.unit && !unitConv;
+      const unitMismatch = !!anchor && anchor.u !== null && anchor.u !== it.unit && !unitConv && !lump;
       const bareNonPz = !!anchor && anchor.u === null && it.unit !== 'pz';
       const convRough = !!anchor?.conv && !anchor.conv.exact;
       const review =
@@ -750,7 +788,7 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
           catalogItemId: it.id,
           description: it.name,
           qty,
-          unit: it.unit,
+          unit: lump ? 'corpo' : it.unit,
           unitPrice: price ?? it.price,
           vat: it.vat,
           needsReview: review,
@@ -896,7 +934,7 @@ function splitOrphan(toks: Tok[], score: (toks: Tok[], unit: Unit | null, strict
   const whole = score(toks, null, false);
   if (whole >= 0.85) return [toks];
   const W = idx.map((i) => toks[i] as WordTok);
-  const THETA = 0.55;
+  const THETA = 0.3;
   const MINP = 0.8;
   const best: number[] = new Array(n + 1).fill(-Infinity);
   const from: number[] = new Array(n + 1).fill(-1);
@@ -917,7 +955,8 @@ function splitOrphan(toks: Tok[], score: (toks: Tok[], unit: Unit | null, strict
       if (!slice.some((t) => t.num === undefined && !DESC_STOP.has(t.w))) continue;
       const s = score(slice, null, false);
       if (s < MINP) continue;
-      const val = best[i] + s - THETA;
+      const nW = slice.filter((t) => t.num === undefined && !DESC_STOP.has(t.w)).length;
+      const val = best[i] + s * nW - THETA;
       if (val > best[j]) {
         best[j] = val;
         from[j] = i;

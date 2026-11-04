@@ -297,7 +297,7 @@ export function createMatcher(catalog: CatalogItem[]): Matcher {
           sc = Math.max(sc, scoreDoc(toStems(qRaw, d.set), dStems));
         }
         if (sc >= 0.35 && opts.unit) {
-          if (e.item.unit === opts.unit) sc += opts.unit === 'h' || opts.unit === 'gg' || opts.unit === 'corpo' ? UNIT_BONUS_STRONG : UNIT_BONUS;
+          if (e.item.unit === opts.unit) sc += opts.unit === 'h' || opts.unit === 'gg' ? UNIT_BONUS_STRONG : opts.unit === 'corpo' ? UNIT_BONUS / 2 : UNIT_BONUS;
           else if (e.item.kind === 'manodopera' && (opts.unit === 'h' || opts.unit === 'gg')) sc += 0.05;
         }
         if (sc > 0) scored.push({ item: e.item, score: sc });

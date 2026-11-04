@@ -18,6 +18,8 @@ export const a = {
     background: full ? 'var(--c-danger, #b42318)' : 'var(--c-primary, #1d4ed8)',
   }),
   error: { color: 'var(--c-danger, #b42318)', fontSize: 14, fontWeight: 600, margin: 0 } as CSSProperties,
+  checkRow: { display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 14, lineHeight: 1.5, cursor: 'pointer' } as CSSProperties,
+  checkBox: { width: 22, height: 22, flex: '0 0 22px', marginTop: 1 } as CSSProperties,
   code: { letterSpacing: '0.4em', fontSize: 24, textAlign: 'center' } as CSSProperties,
 };
 
