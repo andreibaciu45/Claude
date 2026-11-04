@@ -1,0 +1,43 @@
+/* Catalogo, backup e schede collegate: solo token del design system (nessuno stile inline). */
+.cat-page { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+.cat-col { display: flex; flex-direction: column; gap: var(--sp-3); }
+.cat-col--stretch { align-items: stretch; }
+.cat-row { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
+.cat-row--end { margin-top: var(--sp-2); }
+.cat-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); }
+.cat-grid2 > * { min-width: 0; }
+@media (max-width: 400px) { .cat-grid2 { grid-template-columns: minmax(0, 1fr); } }
+.cat-muted { color: var(--c-text-2); font-size: var(--fs-sm); margin: 0; }
+.cat-error { color: var(--c-danger); font-size: var(--fs-sm); margin: 0; }
+.cat-grow { flex: 1 1 0; min-width: 0; }
+.cat-card-body { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-3); }
+.cat-card-body > p { margin: 0; }
+
+/* filtri */
+.cat-kind .segmented button { padding: 0 var(--sp-1); font-size: var(--fs-sm); min-width: 0; overflow-wrap: anywhere; }
+.cat-scroll { display: flex; gap: var(--sp-2); overflow-x: auto; padding-bottom: var(--sp-1); scrollbar-width: thin; }
+.cat-scroll .chip { white-space: nowrap; flex: none; }
+
+/* elenco voci */
+.cat-list { display: flex; flex-direction: column; gap: var(--sp-2); list-style: none; margin: 0; padding: 0; }
+.cat-item { display: block; width: 100%; min-height: var(--touch); padding: var(--sp-3); border: 0; background: transparent; text-align: left; cursor: pointer; border-radius: var(--r-md); color: inherit; font: inherit; }
+.cat-item:focus-visible { outline: 3px solid var(--c-focus); outline-offset: -3px; }
+.cat-item-top { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-3); }
+.cat-item-name { font-weight: 600; font-size: var(--fs-md); line-height: 1.3; min-width: 0; overflow-wrap: anywhere; }
+.cat-item-price { white-space: nowrap; font-weight: 600; }
+.cat-item-meta { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.cat-item-alias { margin-top: var(--sp-1); font-size: var(--fs-xs); color: var(--c-text-2); }
+
+/* sinonimi */
+.cat-chips { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: var(--sp-2) 0 0; padding: 0; }
+.cat-chip { display: inline-flex; align-items: center; gap: 2px; min-height: 36px; padding: 0 0 0 var(--sp-3); border-radius: var(--r-pill); background: var(--c-surface-2); border: 1px solid var(--c-border); font-size: var(--fs-sm); }
+.cat-chip-x { min-width: var(--touch); min-height: var(--touch); margin: -6px 0; display: inline-grid; place-items: center; border: 0; background: transparent; border-radius: var(--r-pill); cursor: pointer; line-height: 1; color: inherit; }
+
+/* importazione */
+.cat-check { display: flex; align-items: center; gap: var(--sp-2); min-height: var(--touch); }
+.cat-check input { width: 22px; height: 22px; flex: none; }
+.cat-table-wrap { overflow-x: auto; }
+.cat-table { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
+.cat-table th, .cat-table td { padding: 4px 6px; }
+.cat-table td[data-bad="true"] { color: var(--c-danger); }
+.cat-submit { flex: 1; }

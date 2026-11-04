@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { QuoteDocument } from '../../types';
 import { fakeCreditNote, fakeInvoice } from '../../pdf/fixtures';
-import { FORFETTARIO_THRESHOLD, cashCollectedCents, csvText, invoiceRegisterCsv, stampsByQuarter, thresholdStatus } from './register';
+import { FORFETTARIO_THRESHOLD, cashCollectedCents, creditedRef, csvText, invoiceRegisterCsv, invoiceXmlEntries, stampsByQuarter, thresholdStatus } from './register';
 import { availableActions, lastIssuedIso, previewNumber, resubmitUntil, windowExpired } from './model';
 
 const line = (price: number) => ({ id: 'l', description: 'Lavoro', qty: 1, unit: 'pz' as const, unitPrice: price, vat: 0, natura: 'N2.2' as const });
@@ -60,17 +60,46 @@ describe('CSV registro fatture', () => {
   it('intestazione, righe ordinate per data, decimali con la virgola, nota di credito negativa, bozze escluse', () => {
     const csv = invoiceRegisterCsv(docs, true, 2026);
     const rows = csv.trim().split('\r\n');
-    expect(rows[0]).toBe('Numero;Data;Tipo;Cliente;Imponibile;Bollo;Stato SDI;Incassato');
+    expect(rows[0]).toBe('Numero;Data;Anno competenza;Sezionale;Tipo;Cliente;Imponibile;Bollo;Totale documento;Fattura stornata;Stato SDI;Incassato');
     expect(rows).toHaveLength(4);
-    expect(rows[1]).toBe('1/2026;01/02/2026;Fattura;"Rossi; ""Mario"" Srl";1000,00;2,00;Emessa;400,50');
-    expect(rows[2]).toBe("2/2026;01/03/2026;Fattura;'=CMD();50,10;0,00;Consegnata;0,00");
-    expect(rows[3]).toBe('NC1/2026;10/03/2026;Nota di credito;Mario Rossi;-100,00;2,00;Inviata allo SDI;0,00');
+    expect(rows[1]).toBe('1/2026;01/02/2026;2026;FT;Fattura;"Rossi; ""Mario"" Srl";1000,00;2,00;1000,00;;Emessa;400,50');
+    expect(rows[2]).toBe("2/2026;01/03/2026;2026;FT;Fattura;'=CMD();50,10;0,00;50,10;;Consegnata;0,00");
+    expect(rows[3]).toBe('NC1/2026;10/03/2026;2026;NC;Nota di credito;Mario Rossi;-100,00;2,00;-100,00;12/2026 del 03/11/2026;Inviata allo SDI;0,00');
   });
   it('senza anno esporta tutti gli anni; csvText neutralizza formule e virgolette', () => {
     expect(invoiceRegisterCsv(docs, true).trim().split('\r\n')).toHaveLength(5);
     expect(csvText('@SUM(A1)')).toBe("'@SUM(A1)");
     expect(csvText('a\nb')).toBe('a b');
     expect(csvText('ok')).toBe('ok');
+  });
+});
+
+describe('registro per il commercialista: colonne aggiuntive e XML', () => {
+  it('totale documento comprende il rimborso bollo se addebitato; la nota di credito è negativa e cita la fattura stornata', () => {
+    const a = inv('a', { lines: [line(100)] }, { number: '1/2026', seq: 1, operationDate: '2026-03-01', stampDutyChargedToCustomer: true });
+    const nc = { ...fakeCreditNote(), id: 'nc', lines: [line(100)], invoice: { ...fakeCreditNote().invoice!, number: 'NC1/2026', seq: 1, operationDate: '2027-01-02', year: 2027 } };
+    const rows = invoiceRegisterCsv([a, nc], true).trim().split('\r\n').map((r) => r.split(';'));
+    expect(rows[1].slice(2, 4)).toEqual(['2026', 'FT']);
+    expect(rows[1][8]).toBe('102,00'); // 100 + 2 di rimborso bollo
+    expect(rows[2].slice(2, 4)).toEqual(['2027', 'NC']); // anno di competenza = anno della data del documento
+    expect(rows[2][8]).toBe('-100,00');
+    expect(rows[2][9]).toBe('12/2026 del 03/11/2026');
+    expect(creditedRef(a)).toBe('');
+  });
+  it('XML: solo emesse e non scartate dell\'anno, ordinate; nome file dal progressivo', () => {
+    const x = (id: string, over: Partial<QuoteDocument>, i: Partial<NonNullable<QuoteDocument['invoice']>>) =>
+      inv(id, over, { xml: `<x id="${id}"/>`, fileName: `IT01234567897_${id}.xml`, ...i });
+    const docs = [
+      x('00002', {}, { operationDate: '2026-05-01', seq: 2 }),
+      x('00001', {}, { operationDate: '2026-02-01', seq: 1 }),
+      x('00003', { status: 'scartata' }, { operationDate: '2026-06-01', seq: 3 }),
+      x('bozza', { status: 'bozza' }, { lockedAt: undefined, operationDate: '2026-06-02' }),
+      x('00009', {}, { operationDate: '2025-12-30', seq: 9, year: 2025 }),
+      inv('senzaxml', {}, { operationDate: '2026-07-01', seq: 4, xml: undefined }),
+    ];
+    expect(invoiceXmlEntries(docs, 2026).map((e) => e.name)).toEqual(['IT01234567897_00001.xml', 'IT01234567897_00002.xml']);
+    expect(invoiceXmlEntries(docs).map((e) => e.name)).toHaveLength(3);
+    expect(invoiceXmlEntries(docs, 2026)[0].data).toBe('<x id="00001"/>');
   });
 });
 

@@ -290,7 +290,11 @@ function toTokens(R: RawTok[], matcher: Matcher): Tok[] {
     if (atEnd && !prevPrep && !prevSpecNum && !prevBoundary && !nr.art && p && isW(p) && p.num === undefined && Number.isInteger(v) && wordKnown(p.w)) {
       trailingQty = nr.spoken && !/^\d/.test(t.w) ? v <= 99 && !matcher.cooccur([p.w], v) : v >= 1 && v <= 20 && !matcher.nums.has(v);
     }
-    if ((nextIsWord && !prevPrep && (prevBoundary || prevSpecNum || artAfterWord || nounThenQty)) || softPrepQty || trailingQty) {
+    // "cucina uno ... camera uno": un numero-articolo dopo una parola di luogo (o a fine segmento dopo un nome) è postposto
+    const postArt = nr.art && !!p && isW(p) && !prevPrep && p.num === undefined && (LOCATION_WORDS.has(p.w) || (atEnd && wordKnown(p.w)));
+    if (postArt) {
+      out.push({ k: 'qty', v, u: null, art: true, neg, side: 'before' });
+    } else if ((nextIsWord && !prevPrep && (prevBoundary || prevSpecNum || artAfterWord || nounThenQty)) || softPrepQty || trailingQty) {
       // il nome quantificato sta PRIMA del numero ("sensori di movimento tre") o attorno ("sostituzione di tre vetri")
       out.push({ k: 'qty', v, u: null, art: nr.art, neg, ...(trailingQty ? { side: 'before' as const } : softPrepQty ? { side: 'both' as const } : {}) });
     } else if (nr.art) {
@@ -588,6 +592,7 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
             const trail = W.slice(0, c);
             const firstLead = meaningful(lead)[0];
             if (!firstLead || (lead[0] as Tok).k !== 'w' || DESC_STOP.has((lead[0] as WordTok).w)) continue;
+            if (onlyLocation(lead) || (meaningful(trail).length > 0 && onlyLocation(trail))) continue;
             const trailHas = meaningful(trail).length > 0;
             if (drafts[left].anchor.u === null && !trailHas) continue;
             const sl = scoreText(lead, drafts[right].anchor.u, true);
@@ -636,14 +641,14 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
   // "cassetta di scarico con placca"): la quantità resta alla voce più vicina, le altre diventano righe a parte
   for (const d of drafts) {
     if (d.lead.length > 2 && d.lead.every(isW)) {
-      const parts = splitOrphan(d.lead, scoreText);
+      const parts = splitAtLinks(d.lead, scoreText);
       if (parts.length > 1) {
         parts.slice(0, -1).forEach((pt, k) => orphans.push({ toks: pt, pos: d.pos - 0.5 + k * 0.01 }));
         d.lead = parts[parts.length - 1];
       }
     }
     if (d.trail.length > 2 && d.trail.every(isW)) {
-      const parts = splitOrphan(d.trail, scoreText);
+      const parts = splitAtLinks(d.trail, scoreText);
       if (parts.length > 1) {
         parts.slice(1).forEach((pt, k) => orphans.push({ toks: pt, pos: d.pos + 0.5 + k * 0.01 }));
         d.trail = parts[0];
@@ -652,6 +657,19 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
   }
 
   /* ---- da bozze a righe ---- */
+  // spezzare un frammento è lecito solo se i pezzi non sono già "spiegati" dalla voce che l'intero frammento
+  // indica (es. "centralino da 12 moduli": "moduli" è del quadro, non una scatola)
+  const splitOk = (toks: Tok[], pieces: Tok[][]): boolean => {
+    const w = bestLoc(wordsText(toks), { unit: null });
+    if (!w || w.score < 0.5) return true;
+    const st = stemsOf(w.item);
+    for (const pc of pieces) {
+      const content = pc.filter(isW).filter((t) => t.num === undefined && !DESC_STOP.has(t.w)).map((t) => stem(t.w));
+      const pm = bestLoc(wordsText(pc), { unit: null });
+      if (pm && pm.item.id !== w.item.id && content.length && content.every((c) => st.has(c))) return false;
+    }
+    return true;
+  };
   const leftovers: string[] = [];
   const outs: Out[] = [];
   let manualLabor: CatalogItem[] | null = null;
@@ -828,7 +846,7 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
 
   // frammenti senza quantità: se contengono più voci di catalogo ("manutenzione caldaia con analisi di
   // combustione") si spezzano in una riga per voce
-  for (const o of orphans) for (const part of splitOrphan(o.toks, scoreText)) buildLine(null, part, o.pos);
+  for (const o of orphans) for (const part of splitOrphan(o.toks, scoreText, splitOk)) buildLine(null, part, o.pos);
 
   outs.sort((a, b) => a.pos - b.pos);
   const lines: DocLine[] = [];
@@ -919,12 +937,39 @@ function parseCore(transcript: string, catalog: CatalogItem[], ctx: ParseContext
   return res;
 }
 
+const LINK_WORDS = new Set(['con', 'compreso', 'compresa', 'compresi', 'comprese', 'incluso', 'inclusa', 'inclusi', 'incluse', 'piu', 'comprensivo', 'comprensiva']);
+
+/**
+ * Spezza il testo di una riga con quantità dove c'è un connettivo di aggiunta ("con placca", "compresa
+ * manodopera"): vale solo se ogni parte è, da sola, una buona voce di catalogo.
+ */
+function splitAtLinks(toks: Tok[], score: (toks: Tok[], unit: Unit | null, strict: boolean) => number): Tok[][] {
+  const parts: Tok[][] = [];
+  let cur: Tok[] = [];
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (isW(t) && LINK_WORDS.has(t.w)) {
+      if (cur.length) parts.push(cur);
+      cur = [];
+      const nx = toks[i + 1];
+      if (nx && isW(nx) && (nx.w === 'di' || nx.w === 'd')) i++;
+    } else cur.push(t);
+  }
+  if (cur.length) parts.push(cur);
+  if (parts.length < 2) return [toks];
+  return parts.every((pt) => meaningful(pt).length > 0 && score(pt, null, false) >= 0.75) ? parts : [toks];
+}
+
 /**
  * Spezza un frammento senza quantità in più voci di catalogo (programmazione dinamica sulle parole):
  * "installazione box doccia piatto doccia 80" -> ["box doccia", "piatto doccia 80"].
  * Spezza solo se ogni pezzo è una buona corrispondenza e il frammento intero non lo è.
  */
-function splitOrphan(toks: Tok[], score: (toks: Tok[], unit: Unit | null, strict: boolean) => number): Tok[][] {
+function splitOrphan(
+  toks: Tok[],
+  score: (toks: Tok[], unit: Unit | null, strict: boolean) => number,
+  ok: (whole: Tok[], pieces: Tok[][]) => boolean = () => true,
+): Tok[][] {
   const idx: number[] = [];
   toks.forEach((t, i) => {
     if (isW(t)) idx.push(i);
@@ -967,7 +1012,8 @@ function splitOrphan(toks: Tok[], score: (toks: Tok[], unit: Unit | null, strict
   const parts: [number, number][] = [];
   for (let j = n; j > 0; j = from[j]) if (piece[j] >= 0) parts.unshift([piece[j], j]);
   if (parts.length < 2) return [toks];
-  return parts.map(([a, b]) => W.slice(a, b));
+  const pieces = parts.map(([a, b]) => W.slice(a, b));
+  return ok(toks, pieces) ? pieces : [toks];
 }
 
 /* ------------------------------------------------------------------ API */

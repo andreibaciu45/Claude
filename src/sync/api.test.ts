@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiClientError, createApiClient, getDeviceId, tokenStore } from './api';
+import { ApiClientError, createApiClient, describeError, getDeviceId, parseRetryAfter, tokenStore } from './api';
 
 const json = (status: number, body?: unknown) => new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const mk = (fetchImpl: typeof fetch, extra = {}) => createApiClient({ baseUrl: '/v1', fetchImpl, getToken: () => 'T', sleep: async () => undefined, ...extra });
@@ -56,5 +56,47 @@ describe('api client', () => {
     expect(a).toBeTruthy();
     expect(getDeviceId()).toBe(a);
     expect(localStorage.getItem('vp:sync:deviceId')).toBe(a);
+  });
+});
+
+describe('nuovi endpoint e messaggi di errore', () => {
+  it('exportData scarica un Blob con Bearer', async () => {
+    const f = vi.fn<typeof fetch>(async () => new Response('{"a":1}', { status: 200, headers: { 'content-type': 'application/json' } }));
+    const b = await mk(f).exportData();
+    expect(f.mock.calls[0][0]).toBe('/v1/me/export');
+    expect(f.mock.calls[0][1]?.method).toBe('GET');
+    expect(await b.text()).toBe('{"a":1}');
+  });
+  it('deleteAccount: DELETE /me con confirmEmail', async () => {
+    const f = vi.fn<typeof fetch>(async () => json(200, { deleted: true, mode: 'purged', retainedInvoices: 0 }));
+    await mk(f).deleteAccount({ confirmEmail: 'a@b.it', acknowledgeSubscription: true });
+    expect(f.mock.calls[0][1]?.method).toBe('DELETE');
+    expect(f.mock.calls[0][1]?.body).toBe('{"confirmEmail":"a@b.it","acknowledgeSubscription":true}');
+  });
+  it('authVerify invia acceptedTerms', async () => {
+    const f = vi.fn<typeof fetch>(async () => json(200, { token: 't', expiresAt: 1, tenantId: 'x' }));
+    await mk(f).authVerify({ email: 'a@b.it', code: '123456', deviceId: 'd', acceptedTerms: { termsVersion: 'v1', dpaVersion: 'v1' } });
+    expect(JSON.parse(String(f.mock.calls[0][1]?.body)).acceptedTerms).toEqual({ termsVersion: 'v1', dpaVersion: 'v1' });
+  });
+  it('429 legge Retry-After (secondi e data) e lo mostra', async () => {
+    const f = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ error: { code: 'rate_limited', message: 'x' } }), { status: 429, headers: { 'Retry-After': '30' } }));
+    const e = await mk(f).me().catch((x) => x);
+    expect(e.retryAfterSec).toBe(30);
+    expect(describeError(e)).toBe('Troppe richieste. Riprova tra 30 secondi.');
+    expect(parseRetryAfter('120')).toBe(120);
+    expect(parseRetryAfter(new Date(Date.now() + 61_000).toUTCString())).toBeGreaterThan(55);
+    expect(parseRetryAfter('boh')).toBeUndefined();
+    expect(describeError(new ApiClientError(429, 'rate_limited', 'x', 300))).toBe('Troppe richieste. Riprova tra 5 minuti.');
+    expect(describeError(new ApiClientError(429, 'rate_limited', 'x'))).toContain('Attendi qualche minuto');
+  });
+  it('messaggi italiani per rete, timeout, 5xx e codici noti', () => {
+    expect(describeError(new ApiClientError(0, 'network', 'x'))).toContain('Controlla la connessione');
+    expect(describeError(new ApiClientError(0, 'timeout', 'x'))).toContain('non risponde');
+    expect(describeError(new ApiClientError(503, 'boom', 'x'))).toContain('problema temporaneo');
+    expect(describeError(new ApiClientError(400, 'terms_required', 'x'))).toContain('Termini');
+    expect(describeError(new ApiClientError(400, 'terms_version_mismatch', 'x'))).toContain('aggiornati');
+    expect(describeError(new ApiClientError(400, 'confirmation_mismatch', 'x'))).toContain('non coincide');
+    expect(describeError(new ApiClientError(409, 'active_subscription', 'x'))).toContain('abbonamento');
+    expect(describeError(new ApiClientError(400, 'altro', 'Messaggio del server'))).toBe('Messaggio del server');
   });
 });

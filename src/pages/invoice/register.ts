@@ -72,7 +72,21 @@ export const csvText = (v: string): string => {
   return /[;"]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-export const REGISTER_HEADER = ['Numero', 'Data', 'Tipo', 'Cliente', 'Imponibile', 'Bollo', 'Stato SDI', 'Incassato'] as const;
+/**
+ * Colonne del registro. "Anno competenza" = anno della data del documento (data operazione, quella dell'XML) [DA VERIFICARE: per i
+ * forfettari i ricavi sono "per cassa", quindi il commercialista potrebbe volere l'anno dell'incasso: le date di incasso non sono in questo file].
+ * "Fattura stornata" = riferimento della fattura rettificata (solo note di credito).
+ */
+export const REGISTER_HEADER = [
+  'Numero', 'Data', 'Anno competenza', 'Sezionale', 'Tipo', 'Cliente', 'Imponibile', 'Bollo', 'Totale documento', 'Fattura stornata', 'Stato SDI', 'Incassato',
+] as const;
+
+/** "12/2026 del 03/11/2026": la fattura rettificata da una nota di credito. */
+export const creditedRef = (d: QuoteDocument): string => {
+  const i = d.invoice;
+  if (!i?.originalNumber) return '';
+  return `${i.originalNumber}${i.originalDate ? ` del ${itDate(i.originalDate)}` : ''}`;
+};
 
 /**
  * Registro delle fatture e note di credito EMESSE (bozze escluse), ordinato per data e numero.
@@ -95,13 +109,33 @@ export function invoiceRegisterCsv(docs: QuoteDocument[], forfettario: boolean, 
     lines.push([
       csvText(d.invoice!.number ?? d.number),
       itDate(docDateIso(d)),
+      String(docYear(d)),
+      d.invoice!.sectional,
       nc ? 'Nota di credito' : 'Fattura',
       csvText(d.customer.name || ''),
       num((nc ? -1 : 1) * toCents(t.net)),
       num(toCents(t.stampDue)),
+      num((nc ? -1 : 1) * toCents(t.gross)),
+      csvText(nc ? creditedRef(d) : ''),
       csvText((SDI_INFO[d.status] ?? SDI_INFO.emessa).label),
       num(paid),
     ].join(';'));
   }
   return lines.join('\r\n') + '\r\n';
+}
+
+/** File XML delle fatture e note di credito emesse (stesso perimetro del registro: niente bozze né scartate), per anno di competenza. */
+export function invoiceXmlEntries(docs: QuoteDocument[], year?: number): { name: string; data: string; doc: QuoteDocument }[] {
+  return docs
+    .filter((d) => isCounted(d) && !!d.invoice!.xml && (year === undefined || docYear(d) === year))
+    .sort((a, b) => {
+      const da = docDateIso(a), db = docDateIso(b);
+      if (da !== db) return da < db ? -1 : 1;
+      return (a.invoice!.sectional + String(a.invoice!.seq ?? 0).padStart(8, '0')).localeCompare(b.invoice!.sectional + String(b.invoice!.seq ?? 0).padStart(8, '0'));
+    })
+    .map((d) => ({
+      name: d.invoice!.fileName || `${(d.invoice!.number ?? d.number).replace(/[^\w-]+/g, '_')}.xml`,
+      data: d.invoice!.xml as string,
+      doc: d,
+    }));
 }

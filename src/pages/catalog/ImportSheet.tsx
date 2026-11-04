@@ -3,7 +3,7 @@ import { Badge, Button, Field, Select, Sheet, Textarea } from '../../ui';
 import type { CatalogItem } from '../../types';
 import { buildItems, CSV_FIELDS, guessMapping, parseCsv } from './csv';
 import type { CsvField } from './csv';
-import { s } from './styles';
+import './catalog.css';
 
 interface Props {
   open: boolean;
@@ -54,11 +54,11 @@ export default function ImportSheet({ open, defaultVat, onClose, onImport }: Pro
 
   return (
     <Sheet open={open} onClose={close} title="Importa da CSV">
-      <div style={s.col}>
-        <p style={s.muted}>
+      <div className="cat-col">
+        <p className="cat-muted">
           Incolla il contenuto o scegli un file CSV (da Excel: Salva come CSV). Colonne: nome, prezzo, unita, iva, categoria, tipo, giacenza. Separatore «;» o «,», decimali con la virgola ok.
         </p>
-        <div style={s.row}>
+        <div className="cat-row">
           <input ref={fileRef} type="file" accept=".csv,text/csv,text/plain" hidden onChange={(e) => { void onFile(e.target.files?.[0]); e.target.value = ''; }} />
           <Button type="button" variant="secondary" onClick={() => fileRef.current?.click()}>Scegli file CSV</Button>
         </div>
@@ -68,11 +68,11 @@ export default function ImportSheet({ open, defaultVat, onClose, onImport }: Pro
 
         {rows.length > 0 && (
           <>
-            <label style={{ ...s.row, minHeight: 44 }}>
-              <input type="checkbox" checked={hasHeader} onChange={(e) => setHasHeader(e.target.checked)} style={{ width: 22, height: 22 }} />
+            <label className="cat-check">
+              <input type="checkbox" checked={hasHeader} onChange={(e) => setHasHeader(e.target.checked)} />
               La prima riga contiene le intestazioni
             </label>
-            <div style={s.grid2}>
+            <div className="cat-grid2">
               {CSV_FIELDS.map((f) => (
                 <Field key={f.key} label={`${f.label}${f.required ? ' *' : ''}`}>
                   <Select value={mapping[f.key] === undefined ? '' : String(mapping[f.key])} onChange={(e) => setCol(f.key, e.target.value)}>
@@ -84,16 +84,16 @@ export default function ImportSheet({ open, defaultVat, onClose, onImport }: Pro
             </div>
 
             {mapping.name === undefined || mapping.price === undefined ? (
-              <p style={s.error} role="alert">Indica almeno le colonne Nome e Prezzo.</p>
+              <p className="cat-error" role="alert">Indica almeno le colonne Nome e Prezzo.</p>
             ) : (
               <>
-                <div style={s.row} aria-live="polite">
+                <div className="cat-row" role="status">
                   <Badge tone="success">{valid.length} voci pronte</Badge>
                   {bad.length > 0 && <Badge tone="danger">{bad.length} righe con errori</Badge>}
                   {warns.length > 0 && <Badge tone="warning">{warns.length} con avvisi</Badge>}
                 </div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={s.table}>
+                <div className="cat-table-wrap">
+                  <table className="cat-table">
                     <thead><tr><th align="left">Riga</th><th align="left">Voce</th><th align="right">Prezzo</th><th align="left">Esito</th></tr></thead>
                     <tbody>
                       {results.slice(0, 8).map((r) => (
@@ -101,21 +101,21 @@ export default function ImportSheet({ open, defaultVat, onClose, onImport }: Pro
                           <td>{r.line}</td>
                           <td>{r.item?.name ?? '—'}</td>
                           <td align="right">{r.item ? `${r.item.price.toFixed(2).replace('.', ',')} € / ${r.item.unit}` : '—'}</td>
-                          <td style={r.errors.length ? { color: 'var(--danger, #b42318)' } : undefined}>{[...r.errors, ...r.warnings].join('; ') || 'ok'}</td>
+                          <td data-bad={r.errors.length ? 'true' : undefined}>{[...r.errors, ...r.warnings].join('; ') || 'ok'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  {results.length > 8 && <p style={s.muted}>… e altre {results.length - 8} righe.</p>}
+                  {results.length > 8 && <p className="cat-muted">… e altre {results.length - 8} righe.</p>}
                 </div>
-                {bad.length > 8 && <p style={s.muted}>Righe con errori (le altre verranno ignorate): {bad.map((b) => b.line).join(', ')}</p>}
+                {bad.length > 8 && <p className="cat-muted">Righe con errori (le altre verranno ignorate): {bad.map((b) => b.line).join(', ')}</p>}
               </>
             )}
           </>
         )}
 
-        <div style={s.row}>
-          <Button type="button" size="lg" style={{ flex: 1 }} disabled={!valid.length || busy} onClick={doImport}>
+        <div className="cat-row">
+          <Button type="button" size="lg" className="cat-submit" disabled={!valid.length || busy} onClick={doImport}>
             {valid.length ? `Importa ${valid.length} voci` : 'Importa'}
           </Button>
           <Button type="button" variant="secondary" size="lg" onClick={close}>Annulla</Button>

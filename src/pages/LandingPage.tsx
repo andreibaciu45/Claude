@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Badge, Card } from '../ui';
 import { FREE_DOCS_PER_MONTH, PRO_PRICE_MONTH, PRO_PRICE_YEAR, PRO_YEARLY_SAVING, formatEur as eur } from '../billing/pricing';
 import { isNativeApp } from '../billing/platform';
@@ -61,6 +61,14 @@ const FAQ = [
 ] as const;
 
 export default function LandingPage() {
+  const installRef = useRef<HTMLElement>(null);
+  const installTitleRef = useRef<HTMLHeadingElement>(null);
+  // Con HashRouter `href="#installa"` verrebbe letto come rotta: scroll programmatico + focus sul titolo della sezione.
+  const goInstall = () => {
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    installRef.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+    installTitleRef.current?.focus({ preventScroll: true });
+  };
   useEffect(() => {
     const prevTitle = document.title;
     document.title = PAGE_TITLE;
@@ -91,7 +99,7 @@ export default function LandingPage() {
               <p className="lp-lead">Racconti a voce cosa hai fatto o cosa devi fare. VocePreventivo trova le voci nel tuo listino, calcola i totali e ti dà il PDF da mandare al cliente. Mentre sei ancora sul posto.</p>
               <div className="lp-cta-row">
                 <a className="lp-btn" href="#/">Prova gratis</a>
-                <a className="lp-btn lp-btn--ghost" href="#installa">Installa sul telefono</a>
+                <button type="button" className="lp-btn lp-btn--ghost" onClick={goInstall}>Installa sul telefono</button>
               </div>
               <p className="lp-note">Gratis fino a {FREE_DOCS_PER_MONTH} documenti al mese. Senza registrazione, senza carta.</p>
             </div>
@@ -177,9 +185,9 @@ export default function LandingPage() {
         </section>
         )}
 
-        <section className="lp-section lp-section--alt" id="installa">
+        <section className="lp-section lp-section--alt" id="installa" ref={installRef} aria-labelledby="installa-titolo">
           <div className="lp-wrap lp-install">
-            <h2>Installa sull’app</h2>
+            <h2 id="installa-titolo" ref={installTitleRef} tabIndex={-1}>Installa sull’app</h2>
             <p>Non serve lo store: si aggiunge alla schermata Home e si apre come una normale app.</p>
             <div className="lp-grid lp-grid--2">
               <Card className="lp-card"><h3>Android (Chrome)</h3><ol><li>Apri VocePreventivo con Chrome.</li><li>Tocca i tre puntini in alto a destra.</li><li>Scegli “Installa app” o “Aggiungi a schermata Home”.</li></ol></Card>

@@ -3,7 +3,7 @@ import { Button, Field, Input, Select, Sheet } from '../../ui';
 import { UNITS, uid } from '../../types';
 import type { CatalogItem, ItemKind, Unit } from '../../types';
 import { parseNumber } from './csv';
-import { s } from './styles';
+import './catalog.css';
 
 const KIND_LABEL: Record<ItemKind, string> = { materiale: 'Materiale', manodopera: 'Manodopera', servizio: 'Servizio' };
 export { KIND_LABEL };
@@ -92,7 +92,7 @@ export default function ItemSheet({ open, item, defaultVat, categories, onClose,
 
   return (
     <Sheet open={open} onClose={onClose} title={item ? 'Modifica voce' : 'Nuova voce'}>
-      <form onSubmit={submit} style={s.col} noValidate>
+      <form onSubmit={submit} className="cat-col" noValidate>
         <Field label="Nome" error={errors.name}>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Es. Tubo rame 16 mm" autoComplete="off" required />
         </Field>
@@ -110,18 +110,18 @@ export default function ItemSheet({ open, item, defaultVat, categories, onClose,
             />
           </Field>
           {aliases.length > 0 && (
-            <ul style={{ ...s.chips, listStyle: 'none', margin: '8px 0 0', padding: 0 }} aria-label="Sinonimi">
+            <ul className="cat-chips" aria-label="Sinonimi">
               {aliases.map((a) => (
-                <li key={a} style={s.chip}>
+                <li key={a} className="cat-chip">
                   {a}
-                  <button type="button" style={s.chipBtn} aria-label={`Rimuovi sinonimo ${a}`} onClick={() => setAliases((c) => c.filter((x) => x !== a))}>×</button>
+                  <button type="button" className="cat-chip-x" aria-label={`Rimuovi sinonimo ${a}`} onClick={() => setAliases((c) => c.filter((x) => x !== a))}>×</button>
                 </li>
               ))}
             </ul>
           )}
         </div>
 
-        <div style={s.grid2}>
+        <div className="cat-grid2">
           <Field label="Prezzo netto (€)" error={errors.price}>
             <Input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="0,00" />
           </Field>
@@ -149,8 +149,8 @@ export default function ItemSheet({ open, item, defaultVat, categories, onClose,
         </div>
         <datalist id="catalog-categories">{categories.map((c) => <option key={c} value={c} />)}</datalist>
 
-        <div style={s.row}>
-          <Button type="submit" size="lg" disabled={saving} style={{ flex: 1 }}>{item ? 'Salva modifiche' : 'Aggiungi voce'}</Button>
+        <div className="cat-row">
+          <Button type="submit" size="lg" disabled={saving} className="cat-submit">{item ? 'Salva modifiche' : 'Aggiungi voce'}</Button>
           <Button type="button" variant="secondary" size="lg" onClick={onClose}>Annulla</Button>
         </div>
         {item && onDelete && (

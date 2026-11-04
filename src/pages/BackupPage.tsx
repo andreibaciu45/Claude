@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import { Badge, Button, Card, PageHeader, Sheet, useToast } from '../ui';
 import { exportBackup, importBackup, parseBackup } from '../storage';
-import { downloadText, s } from './catalog/styles';
+import { downloadText } from './catalog/download';
+import './catalog/catalog.css';
 
 const KEY = 'vp:lastBackupAt';
 const REMIND_DAYS = 14;
@@ -66,11 +67,11 @@ export default function BackupPage() {
   return (
     <div>
       <PageHeader title="Backup dei dati" subtitle="Salva e ripristina il tuo archivio" />
-      <div style={s.page}>
+      <div className="cat-page">
         <Card>
-          <div style={{ ...s.col, padding: 12 }}>
+          <div className="cat-col cat-card-body">
             <strong>I tuoi dati stanno solo su questo dispositivo</strong>
-            <p style={{ margin: 0 }}>
+            <p>
               Non c'è nessun server: dati azienda, listino e documenti sono salvati nel browser di questo telefono o computer.
               Se cambi dispositivo, cancelli i dati di navigazione o disinstalli l'app, li perdi. Scarica un backup ogni tanto e conservalo al sicuro (email, cloud, chiavetta).
             </p>
@@ -78,39 +79,39 @@ export default function BackupPage() {
         </Card>
 
         <Card>
-          <div style={{ ...s.col, padding: 12 }}>
-            <div style={s.row}>
+          <div className="cat-col cat-card-body">
+            <div className="cat-row">
               <strong>Ultimo backup:</strong>
               {last ? <span>{new Date(last).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })}</span> : <span>mai eseguito</span>}
               {stale && <Badge tone="warning">{last ? `da ${days} giorni` : 'consigliato ora'}</Badge>}
             </div>
-            {stale && <p role="status" style={{ margin: 0 }}>{last ? 'È passato un po\' di tempo: scarica un nuovo backup.' : 'Non hai ancora salvato nessun backup.'}</p>}
+            {stale && <p role="status">{last ? 'È passato un po\' di tempo: scarica un nuovo backup.' : 'Non hai ancora salvato nessun backup.'}</p>}
             <Button size="lg" onClick={() => void doExport()} disabled={busy}>Scarica backup (.json)</Button>
           </div>
         </Card>
 
         {warnings.length > 0 && (
           <Card>
-            <div role="status" style={{ ...s.col, padding: 12 }}>
+            <div role="status" className="cat-col cat-card-body">
               <strong>Attenzione dopo il ripristino</strong>
-              {warnings.map((w, i) => <p key={i} style={{ margin: 0 }}>{w}</p>)}
+              {warnings.map((w, i) => <p key={i}>{w}</p>)}
             </div>
           </Card>
         )}
 
         <Card>
-          <div style={{ ...s.col, padding: 12 }}>
+          <div className="cat-col cat-card-body">
             <strong>Ripristina da backup</strong>
-            <p style={{ margin: 0 }}>Scegli un file di backup scaricato in precedenza. Attenzione: i dati attuali verranno <strong>sostituiti</strong>.</p>
+            <p>Scegli un file di backup scaricato in precedenza. Attenzione: i dati attuali verranno <strong>sostituiti</strong>.</p>
             <input ref={fileRef} type="file" accept=".json,application/json" hidden aria-label="File di backup" onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ''; }} />
             <Button size="lg" variant="secondary" onClick={() => fileRef.current?.click()} disabled={busy}>Scegli file di backup…</Button>
-            {error && <p role="alert" style={s.error}>{error}</p>}
+            {error && <p role="alert" className="cat-error">{error}</p>}
           </div>
         </Card>
       </div>
 
       <Sheet open={!!pending} onClose={() => setPending(null)} title="Sostituire i dati attuali?">
-        <div style={s.col}>
+        <div className="cat-col">
           <p>Il backup contiene {pending?.summary}.</p>
           <p>Tutti i dati presenti ora su questo dispositivo (azienda, listino, documenti) saranno sostituiti. L'operazione non si può annullare: se vuoi, scarica prima un backup di quelli attuali.</p>
           <Button variant="danger" size="lg" disabled={busy} onClick={() => void doImport()}>Sì, sostituisci i dati</Button>

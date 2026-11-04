@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { Badge, Button, Card, Segmented, Spinner, useToast } from '../../ui';
 import { describeError } from '../../sync/api';
-import type { SyncEngine } from '../../sync/engine';
+import { hasClockSkew, type SyncEngine } from '../../sync/engine';
+import { hasAcceptedCurrent } from '../../sync/legal';
 import { useSyncStatus } from '../../sync/useSyncStatus';
 import { ConflictList } from './ConflictList';
+import { DataPrivacyCard } from './DataPrivacyCard';
+import { LoginForm } from './LoginForm';
 import { a, PRIVACY_NOTICE } from './styles';
 import { badgeView, relativeTime } from './format';
 import { UsageCounter } from '../../billing/UsageCounter';
@@ -22,7 +25,7 @@ function openUrl(url: string): void {
   } catch { throw new Error('Indirizzo di pagamento non valido.'); }
 }
 
-export function AccountView({ engine, api }: { engine: SyncEngine; api: { checkout(p: 'month' | 'year'): Promise<{ url: string }>; portal(): Promise<{ url: string }> } }) {
+export function AccountView({ engine, api }: { engine: SyncEngine; api: { checkout(p: 'month' | 'year'): Promise<{ url: string }>; portal(): Promise<{ url: string }>; exportData(): Promise<Blob> } }) {
   const st = useSyncStatus(engine);
   const toast = useToast();
   const [plan, setPlan] = useState<'month' | 'year'>('month');
@@ -40,9 +43,13 @@ export function AccountView({ engine, api }: { engine: SyncEngine; api: { checko
     try { openUrl((kind === 'checkout' ? await api.checkout(plan) : await api.portal()).url); } catch (e) { setError(describeError(e)); setBusy(''); }
   };
   const view = badgeView(st);
+  const [termsOk, setTermsOk] = useState(hasAcceptedCurrent);
+  const skew = st.clockSkewMs;
 
   return (
     <>
+      {!termsOk && st.signedIn && <LoginForm engine={engine} reacceptEmail={st.email ?? me?.email ?? ''} onDone={() => setTermsOk(true)} />}
+
       <Card>
         <div style={a.stack}>
           <div style={a.between}>
@@ -98,6 +105,11 @@ export function AccountView({ engine, api }: { engine: SyncEngine; api: { checko
               : st.phase === 'error' ? `Qualcosa non ha funzionato: ${st.error ?? 'errore sconosciuto'}. Riproverò da solo.`
               : st.pendingOps ? `${st.pendingOps} modifiche in attesa di invio.` : 'Tutto aggiornato.'}
           </p>
+          {hasClockSkew(skew) && (
+            <p style={a.notice} role="status" data-testid="clock-warning">
+              L’ora del telefono sembra sbagliata (circa {Math.max(1, Math.round(Math.abs(skew ?? 0) / 60_000))} minuti {(skew ?? 0) > 0 ? 'indietro' : 'avanti'} rispetto al server): può causare problemi di sincronizzazione. Controlla data e ora nelle impostazioni del telefono e attiva l’impostazione automatica.
+            </p>
+          )}
           {st.remoteIgnored > 0 && <p style={a.muted}>{st.remoteIgnored} modifiche arrivate dal server sono state ignorate perché riguardano documenti già emessi su questo dispositivo.</p>}
           <div style={a.row}>
             <Button variant="secondary" size="sm" disabled={st.phase === 'syncing'} onClick={() => { void engine.syncNow().then(() => engine.refreshMe()); }}>Sincronizza ora</Button>
@@ -106,6 +118,8 @@ export function AccountView({ engine, api }: { engine: SyncEngine; api: { checko
       </Card>
 
       <ConflictList conflicts={st.conflicts} engine={engine} onUpgrade={() => void go('checkout')} />
+
+      <DataPrivacyCard engine={engine} api={api} />
 
       <Card>
         <div style={a.stack}>

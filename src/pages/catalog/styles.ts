@@ -1,6 +1,9 @@
 import type { CSSProperties } from 'react';
 
-/** Stili di layout minimi (usano le variabili del design system con fallback). */
+/**
+ * LEGACY: stili inline usati ancora da ProfilePage e profile/LogoField (altro proprietario).
+ * Catalogo, backup e relative schede usano le classi di catalog.css: non aggiungere nuovi usi di `s`.
+ */
 export const s = {
   page: { display: 'flex', flexDirection: 'column', gap: 12, padding: '0 16px 96px', maxWidth: 720, margin: '0 auto' } as CSSProperties,
   row: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } as CSSProperties,
@@ -28,14 +31,4 @@ export const s = {
   error: { color: 'var(--danger, #b42318)', fontSize: 14 } as CSSProperties,
 };
 
-export function downloadText(filename: string, text: string, mime: string): void {
-  const blob = new Blob([text], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
+export { downloadText } from './download';

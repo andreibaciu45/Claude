@@ -94,37 +94,35 @@ run('03-nota-di-credito', async (S) => {
   await sleep(300);
   S.check('originale 2 resta "Emessa" (storno solo parziale)', !/stornata/i.test(await page.locator('.iv-badges').first().innerText()), await page.locator('.iv-badges').first().innerText());
 
-  // di nuovo la stessa riga -> oltre il residuo: rifiutata
+  // di nuovo la stessa riga -> oltre il residuo: la UI non deve permetterlo (e il backend lo rifiuterebbe)
   d = await openCredit(page);
   await d.getByLabel(/Motivo dell/).fill('Doppio storno');
   await d.getByRole('radio', { name: 'Storno parziale' }).click();
-  await d.getByRole('checkbox', { name: /Storna riga 1/ }).check();
-  await hold(page, d.locator('.hold-btn').first());
-  const err = await anyToast(page, /non riuscita|supera/i).catch(() => '');
+  await sleep(200);
   await S.shot(page, 'parziale oltre residuo');
-  S.check('NC parziale oltre il residuo rifiutata (messaggio d\'errore)', /supera|non riuscita/i.test(err), err);
+  const cb1 = d.getByRole('checkbox', { name: /Storna riga 1/ });
+  S.check('NC parziale oltre il residuo: riga gia stornata non selezionabile (checkbox disabilitato)', await cb1.isDisabled());
+  const q1 = d.getByLabel('Quantità da stornare riga 1');
+  await q1.fill('5').catch(() => {});
+  await sleep(200);
+  const q1v = await q1.inputValue();
+  S.check('NC parziale oltre il residuo: la quantita non supera lo stornabile (0)', q1v === '0' || q1v === '', q1v);
+  S.check('NC parziale: il testo mostra il residuo stornabile', /Ancora stornabile/.test(await d.innerText()), (await d.innerText()).slice(0, 300));
+  S.check('NC parziale oltre il residuo: pulsante emissione disabilitato senza righe valide', await d.locator('.hold-btn').first().isDisabled());
   S.check('nessuna NC3 creata: ancora sulla fattura', /#\/documenti\/[^/?#]+$/.test(page.url()) && docIdOf(page) === inv2);
-  await page.keyboard.press('Escape');
+  await d.getByRole('radio', { name: /Storna il residuo|Storno totale/ }).click();
 
-  // storno totale dopo uno parziale: deve essere rifiutato
-  d = await openCredit(page).catch(() => null);
-  if (d) {
-    await d.getByLabel(/Motivo dell/).fill('Storno totale dopo parziale');
-    await hold(page, d.locator('.hold-btn').first());
-    const e2 = await anyToast(page, /non riuscita|già|parzial/i).catch(() => '');
-    await S.shot(page, 'totale dopo parziale');
-    S.check('storno TOTALE dopo uno parziale rifiutato', /non riuscita|parzial|già/i.test(e2), e2);
-    await page.keyboard.press('Escape');
-  }
-
-  // completa con riga 2 -> stornata
-  d = await openCredit(page);
-  await d.getByLabel(/Motivo dell/).fill('Reso restante');
-  await d.getByRole('radio', { name: 'Storno parziale' }).click();
-  await d.getByRole('checkbox', { name: /Storna riga 2/ }).check();
+  // "storno totale" dopo uno parziale = storno del residuo (80 EUR, riga 2): ammesso
+  await d.getByRole('radio', { name: 'Storna il residuo' }).waitFor({ timeout: 2000 }).catch(() => {});
+  await S.shot(page, 'storna il residuo');
   await hold(page, d.locator('.hold-btn').first());
   const m3 = await anyToast(page, 'Nota di credito emessa');
-  S.check('terza NC = NC3/2026', /NC3\/2026/.test(m3), m3);
+  S.check('storno del residuo = NC3/2026', /NC3\/2026/.test(m3), m3);
+  await page.waitForURL(/#\/documenti\/[^/?#]+$/);
+  await sleep(300);
+  const [dl3] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Scarica XML' }).click()]);
+  const x3 = fs.readFileSync((await saveDownload(S, dl3, 'NC-residuo.xml')).path, 'utf8');
+  S.check('NC residuo XML: una sola riga da 80.00 (la rimanente)', (x3.match(/<DettaglioLinee>/g) || []).length === 1 && /<PrezzoTotale>80\.00</.test(x3), x3.match(/<PrezzoTotale>[^<]*/g));
   await go(page, `/documenti/${inv2}`);
   await sleep(300);
   S.check('originale 2 diventa "Stornata" a storno completo', /stornata/i.test(await page.locator('.iv-badges').first().innerText()), await page.locator('.iv-badges').first().innerText());

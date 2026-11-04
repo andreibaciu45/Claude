@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Badge, Button, Card, EmptyState, Input, Money, PageHeader, Sheet, useToast } from '../ui';
+import { Badge, Button, Card, Chip, EmptyState, Input, Money, PageHeader, Segmented, Sheet, Skeleton, useToast } from '../ui';
 import { deleteCatalogItem, getProfile, listCatalog, saveCatalogItem } from '../storage';
 import type { CatalogItem, ItemKind } from '../types';
 import ItemSheet, { KIND_LABEL } from './catalog/ItemSheet';
@@ -7,7 +7,8 @@ import ImportSheet from './catalog/ImportSheet';
 import { itemsToCsv } from './catalog/csv';
 import { sampleItems, TRADE_LABEL } from './catalog/samples';
 import type { Trade } from './catalog/samples';
-import { downloadText, s } from './catalog/styles';
+import { downloadText } from './catalog/download';
+import './catalog/catalog.css';
 
 const norm = (x: string) => x.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -103,13 +104,15 @@ export default function CatalogPage() {
         subtitle="Materiali, manodopera e servizi che userai nei preventivi"
         actions={<Button onClick={openNew} size="lg">+ Nuova voce</Button>}
       />
-      <div style={s.page}>
-        {loaded && items.length === 0 ? (
+      <div className="cat-page">
+        {!loaded ? (
+          <Skeleton blocks={3} lines={2} label="Caricamento del listino…" />
+        ) : items.length === 0 ? (
           <EmptyState
             title="Il tuo listino è vuoto"
             text="Aggiungi le voci che usi più spesso: quando detterai un preventivo l'app le troverà da sola. Puoi partire da un listino di esempio e correggere i prezzi."
             action={
-              <div style={{ ...s.col, alignItems: 'stretch' }}>
+              <div className="cat-col cat-col--stretch">
                 {samplesButton('primary')}
                 <Button variant="secondary" onClick={openNew}>Crea la prima voce</Button>
                 <Button variant="ghost" onClick={() => setImportOpen(true)}>Importa da CSV</Button>
@@ -119,44 +122,41 @@ export default function CatalogPage() {
         ) : (
           <>
             <Input type="search" aria-label="Cerca nel listino" placeholder="Cerca voce, sinonimo o categoria…" value={query} onChange={(e) => setQuery(e.target.value)} />
-            <div style={s.scrollRow} role="group" aria-label="Filtra per tipo">
-              <button type="button" style={s.pill(kind === '')} aria-pressed={kind === ''} onClick={() => setKind('')}>Tutto ({items.length})</button>
-              {(Object.keys(KIND_LABEL) as ItemKind[]).map((k) => (
-                <button key={k} type="button" style={s.pill(kind === k)} aria-pressed={kind === k} onClick={() => setKind(kind === k ? '' : k)}>{KIND_LABEL[k]}</button>
-              ))}
+            <div className="cat-kind">
+              <Segmented<ItemKind | 'all'>
+                ariaLabel="Filtra per tipo"
+                value={kind === '' ? 'all' : kind}
+                onChange={(v) => setKind(v === 'all' ? '' : v)}
+                options={[{ value: 'all', label: 'Tutto' }, ...(Object.keys(KIND_LABEL) as ItemKind[]).map((k) => ({ value: k, label: KIND_LABEL[k] }))]}
+              />
             </div>
             {categories.length > 0 && (
-              <div style={s.scrollRow} role="group" aria-label="Filtra per categoria">
+              <div className="cat-scroll" role="group" aria-label="Filtra per categoria">
                 {categories.map((c) => (
-                  <button key={c} type="button" style={s.pill(category === c)} aria-pressed={category === c} onClick={() => setCategory(category === c ? '' : c)}>{c}</button>
+                  <Chip key={c} selected={category === c} onClick={() => setCategory(category === c ? '' : c)}>{c}</Chip>
                 ))}
               </div>
             )}
 
-            {!loaded ? <p style={s.muted}>Caricamento…</p> : filtered.length === 0 ? (
+            {filtered.length === 0 ? (
               <EmptyState title="Nessuna voce trovata" text="Prova a cambiare la ricerca o i filtri." action={<Button variant="secondary" onClick={() => { setQuery(''); setKind(''); setCategory(''); }}>Azzera filtri</Button>} />
             ) : (
-              <ul style={s.list} aria-label="Voci del listino">
+              <ul className="cat-list" aria-label="Voci del listino">
                 {filtered.map((i) => (
                   <li key={i.id}>
                     <Card>
-                      <button
-                        type="button"
-                        onClick={() => openEdit(i)}
-                        aria-label={`Modifica ${i.name}`}
-                        style={{ all: 'unset', display: 'block', width: '100%', boxSizing: 'border-box', cursor: 'pointer', minHeight: 44, padding: 12 }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
-                          <span style={s.title}>{i.name}</span>
-                          <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}><Money value={i.price} /> <span style={s.muted}>/ {i.unit}</span></span>
+                      <button type="button" className="cat-item" onClick={() => openEdit(i)} aria-label={`Modifica ${i.name}`}>
+                        <div className="cat-item-top">
+                          <span className="cat-item-name">{i.name}</span>
+                          <span className="cat-item-price"><Money value={i.price} /> <span className="cat-muted">/ {i.unit}</span></span>
                         </div>
-                        <div style={{ ...s.row, marginTop: 6 }}>
+                        <div className="cat-item-meta">
                           <Badge tone={i.kind === 'manodopera' ? 'info' : i.kind === 'servizio' ? 'warning' : 'neutral'}>{KIND_LABEL[i.kind]}</Badge>
-                          <span style={s.muted}>IVA {i.vat}%</span>
-                          {i.category && <span style={s.muted}>· {i.category}</span>}
-                          {i.stock !== undefined && <span style={s.muted}>· Giacenza: {i.stock} {i.unit}</span>}
+                          <span className="cat-muted">IVA {i.vat}%</span>
+                          {i.category && <span className="cat-muted">· {i.category}</span>}
+                          {i.stock !== undefined && <span className="cat-muted">· Giacenza: {i.stock} {i.unit}</span>}
                         </div>
-                        {i.aliases.length > 0 && <div style={{ ...s.muted, marginTop: 4, fontSize: 13 }}>Anche: {i.aliases.join(', ')}</div>}
+                        {i.aliases.length > 0 && <div className="cat-item-alias">Anche: {i.aliases.join(', ')}</div>}
                       </button>
                     </Card>
                   </li>
@@ -164,7 +164,7 @@ export default function CatalogPage() {
               </ul>
             )}
 
-            <div style={{ ...s.row, marginTop: 8 }}>
+            <div className="cat-row cat-row--end">
               {samplesButton('secondary')}
               <Button variant="secondary" onClick={() => setImportOpen(true)}>Importa CSV</Button>
               <Button variant="secondary" onClick={exportCsv} disabled={!items.length}>Esporta CSV</Button>
@@ -185,8 +185,8 @@ export default function CatalogPage() {
       <ImportSheet open={importOpen} defaultVat={defaultVat} onClose={() => setImportOpen(false)} onImport={importItems} />
 
       <Sheet open={samplesOpen} onClose={() => setSamplesOpen(false)} title="Voci di esempio">
-        <div style={s.col}>
-          <p style={s.muted}>Aggiunge 20 voci realistiche (manodopera oraria inclusa) con prezzi indicativi: ricordati di adeguarli ai tuoi. Le voci già presenti non vengono duplicate.</p>
+        <div className="cat-col">
+          <p className="cat-muted">Aggiunge 20 voci realistiche (manodopera oraria inclusa) con prezzi indicativi: ricordati di adeguarli ai tuoi. Le voci già presenti non vengono duplicate.</p>
           {(Object.keys(TRADE_LABEL) as Trade[]).map((t) => (
             <Button key={t} variant="secondary" size="lg" onClick={() => void addSamples(t)}>{TRADE_LABEL[t]}</Button>
           ))}
@@ -194,7 +194,7 @@ export default function CatalogPage() {
       </Sheet>
 
       <Sheet open={!!toDelete} onClose={() => setToDelete(null)} title="Eliminare la voce?">
-        <div style={s.col}>
+        <div className="cat-col">
           <p>«{toDelete?.name}» verrà rimossa dal listino. I documenti già creati non cambiano.</p>
           <Button variant="danger" size="lg" onClick={() => void confirmDelete()}>Sì, elimina</Button>
           <Button variant="secondary" size="lg" onClick={() => setToDelete(null)}>Annulla</Button>
