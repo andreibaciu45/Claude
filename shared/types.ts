@@ -161,7 +161,7 @@ export interface AuditEntry {
   docId: string;
   action:
     | 'create' | 'edit' | 'issue' | 'download_xml' | 'mark_sent' | 'sdi_event' | 'credit_note'
-    | 'convert_quote' | 'duplicate' | 'delete_draft' | 'payment' | 'voice_command';
+    | 'convert_quote' | 'duplicate' | 'delete_draft' | 'payment' | 'voice_command' | 'counter_start';
   actor: 'user';
   detail?: string;
   xmlSha256?: string;

@@ -37,7 +37,7 @@ interface Tk {
 }
 
 function toks(name: string): Tk[] {
-  const clean = stripAccents(String(name ?? '')).toLowerCase().replace(/['’`´]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const clean = stripAccents(String(name ?? '')).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const out: Tk[] = [];
   for (const t of clean.split(' ')) {
     if (!t || TITLE.has(t) || FILLERS.has(t)) continue;
@@ -78,6 +78,23 @@ function score(S: Tk[], R: Tk[]): number {
   return Math.max(tokenScore, joined);
 }
 
+/** Aggancio automatico solo se i token detti coincidono, con al più un refuso su una parola lunga (>= 6 lettere). */
+function safeToBind(S: Tk[], R: Tk[]): boolean {
+  const js = S.map((x) => x.t).join('');
+  const jr = R.map((x) => x.t).join('');
+  if (js === jr) return true;
+  let fuzzy = 0;
+  for (const x of S) {
+    let b = 0;
+    for (const y of R) b = Math.max(b, tokSim(x.t, y.t));
+    if (b < 1) {
+      if (x.w < 1 || b < 0.85 || x.t.length < 6) return false;
+      fuzzy++;
+    }
+  }
+  return fuzzy <= 1;
+}
+
 export const MATCH_ACCEPT = 0.8;
 export const MATCH_WEAK = 0.6;
 const AMBIG_GAP = 0.1;
@@ -88,15 +105,25 @@ export function matchCustomer(spoken: string, customers: CustomerRef[]): { match
   const none = { match: { status: 'new' as const, name: spoken, score: 0 }, candidates: [] as CustomerCandidate[] };
   if (!S.length || !Array.isArray(customers) || !customers.length) return none;
   const scored: CustomerCandidate[] = [];
+  const toksOf = new Map<CustomerCandidate, Tk[]>();
   for (const c of customers) {
     if (!c || typeof c.name !== 'string') continue;
-    const sc = score(S, toks(c.name));
-    if (sc >= MATCH_WEAK) scored.push({ id: c.id, name: c.name, score: Math.round(sc * 1000) / 1000 });
+    const rt = toks(c.name);
+    const sc = score(S, rt);
+    if (sc >= MATCH_WEAK) {
+      const cand = { id: c.id, name: c.name, score: Math.round(sc * 1000) / 1000 };
+      scored.push(cand);
+      toksOf.set(cand, rt);
+    }
   }
   if (!scored.length) return none;
   scored.sort((a, b) => b.score - a.score);
   const top = scored[0];
   const second = scored[1];
+  if (top.score >= MATCH_ACCEPT && !safeToBind(S, toksOf.get(top) ?? [])) {
+    // somiglianza ma non identità ("Maria Rosi" / "Mario Rossi"): suggerisce, non aggancia
+    return { match: { status: 'weak', name: spoken, score: top.score }, candidates: scored.slice(0, 3) };
+  }
   if (top.score >= MATCH_ACCEPT) {
     if (second && second.score >= AMBIG_FLOOR && top.score - second.score < AMBIG_GAP) {
       const cands = scored.filter((x) => x.score >= AMBIG_FLOOR && top.score - x.score < AMBIG_GAP);

@@ -80,7 +80,7 @@ export function extractModifiers(R: RawTok[]): Modifiers {
       out.discount = { amount: v };
       end++;
     } else if (sawDel || v <= 30) {
-      out.discount = { pct: Math.min(100, v), uncertain: !sawDel };
+      out.discount = sawDel ? { pct: Math.min(100, v) } : { pct: Math.min(100, v), uncertain: true };
     } else {
       out.discount = { amount: v, uncertain: true };
     }
