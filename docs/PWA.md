@@ -35,7 +35,7 @@ Il service worker si registra solo in produzione (`import.meta.env.PROD`).
 1. `npx vite build && npx vite preview --port 4173` e aprire `http://localhost:4173` (localhost è ammesso per i service worker). Ricaricare una volta: ora l'app è controllata dal worker.
 2. In un altro terminale cambiare `VERSION` in `public/sw.js` (es. `'v3-prova'`) **solo nella copia di prova** (non committare), rifare `npx vite build` (il `preview` serve i nuovi file).
 3. Nella scheda aperta: DevTools > Application > Service Workers > "Update" (oppure cambiare scheda e tornare). Deve comparire «È disponibile una nuova versione».
-4. Prova del blocco: dalla console, `import('/src/pwa/busy.ts')` non è disponibile in produzione; in alternativa usare il test `npx vitest run src/pwa`, che simula tutti i casi (lavoro in corso, "Più tardi", errori) con un service worker finto.
+4. Prova del blocco "lavoro in corso": coperta da `npx vitest run src/pwa` (service worker finto: lavoro in corso, "Più tardi", errori, controllo periodico).
 5. Ripristinare `public/sw.js`.
 
 ## 5. Dettatura: avviso privacy da mostrare al primo uso del microfono

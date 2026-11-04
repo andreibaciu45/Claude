@@ -71,7 +71,14 @@ npm run patch:native       # permessi microfono (IT), solo se rigeneri android/i
 npx cap open android       # apre Android Studio  | npx cap open ios -> Xcode (solo su Mac)
 ```
 Le cartelle `android/` e `ios/` sono già generate (`cap add` funziona senza SDK) e committabili. Per cambiare identificativo: modificare `appId` e rigenerare (`rm -rf android ios && npx cap add android && npx cap add ios && npm run patch:native && npm run assets`).
-Il server deve accettare le origini `https://localhost` (Android) e `capacitor://localhost` (iOS) e la build deve usare un URL API assoluto (`VITE_API_URL`): vedi `mobile/src-bridge/FILES.md`.
+**API assoluta e CORS (obbligatori).** Dentro la WebView il percorso relativo `/v1` non funziona: la build per le app va fatta con `VITE_API_URL` assoluto, e il server deve ammettere le origini native:
+```
+VITE_API_URL=https://[DOMINIO]/v1 npm run build:web      # [DOMINIO] = il tuo dominio
+npx cap sync
+VITE_API_URL=https://[DOMINIO]/v1 npm run patch:native   # inietta la CSP nell'index.html nativo
+```
+Sul server: `CORS_ORIGINS=capacitor://localhost,https://localhost,https://[DOMINIO]` (già negli esempi `infra/*.env.example` e nel compose; vedi `docs/DEPLOY.md`).
+`patch:native` (da lanciare dopo `cap sync`, che ricopia `dist`) aggiunge all'`index.html` di `android/` e `ios/` una `<meta http-equiv="Content-Security-Policy">` coerente con la CSP del Caddyfile: niente `unsafe-inline`/`unsafe-eval`, stili inline ammessi per hash, `connect-src 'self'` + l'origine dell'API. È idempotente; senza `VITE_API_URL` assoluto (o `--api-url=...`) si ferma con errore. Prova su una copia: `node --test mobile/scripts/csp.test.mjs`. Nell'app nativa il service worker non serve (i file sono locali): l'app si aggiorna con le versioni dello store. Download/condivisione file: `mobile/src-bridge/FILES.md`.
 
 ## 9. Checklist di test su dispositivi reali
 Servono almeno: 1 Android recente, 1 Android vecchio/economico (Android 8–10), 1 iPhone con ultimo iOS, idealmente 1 iPhone con iOS di 2 versioni fa.

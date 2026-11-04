@@ -119,8 +119,17 @@ sudo journalctl -u vocepreventivo-litestream -n 30   # replica verso il bucket
 ```
 Apri `https://app.tuodominio.it` dal telefono e installa la PWA.
 
+### CORS e app nativa (iOS/Android)
+Le app Capacitor chiamano l'API da un'altra origine (`capacitor://localhost` su iOS, `https://localhost` su Android), quindi il server deve ammetterle via CORS. La variabile è `CORS_ORIGINS` (elenco separato da virgole, **senza spazi e mai `*`**), già presente con questi valori in `infra/server.env.example` (installazione senza Docker), `infra/.env.example` e `infra/docker-compose.yml` (Docker):
+```
+CORS_ORIGINS=capacitor://localhost,https://localhost,https://[DOMINIO]
+```
+Sostituisci `[DOMINIO]` con il tuo dominio. Nel compose, se non la imposti in `infra/.env`, vale lo stesso elenco con `https://$DOMAIN`. Dopo la modifica: `sudo systemctl restart vocepreventivo-server` (o rilancia il deploy). Il server confronta l'origine ricevuta con l'elenco come testo esatto (`server/src/auth/security.ts`), quindi gli schemi `capacitor://` sono accettati. Verifica: `curl -si -H 'Origin: capacitor://localhost' https://[DOMINIO]/health | grep -i access-control-allow-origin`.
+La **build nativa** richiede inoltre `VITE_API_URL` assoluto (`https://[DOMINIO]/v1`): vedi `docs/MOBILE.md` §8. La PWA servita dal tuo dominio continua a usare `/v1` relativo.
+
 ## 7. Aggiornamenti
 Rilancia il workflow "Deploy produzione" (o il comando 6.B). Se cambi file in `infra/` (Caddyfile, unit systemd), esegui di nuovo `sudo DEPLOY_USER=deploy ./scripts/setup-vps.sh` dalla copia aggiornata del repository.
+Dopo un deploy gli utenti della PWA vedono l'avviso "È disponibile una nuova versione" (vedi `docs/PWA.md`); `sw.js` non è mai in cache (Caddy), quindi la nuova versione viene rilevata entro un'ora o al ritorno in primo piano.
 Rollback manuale: `ls /opt/vocepreventivo/releases`, poi `ln -sfn /opt/vocepreventivo/releases/<vecchia> /opt/vocepreventivo/current && sudo systemctl restart vocepreventivo-server`.
 
 ## 8. Backup e ripristino
