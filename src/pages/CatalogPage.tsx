@@ -180,10 +180,8 @@ export default function CatalogPage() {
         categories={categories}
         onClose={() => setSheetOpen(false)}
         onSave={save}
+        onDelete={(i) => setToDelete(i)}
       />
-      {sheetOpen && editing && (
-        <div style={{ display: 'none' }} />
-      )}
       <ImportSheet open={importOpen} defaultVat={defaultVat} onClose={() => setImportOpen(false)} onImport={importItems} />
 
       <Sheet open={samplesOpen} onClose={() => setSamplesOpen(false)} title="Voci di esempio">

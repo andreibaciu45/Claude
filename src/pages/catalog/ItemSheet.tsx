@@ -16,11 +16,12 @@ interface Props {
   categories: string[];
   onClose: () => void;
   onSave: (i: CatalogItem) => void | Promise<void>;
+  onDelete?: (i: CatalogItem) => void;
 }
 
 const VAT_RATES = [22, 10, 5, 4, 0];
 
-export default function ItemSheet({ open, item, defaultVat, categories, onClose, onSave }: Props) {
+export default function ItemSheet({ open, item, defaultVat, categories, onClose, onSave, onDelete }: Props) {
   const [name, setName] = useState('');
   const [aliases, setAliases] = useState<string[]>([]);
   const [aliasDraft, setAliasDraft] = useState('');
@@ -152,6 +153,9 @@ export default function ItemSheet({ open, item, defaultVat, categories, onClose,
           <Button type="submit" size="lg" disabled={saving} style={{ flex: 1 }}>{item ? 'Salva modifiche' : 'Aggiungi voce'}</Button>
           <Button type="button" variant="secondary" size="lg" onClick={onClose}>Annulla</Button>
         </div>
+        {item && onDelete && (
+          <Button type="button" variant="danger" onClick={() => onDelete(item)}>Elimina voce</Button>
+        )}
       </form>
     </Sheet>
   );
