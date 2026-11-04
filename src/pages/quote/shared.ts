@@ -24,7 +24,26 @@ export const fileNameFor = (doc: QuoteDocument): string => {
   return `${safe(kindLabel(doc))}_${safe(displayNumber(doc)) || 'senza_numero'}_${safe(doc.customer.name) || 'cliente'}.pdf`;
 };
 
+type Cap = { isNativePlatform(): boolean; registerPlugin<T>(n: string): T };
+const nativeCap = (): Cap | null => {
+  const c = (window as unknown as { Capacitor?: Cap }).Capacitor;
+  return c?.isNativePlatform?.() ? c : null;
+};
+
+/** App nativa (Capacitor): salva in cache e apre il foglio di condivisione (Salva su File, Mail, WhatsApp…). */
+async function shareNative(c: Cap, blob: Blob, name: string): Promise<void> {
+  const fs = c.registerPlugin<{ writeFile(o: { path: string; data: string; directory: string }): Promise<{ uri: string }> }>('Filesystem');
+  const share = c.registerPlugin<{ share(o: { title?: string; files: string[]; dialogTitle?: string }): Promise<unknown> }>('Share');
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  const { uri } = await fs.writeFile({ path: name, data: btoa(bin), directory: 'CACHE' });
+  await share.share({ title: name, files: [uri], dialogTitle: 'Condividi o salva' });
+}
+
 export const downloadBlob = (blob: Blob, name: string): void => {
+  const cap = nativeCap();
+  if (cap) { void shareNative(cap, blob, name).catch(() => { /* annullato dall'utente */ }); return; }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

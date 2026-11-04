@@ -1,0 +1,153 @@
+name: Mobile (manuale)
+
+# SOLO MANUALE: non parte mai da push o pull request. Serve un account Google Play / Apple Developer
+# e i segreti elencati in docs/MOBILE.md. Senza segreti i job falliscono subito con un messaggio chiaro.
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Piattaforma da costruire'
+        type: choice
+        options: [android, ios, entrambe]
+        default: android
+      api_url:
+        description: 'URL del server API (https://...), incorporato nella build'
+        type: string
+        required: false
+      upload_testflight:
+        description: 'iOS: carica su TestFlight dopo la build'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android (AAB firmato)
+    if: inputs.platform == 'android' || inputs.platform == 'entrambe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VITE_API_URL: ${{ inputs.api_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: "package-lock.json\nmobile/package-lock.json" }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }  # Capacitor 8 genera codice Java 21 (verificato in android/app/capacitor.build.gradle): serve JDK 21, non 17
+      - name: Controllo segreti
+        env:
+          K: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: '[ -n "$K" ] || { echo "::error::Segreto ANDROID_KEYSTORE_BASE64 mancante (vedi docs/MOBILE.md)"; exit 1; }'
+      - run: npm ci
+      - run: npm run build
+      - run: npm ci
+        working-directory: mobile
+      - run: npx cap sync android
+        working-directory: mobile
+      - name: Ripristina keystore
+        run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      - name: Build AAB release firmato
+        working-directory: mobile/android
+        run: >
+          ./gradlew bundleRelease
+          -Pandroid.injected.signing.store.file="$RUNNER_TEMP/release.jks"
+          -Pandroid.injected.signing.store.password="$KS_PASS"
+          -Pandroid.injected.signing.key.alias="$KEY_ALIAS"
+          -Pandroid.injected.signing.key.password="$KEY_PASS"
+        env:
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vocepreventivo-release-aab
+          path: mobile/android/app/build/outputs/bundle/release/*.aab
+          retention-days: 14
+      # Il caricamento su Google Play resta MANUALE (Play Console) finché l'app non è approvata una prima volta.
+
+  ios:
+    name: iOS (archive + TestFlight)
+    if: inputs.platform == 'ios' || inputs.platform == 'entrambe'
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      VITE_API_URL: ${{ inputs.api_url }}
+      # SEGNAPOSTO: da sostituire con i valori reali del tuo account Apple
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      BUNDLE_ID: it.example.vocepreventivo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: "package-lock.json\nmobile/package-lock.json" }
+      - name: Controllo segreti
+        env:
+          C: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          P: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: '[ -n "$C" ] && [ -n "$P" ] || { echo "::error::Mancano IOS_CERTIFICATE_BASE64 / IOS_PROVISIONING_PROFILE_BASE64 (vedi docs/MOBILE.md)"; exit 1; }'
+      - run: npm ci
+      - run: npm run build
+      - run: npm ci
+        working-directory: mobile
+      - run: npx cap sync ios
+        working-directory: mobile
+      - name: Importa certificato e profilo di provisioning
+        env:
+          CERT_B64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          CERT_PASS: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          PROFILE_B64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          KC_PASS: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+        run: |
+          KC="$RUNNER_TEMP/build.keychain-db"
+          echo "$CERT_B64" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASS" -A -t cert -f pkcs12 -k "$KC"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KC_PASS" "$KC"
+          security list-keychains -d user -s "$KC" login.keychain
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$PROFILE_B64" | base64 -d > "$HOME/Library/MobileDevice/Provisioning Profiles/app.mobileprovision"
+      - name: Archive ed export IPA
+        working-directory: mobile/ios/App
+        env:
+          PROFILE_NAME: ${{ secrets.IOS_PROFILE_NAME }}
+        run: |
+          cat > "$RUNNER_TEMP/export.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key><dict><key>$BUNDLE_ID</key><string>$PROFILE_NAME</string></dict>
+          </dict></plist>
+          PLIST
+          # Capacitor 8 usa Swift Package Manager: si apre App.xcodeproj (non serve CocoaPods)
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" CODE_SIGN_IDENTITY="Apple Distribution" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" archive
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/ipa"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vocepreventivo-ipa
+          path: ${{ runner.temp }}/ipa/*.ipa
+          retention-days: 14
+      - name: Carica su TestFlight (chiave API App Store Connect)
+        if: inputs.upload_testflight
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          printf '%s' "$ASC_KEY_P8" > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          xcrun altool --upload-app --type ios -f "$RUNNER_TEMP"/ipa/*.ipa \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+          rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"

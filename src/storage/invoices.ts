@@ -8,9 +8,11 @@
  *  - audit append-only.
  * Fonti fiscali secondarie: DA VERIFICARE con un commercialista.
  */
-import type { AuditEntry, DocLine, Profile, QuoteDocument, SdiEvent, ValidationIssue, InvoiceFiscal, DocStatus } from '../types';
+import type { AuditEntry, Customer, DocLine, Profile, QuoteDocument, SdiEvent, ValidationIssue, InvoiceFiscal, DocStatus } from '../types';
 import { uid } from '../types';
-import { computeTotals } from '../engine/totals';
+import { invoiceTotalsCents } from './invoiceTotals';
+import { creditResidual, effectiveCreditNotes, lineKey } from './creditResidual';
+import { lineTotalCents } from '../../shared/fiscal/money';
 import * as fatturapa from '../../shared/fatturapa';
 import { generateFatturaPA, validateInvoiceForIssue } from '../../shared/fatturapa';
 import { getBackend, newAuditId, withDefaults, type Tx } from './db';
@@ -76,6 +78,20 @@ function progressivo(n: number): string {
   return n.toString(36).toUpperCase().padStart(5, '0');
 }
 
+/** Versione precedente dell'XML di una fattura scartata e corretta (conservata, mai cancellata). */
+export interface XmlVersion {
+  xml?: string;
+  xmlSha256?: string;
+  fileName?: string;
+  progressivoInvio?: string;
+  archivedAt: number;
+  /** 'scartata' = file respinto dallo SDI; 'sostituita' = versione corretta ma mai inviata, poi corretta ancora. */
+  reason: 'scartata' | 'sostituita';
+  sdiEvent?: SdiEvent;
+}
+/** Estensione NON ancora nel contratto (shared/types.ts): proposta nel report. Lo storage la scrive, la UI la legge. */
+export type InvoiceFiscalExt = InvoiceFiscal & { xmlHistory?: XmlVersion[] };
+
 const counterKey = (sectional: string, year: number): string => `${sectional}-${year}`;
 
 const isFiscalInvoice = (d: QuoteDocument | undefined): d is QuoteDocument & { invoice: InvoiceFiscal } =>
@@ -119,6 +135,7 @@ export function assertSaveAllowed(existing: QuoteDocument | undefined, incoming:
       delete (c.invoice as Partial<InvoiceFiscal>).sdiEvents;
       delete (c.invoice as Partial<InvoiceFiscal>).payments;
       delete (c.invoice as Partial<InvoiceFiscal>).paymentStatus;
+      delete (c.invoice as Partial<InvoiceFiscalExt>).xmlHistory;
     }
     // pointer di conversione/stornata non fanno parte del contenuto fiscale
     delete (c as Partial<QuoteDocument>).convertedToInvoiceId;
@@ -145,6 +162,31 @@ export const listAudit = async (docId?: string): Promise<AuditEntry[]> => {
     .sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 };
 
+const AUDIT_ACTIONS: readonly AuditEntry['action'][] = [
+  'create', 'edit', 'issue', 'download_xml', 'mark_sent', 'sdi_event', 'credit_note',
+  'convert_quote', 'duplicate', 'delete_draft', 'payment', 'voice_command',
+];
+export type AuditInput = Omit<AuditEntry, 'id' | 'at' | 'actor'> & { at?: number };
+
+/**
+ * Registra UNA voce nel registro append-only (mai modificata né cancellata), in una transazione propria.
+ * Funzione pubblica per i moduli che non passano dalle funzioni di storage (UI: download XML; voce: `voice_command`
+ * con `voiceTranscript`). Lancia se `docId` o `action` non sono validi. Ritorna la voce scritta.
+ */
+export async function appendAudit(entry: AuditInput): Promise<AuditEntry> {
+  if (!entry || typeof entry.docId !== 'string' || !entry.docId) throw new Error('Voce di audit senza documento (docId).');
+  if (!AUDIT_ACTIONS.includes(entry.action)) throw new Error(`Azione di audit sconosciuta: ${String(entry.action)}`);
+  const at = Number.isFinite(entry.at) ? (entry.at as number) : Date.now();
+  const full: AuditEntry = {
+    id: newAuditId(at), at, docId: entry.docId, action: entry.action, actor: 'user',
+    ...(entry.detail ? { detail: String(entry.detail).slice(0, 2000) } : {}),
+    ...(entry.xmlSha256 ? { xmlSha256: entry.xmlSha256 } : {}),
+    ...(entry.voiceTranscript ? { voiceTranscript: String(entry.voiceTranscript).slice(0, 2000) } : {}),
+  };
+  await getBackend().transact('readwrite', (t) => t.add('audit', full));
+  return full;
+}
+
 // ---------------------------------------------------------------- bozza da preventivo
 
 const customerChannel = (c: QuoteDocument['customer']): InvoiceFiscal['customerChannel'] => {
@@ -169,7 +211,7 @@ export const createInvoiceFromQuote = async (quoteId: string): Promise<QuoteDocu
     const lines: DocLine[] = clone(quote.lines).map((l) => ({
       ...l, id: uid(), ...(forf ? { vat: 0, natura: l.natura ?? 'N2.2' } : {}),
     }));
-    const stamp = computeTotals(lines, { forfettario: forf, type: 'fattura' }).stamp;
+    const stamp = invoiceTotalsCents(lines, { forfettario: forf, stampChargedToCustomer: false }).stampDueCents / 100;
     const today = todayIso();
     const invoice: InvoiceFiscal = {
       tipoDocumento: 'TD01',
@@ -224,6 +266,13 @@ function issuedYear(operationDate: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** Data operazione più recente tra i documenti EMESSI dello stesso sezionale e anno ('' se nessuno). */
+export function lastIssuedDate(docs: QuoteDocument[], sectional: string, year: number): string {
+  return docs
+    .filter((d) => isFiscalInvoice(d) && d.invoice.lockedAt && d.invoice.sectional === sectional && d.invoice.year === year)
+    .reduce<string>((m, d) => (d.invoice!.operationDate > m ? d.invoice!.operationDate : m), '');
+}
+
 interface Candidate {
   issued: QuoteDocument; // senza xml
   key: string;
@@ -270,9 +319,7 @@ function buildCandidate(draft: QuoteDocument, profile: Profile, docs: QuoteDocum
   const warnings = issues.filter((i) => i.severity === 'warning').map((i) => i.message);
 
   // Regola cronologica (FISCAL-SPEC non la fissa con certezza): WARNING non bloccante, registrato in audit.
-  const latest = docs
-    .filter((d) => isFiscalInvoice(d) && d.invoice.lockedAt && d.invoice.sectional === sectional && d.invoice.year === year)
-    .reduce<string>((m, d) => (d.invoice!.operationDate > m ? d.invoice!.operationDate : m), '');
+  const latest = lastIssuedDate(docs, sectional, year);
   if (latest && inv0.operationDate < latest) {
     warnings.push(`La data operazione (${inv0.operationDate}) è anteriore all'ultima fattura emessa nello stesso sezionale/anno (${latest}): verifica la cronologia con il tuo commercialista.`);
   }
@@ -344,6 +391,22 @@ export async function issueInvoiceWithWarnings(docId: string): Promise<IssueResu
       if (!d) throw new Error('Fattura non trovata.');
       if (d.type !== 'fattura') throw new Error('Solo le fatture si emettono; un preventivo va prima convertito.');
       if (d.invoice?.lockedAt || (d.status !== 'bozza' && !d.invoice?.legacy)) throw new ImmutableDocumentError('Fattura già emessa.');
+      const oid = d.invoice?.tipoDocumento === 'TD04' ? d.invoice.originalDocumentId : undefined;
+      if (oid) {
+        // bozza di nota di credito (es. rinvio di una nota scartata): stesso controllo sul residuo di createCreditNote
+        const all = await t.all<QuoteDocument>('documents');
+        const orig = all.find((x) => x.id === oid);
+        if (!orig) throw issueErr('invoice.originalDocumentId', 'required', 'La fattura originale non esiste più.');
+        const profile = withDefaults(await t.getProfile());
+        const res = creditResidual(orig, effectiveCreditNotes(all, oid));
+        const mine = invoiceTotalsCents(d.lines, { forfettario: profile.regimeForfettario, stampChargedToCustomer: false }).netCents;
+        if (mine > res.residualCents) throw issueErr('lines', 'exceeds_original', `La nota di credito supera l'importo ancora stornabile della fattura (${(res.residualCents / 100).toFixed(2)} €).`);
+        return {
+          draft: d,
+          deps: { oid, residual: res.residualCents, origStatus: orig.status },
+          finalize: async (tx, issued) => reconcileOriginal(tx, oid, issued.updatedAt, `nota di credito ${issued.invoice!.number}`),
+        };
+      }
       return { draft: d, deps: null };
     },
     (c) => `Emessa ${c.issued.invoice!.number} (${c.gen.fileName})`,
@@ -359,7 +422,53 @@ const cents = (n: number): number => Math.round(n * 100);
 
 const CREDITABLE: DocStatus[] = ['emessa', 'inviata', 'consegnata', 'mancata_consegna'];
 
-/** Crea ED EMETTE una nota di credito TD04 collegata alla fattura. Senza `lines` = storno totale. Segna la fattura 'stornata' se totale. */
+/**
+ * Bollo sulle note di credito [DA VERIFICARE col commercialista]: le fonti sono discordanti (FISCAL-SPEC §1.4).
+ * Scelta prudente: il bollo già versato sulla fattura originale NON viene stornato e il rimborso addebitato al cliente
+ * non viene restituito dalla nota; la nota ha un proprio bollo (2 €, a carico dell'emittente) solo se il suo
+ * imponibile supera 77,47 €, con la stessa regola di una fattura.
+ */
+export const CREDIT_NOTE_STAMP_NOTE =
+  'Bollo sulla nota di credito [DA VERIFICARE col commercialista]: il bollo della fattura originale non viene stornato; la nota ha un proprio bollo di 2 € a tuo carico solo se il suo importo supera 77,47 €.';
+
+/** Stato "naturale" di una fattura in base agli esiti SDI registrati (usato quando una nota di credito smette di valere). */
+function statusFromEvents(d: QuoteDocument): DocStatus {
+  const evs = d.invoice?.sdiEvents ?? [];
+  const last = evs[evs.length - 1];
+  switch (last?.type) {
+    case 'INVIO': return 'inviata';
+    case 'RC': return 'consegnata';
+    case 'MC': return 'mancata_consegna';
+    case 'NS': return 'scartata';
+    default: return 'emessa';
+  }
+}
+
+/**
+ * Riallinea lo stato della fattura originale alle note di credito EFFICACI (emesse e non scartate):
+ * coperta per intero -> 'stornata'; altrimenti, se era 'stornata', torna allo stato dettato dagli esiti SDI.
+ * Va chiamata dentro la transazione che ha appena scritto la nota.
+ */
+async function reconcileOriginal(t: Tx, originalId: string, now: number, why: string): Promise<void> {
+  const o = await t.get<QuoteDocument>('documents', originalId);
+  if (!o || !isFiscalInvoice(o) || o.invoice.tipoDocumento !== 'TD01' || !o.invoice.lockedAt) return;
+  const all = await t.all<QuoteDocument>('documents');
+  const eff = effectiveCreditNotes(all, originalId);
+  const r = creditResidual(o, eff);
+  let target: DocStatus | null = null;
+  if (eff.length && r.residualCents === 0) target = 'stornata';
+  else if (o.status === 'stornata') target = statusFromEvents(o);
+  if (!target || target === o.status) return;
+  await t.put('documents', { ...o, status: target, updatedAt: now });
+  await addAudit(t, { docId: originalId, action: 'edit', detail: `Stato: ${o.status} -> ${target} (${why})`, xmlSha256: o.invoice.xmlSha256, at: now });
+}
+
+/**
+ * Crea ED EMETTE una nota di credito TD04 collegata alla fattura.
+ *  - senza `lines` = storno del RESIDUO ancora stornabile (tutta la fattura se non ci sono altre note);
+ *  - con `lines` = storno parziale: più note parziali sono ammesse finché la somma non supera l'imponibile della fattura;
+ *  - la fattura diventa 'stornata' solo quando le note efficaci la coprono per intero.
+ */
 export const createCreditNote = async (
   invoiceId: string,
   opts: { reason: string; lines?: DocLine[] },
@@ -377,34 +486,49 @@ export const createCreditNote = async (
       if (!reason) throw issueErr('creditNoteReason', 'required', 'Indica la causale della nota di credito.');
       const profile = withDefaults(await t.getProfile());
       const all = await t.all<QuoteDocument>('documents');
-      const prior = all.filter((d) => d.invoice?.tipoDocumento === 'TD04' && d.invoice.originalDocumentId === orig.id && d.invoice.lockedAt);
+      const prior = effectiveCreditNotes(all, orig.id);
       const forf = profile.regimeForfettario;
-      const origNet = cents(computeTotals(orig.lines, { forfettario: forf, type: 'fattura' }).net);
-      const priorNet = prior.reduce((s, d) => s + cents(computeTotals(d.lines, { forfettario: forf, type: 'fattura' }).net), 0);
+      const res = creditResidual(orig, prior);
       let lines: DocLine[];
+      let residualMode = false;
       if (opts.lines) {
         if (!opts.lines.length) throw issueErr('lines', 'required', 'Indica almeno una riga da stornare.');
         lines = clone(opts.lines).map((l, i) => ({ ...l, id: `${ncId}:${i}` })); // id deterministici: il piano si ripete identico
+        // quantità per riga: una riga che coincide con una riga della fattura non può superarne la quantità residua
+        const left = new Map<string, number>();
+        for (const l of res.lines) left.set(lineKey(l), (left.get(lineKey(l)) ?? 0) + l.qty);
+        const asked = new Map<string, number>();
+        for (const l of lines) {
+          const k = lineKey(l);
+          if (![...orig.lines].some((o) => lineKey(o) === k)) continue; // riga libera (es. sconto): vale solo il controllo sull'importo
+          asked.set(k, (asked.get(k) ?? 0) + l.qty);
+          if ((asked.get(k) ?? 0) > (left.get(k) ?? 0) + 1e-9) {
+            throw issueErr('lines', 'exceeds_line', `La quantità da stornare di "${l.description}" supera quella ancora stornabile.`);
+          }
+        }
       } else {
-        if (prior.length) throw issueErr('lines', 'partial_exists', 'La fattura ha già note di credito parziali: indica le righe da stornare.');
-        lines = clone(orig.lines).map((l, i) => ({ ...l, id: `${ncId}:${i}` }));
+        if (res.residualCents <= 0 || !res.lines.length) throw issueErr('lines', 'already_credited', 'La fattura è già stata stornata per intero.');
+        lines = clone(res.lines).map((l, i) => ({ ...l, id: `${ncId}:${i}` }));
+        residualMode = true;
       }
-      const ncNet = cents(computeTotals(lines, { forfettario: forf, type: 'fattura' }).net);
+      const tot = invoiceTotalsCents(lines, { forfettario: forf, stampChargedToCustomer: false });
+      const ncNet = tot.netCents;
       if (ncNet <= 0) throw issueErr('lines', 'invalid_amount', 'L\'importo della nota di credito deve essere positivo.');
-      if (priorNet + ncNet > origNet) {
-        throw issueErr('lines', 'exceeds_original', 'La nota di credito supera l\'importo ancora stornabile della fattura.');
+      // storno del residuo: le righe derivano dalle quantità residue, ammessa una differenza di arrotondamento di 1 cent per riga
+      const slack = residualMode ? lines.length : 0;
+      if (ncNet > res.residualCents + slack) {
+        throw issueErr('lines', 'exceeds_original', `La nota di credito supera l'importo ancora stornabile della fattura (${(res.residualCents / 100).toFixed(2)} €).`);
       }
-      const full = priorNet + ncNet >= origNet;
-      const stamp = computeTotals(lines, { forfettario: forf, type: 'fattura' }).stamp;
+      const full = ncNet + slack >= res.residualCents;
       const today = todayIso();
       const invoice: InvoiceFiscal = {
         tipoDocumento: 'TD04',
         year: Number(today.slice(0, 4)),
         sectional: 'NC',
         operationDate: today,
-        stampDuty: stamp > 0,
+        stampDuty: tot.stampDueCents > 0,
         stampDutyChargedToCustomer: false,
-        stampAmount: stamp,
+        stampAmount: tot.stampDueCents / 100,
         customerChannel: orig.invoice.customerChannel,
         originalDocumentId: orig.id,
         originalNumber: orig.invoice.number,
@@ -420,12 +544,11 @@ export const createCreditNote = async (
       };
       return {
         draft,
-        deps: { origId: orig.id, origStatus: orig.status, origUpdated: orig.updatedAt, priorNet, ids: prior.map((d) => d.id) },
+        deps: { origId: orig.id, origStatus: orig.status, origUpdated: orig.updatedAt, creditedCents: res.creditedCents, ids: prior.map((d) => d.id) },
         finalize: async (tx, issued) => {
-          const o = (await tx.get<QuoteDocument>('documents', orig.id))!;
-          const detail = `${full ? 'Stornata integralmente' : 'Stornata in parte'} dalla nota di credito ${issued.invoice!.number}: ${reason}`;
-          if (full) await tx.put('documents', { ...o, status: 'stornata', updatedAt: now });
+          const detail = `${full ? 'Storno del residuo' : 'Stornata in parte'} dalla nota di credito ${issued.invoice!.number}: ${reason}`;
           await addAudit(tx, { docId: orig.id, action: 'credit_note', detail, xmlSha256: issued.invoice!.xmlSha256, at: now });
+          await reconcileOriginal(tx, orig.id, now, `nota di credito ${issued.invoice!.number}`);
         },
       };
     },
@@ -456,6 +579,18 @@ export const recordSdiEvent = async (docId: string, ev: SdiEvent): Promise<Quote
             throw new InvalidSdiTransitionError(
               `Sono passati più di ${RESUBMIT_DAYS} giorni dallo scarto: non si può rinviare con lo stesso numero. Crea una nuova fattura collegata.`);
           }
+          if (d.invoice.tipoDocumento === 'TD04' && d.invoice.originalDocumentId) {
+            const all = await t.all<QuoteDocument>('documents');
+            const orig = all.find((x) => x.id === d.invoice!.originalDocumentId);
+            if (orig) {
+              const others = effectiveCreditNotes(all, orig.id).filter((x) => x.id !== d.id);
+              const res = creditResidual(orig, others);
+              const mine = d.lines.reduce((s2, l) => s2 + lineTotalCents(l), 0);
+              if (mine > res.residualCents + d.lines.length) {
+                throw new InvalidSdiTransitionError('Nel frattempo la fattura è stata stornata da altre note di credito: questa nota supererebbe l\'importo stornabile. Non rinviarla.');
+              }
+            }
+          }
           to = 'inviata';
         }
         break;
@@ -475,6 +610,9 @@ export const recordSdiEvent = async (docId: string, ev: SdiEvent): Promise<Quote
       invoice: { ...d.invoice, sdiEvents: [...d.invoice.sdiEvents, clone(ev)] },
     };
     await t.put('documents', next);
+    if (d.invoice.tipoDocumento === 'TD04' && d.invoice.originalDocumentId && (to === 'scartata' || from === 'scartata')) {
+      await reconcileOriginal(t, d.invoice.originalDocumentId, now, to === 'scartata' ? `la nota di credito ${d.invoice.number} è stata scartata: si considera non emessa` : `la nota di credito ${d.invoice.number} è stata rinviata`);
+    }
     const label = ev.type === 'INVIO' ? `Invio allo SDI dichiarato (${ev.channel})` : `Esito SDI ${ev.type}${ev.errorCodes?.length ? ` [${ev.errorCodes.join(', ')}]` : ''}`;
     await addAudit(t, {
       docId, action: ev.type === 'INVIO' ? 'mark_sent' : 'sdi_event',
@@ -497,7 +635,7 @@ export const recordPayment = async (docId: string, p: { date: string; amount: nu
     const profile = withDefaults(await t.getProfile());
     const payments = [...d.invoice.payments, { date: p.date, amount: p.amount, ...(p.method ? { method: p.method } : {}) }];
     const paid = payments.reduce((s, x) => s + cents(x.amount), 0);
-    const gross = cents(computeTotals(d.lines, { forfettario: profile.regimeForfettario, type: 'fattura' }).gross);
+    const gross = invoiceTotalsCents(d.lines, { forfettario: profile.regimeForfettario, stampChargedToCustomer: !!d.invoice.stampDutyChargedToCustomer }).grossCents;
     const paymentStatus = paid >= gross && gross > 0 ? 'pagata' : paid > 0 ? 'parziale' : 'non_pagata';
     const now = Date.now();
     const next: QuoteDocument = { ...d, updatedAt: now, invoice: { ...d.invoice, payments, paymentStatus } };

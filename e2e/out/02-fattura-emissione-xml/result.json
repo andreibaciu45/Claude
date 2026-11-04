@@ -1,0 +1,163 @@
+{
+  "name": "02-fattura-emissione-xml",
+  "status": "PASS",
+  "checks": [
+    {
+      "name": "bozza: mostra \"senza numero\"/BOZZA",
+      "ok": true,
+      "detail": "Fattura\n\nn. bozza, senza numero\n\nBozza\n\nBOZZA: non ha ancora un numero e non è stata emessa. Il numero viene assegnato solo quando emetti la fattura.\n\nEmetti fattura\nScarica PDF (bozza)\nBianchi Mario "
+    },
+    {
+      "name": "emissione: pulsante hold disabilitato senza casella di conferma",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "emissione: tocco breve NON emette",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "emissione: pressione di 0,6 s NON emette",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "numero 1/2026",
+      "ok": true,
+      "detail": "Fattura\n\nn. 1/2026\n\nEmessa\nNon pagata\nEmessa\nNon pagata\n\nHa il suo numero ed è bloccata, ma non risulta ancora inviata allo SDI: il file XML va carica"
+    },
+    {
+      "name": "stato Emessa visibile",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "nessun pulsante Modifica / Elimina",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "nome file IT01234567897_xxxxx.xml",
+      "ok": true,
+      "detail": "IT01234567897_00001.xml"
+    },
+    {
+      "name": "xmllint: XML well-formed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "XML: TipoDocumento TD01",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "XML: RegimeFiscale RF19",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "XML: Natura N2.2 e aliquota 0",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "XML: DatiBollo (150 > 77,47)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "XML: ProgressivoInvio = nome file",
+      "ok": true,
+      "detail": "<ProgressivoInvio>00001"
+    },
+    {
+      "name": "XML: Numero 1/2026",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "XML: IdFiscaleIVA cedente e cessionario",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "XML: cliente P.IVA 02345678904 e CodiceDestinatario",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "XML: importo totale 152.00 (150 + bollo 0 a carico) o 150.00",
+      "ok": true,
+      "detail": "<ImportoTotaleDocumento>150.00"
+    },
+    {
+      "name": "XML: FormatoTrasmissione FPR12",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "XML: nessuna ImpostaIVA diversa da zero",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "stato Inviata",
+      "ok": true,
+      "detail": "Inviata allo SDI\nNon pagata"
+    },
+    {
+      "name": "stato Consegnata dopo RC",
+      "ok": true,
+      "detail": "Consegnata\nNon pagata"
+    },
+    {
+      "name": "incasso: importo precompilato col residuo",
+      "ok": true,
+      "detail": "150"
+    },
+    {
+      "name": "stato pagamento: Pagata",
+      "ok": true,
+      "detail": "Consegnata\nPagata in parte"
+    },
+    {
+      "name": "cronologia contiene emissione, invio, esito, incasso",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "XML scaricabile ancora dopo incasso",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "seconda fattura = 2/2026",
+      "ok": true,
+      "detail": "2/2026"
+    },
+    {
+      "name": "XML 50 EUR: nessun DatiBollo",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "XML 2: progressivo diverso dal primo",
+      "ok": true,
+      "detail": "IT01234567897_00001.xml vs IT01234567897_00002.xml"
+    },
+    {
+      "name": "XML 2 well-formed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "nessun errore in console / pageerror",
+      "ok": true,
+      "detail": "[]"
+    }
+  ],
+  "consoleErrors": [],
+  "notes": []
+}

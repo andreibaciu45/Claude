@@ -1,0 +1,118 @@
+{
+  "name": "03-nota-di-credito",
+  "status": "FAIL",
+  "checks": [
+    {
+      "name": "fattura 1/2026",
+      "ok": true,
+      "detail": "1/2026"
+    },
+    {
+      "name": "NC: senza motivo il pulsante e disabilitato",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NC: con motivo il pulsante e abilitato",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NC: un tocco non emette",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NC numero NC1/2026",
+      "ok": true,
+      "detail": "Nota di credito emessa: n. NC1/2026"
+    },
+    {
+      "name": "navigato alla NC (id diverso)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NC: etichetta \"Nota di credito\" e link alla fattura originale",
+      "ok": true,
+      "detail": "Nota di credito\n\nn. NC1/2026\n\nNota di credito\nEmessa\nNota di credito\nEmessa\n\nHa il suo numero ed è bloccata, ma non risulta ancora inviata allo SDI: il file XML va caricato da te.\n\nRettifica la fattura n. 1/2026 del 04/11/2026\nMotivo: Importo errato\nScarica XML\nCome inviarla allo SDI\nSegna come invi"
+    },
+    {
+      "name": "NC: nessun pulsante \"Registra incasso\" / \"Annulla con nota\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NC XML well-formed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NC XML: TD04",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NC XML: Numero NC1/2026",
+      "ok": true,
+      "detail": "<Numero>NC1/2026"
+    },
+    {
+      "name": "NC XML: DatiFattureCollegate -> 1/2026",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NC XML: causale con motivo",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NC XML: RF19 e N2.2",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "NC XML: importo 300.00 positivo",
+      "ok": true,
+      "detail": "<ImportoTotaleDocumento>300.00"
+    },
+    {
+      "name": "NC XML: nome file IT01234567897_xxxxx.xml con progressivo 00002",
+      "ok": true,
+      "detail": "IT01234567897_00002.xml"
+    },
+    {
+      "name": "originale: stato \"Stornata\"",
+      "ok": true,
+      "detail": "Stornata\nNon pagata"
+    },
+    {
+      "name": "originale: link \"Stornata dalla nota di credito n. NC1/2026\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "originale stornata: nessun secondo storno / incasso / modifica",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "seconda fattura 2/2026 (la NC non consuma FT)",
+      "ok": true,
+      "detail": "2/2026"
+    },
+    {
+      "name": "ERRORE SCRIPT/eccezione non gestita: locator.waitFor: Timeout 8000ms exceeded.",
+      "ok": false,
+      "detail": "locator.waitFor: Timeout 8000ms exceeded. | Call log: | \u001b[2m  - waiting for locator('.toast').filter({ hasText: 'Nota di credito emessa' }).first() to be visible\u001b[22m |  |     at anyToast (/home/user/Claude/e2e/scenarios/03-nota-di-credito.cjs:14:57)"
+    },
+    {
+      "name": "nessun errore in console / pageerror",
+      "ok": true,
+      "detail": "[]"
+    }
+  ],
+  "consoleErrors": [],
+  "notes": []
+}

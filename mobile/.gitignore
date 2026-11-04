@@ -1,0 +1,15 @@
+node_modules
+# build nativi
+android/app/build
+android/build
+android/.gradle
+android/local.properties
+android/app/release
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+*.p8
+ios/App/Pods
+ios/App/build
+ios/DerivedData
