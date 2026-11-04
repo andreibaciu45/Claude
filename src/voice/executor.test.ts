@@ -115,7 +115,8 @@ describe('emissione (irreversibile)', () => {
     const labels = p.summary.fields.map((f) => f.label);
     expect(labels).toEqual(expect.arrayContaining(['Documento', 'Cliente', 'Importo']));
     expect(p.summary.fields.find((f) => f.label === 'Cliente')?.value).toBe('Mario Rossi');
-    expect(p.summary.fields.find((f) => f.label === 'Importo')?.value).toMatch(/202,00/); // 200 + bollo 2 (forfettario > 77,47)
+    expect(p.summary.fields.find((f) => f.label === 'Importo')?.value).toMatch(/^200,00/); // bollo 2 a carico dell'emittente: NON nel totale
+    expect(p.summary.warnings.join(' ')).toMatch(/a tuo carico/);
     expect(p.summary.consequence).toMatch(/non si può più modificare/);
   });
   it('senza gettone di conferma NON emette (lancia e non chiama issueInvoice)', async () => {
@@ -222,6 +223,17 @@ describe('storno (irreversibile)', () => {
   });
 });
 
+describe('emissione con bollo a carico del cliente', () => {
+  it('il riepilogo include il bollo nel totale e lo dice', async () => {
+    const d = doc({ type: 'fattura', number: '', lines: [line({ qty: 2, unitPrice: 100, vat: 0 })], invoice: { stampDutyChargedToCustomer: true, stampDuty: true, stampAmount: 2 } });
+    put(d);
+    const p = await planCommand({ type: 'issue_invoice', ref: { kind: 'id', id: d.id } });
+    if (p.status !== 'ready') throw new Error('plan');
+    expect(p.summary.fields.find((f) => f.label === 'Importo')?.value).toMatch(/^202,00/);
+    expect(p.summary.warnings.join(' ')).toMatch(/a carico del cliente/);
+  });
+});
+
 describe('altri comandi', () => {
   it('pagamento: default al residuo, avviso se supera, usa recordPayment con la data di oggi', async () => {
     const f = emitted({ lines: [line({ qty: 1, unitPrice: 100, vat: 0 })], invoice: { seq: 12, lockedAt: 1, payments: [{ date: '2026-10-05', amount: 30 }] } });
@@ -229,7 +241,7 @@ describe('altri comandi', () => {
     const ref = { kind: 'id', id: f.id } as const;
     const p1 = await planCommand({ type: 'mark_paid', ref }, { now: new Date(2026, 10, 4) });
     if (p1.status !== 'ready') throw new Error('plan');
-    expect(p1.summary.fields.find((x) => x.label === 'Importo')?.value).toMatch(/72,00/); // 100 + 2 bollo - 30
+    expect(p1.summary.fields.find((x) => x.label === 'Importo')?.value).toMatch(/70,00/); // 100 - 30 (bollo a carico dell'emittente, fuori dal totale)
     const p2 = await planCommand({ type: 'mark_paid', ref, amount: 500 });
     if (p2.status !== 'ready') throw new Error('plan');
     expect(p2.summary.warnings.join(' ')).toMatch(/supera il residuo/);

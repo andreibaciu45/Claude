@@ -111,14 +111,14 @@ export default function LandingPage() {
           <div className="lp-wrap">
             <h2>Meno tempo sul preventivo, più tempo sul lavoro</h2>
             <div className="lp-grid lp-grid--3">
-              <Card className="lp-card"><div className="lp-ico" aria-hidden="true">⚡</div><h3>Veloce in cantiere</h3><p>Niente tastiera con le mani sporche. Parli, controlli la scheda, correggi una riga se serve. Un preventivo in un minuto, non la sera a casa.</p></Card>
-              <Card className="lp-card"><div className="lp-ico" aria-hidden="true">📒</div><h3>Il tuo listino sempre con te</h3><p>I prezzi sono i tuoi, non quelli di un catalogo generico. Materiali, manodopera, uscite: l’app cerca nel tuo magazzino e non inventa nulla. Le voci che non trova te le segna da controllare.</p></Card>
+              <Card className="lp-card"><div className="lp-ico" aria-hidden="true">⚡</div><h3>Veloce in cantiere</h3><p>Niente tastiera con le mani sporche. Parli, controlli la scheda, correggi una riga se serve. Il preventivo lo prepari sul posto, senza riscriverlo la sera a casa.</p></Card>
+              <Card className="lp-card"><div className="lp-ico" aria-hidden="true">📒</div><h3>Il tuo listino sempre con te</h3><p>I prezzi sono i tuoi, non quelli di un catalogo generico. Materiali, manodopera, uscite: l’app cerca nel tuo magazzino e non aggiunge prezzi di sua iniziativa. Le voci che non trova te le segna da controllare: le righe vanno sempre verificate prima di mandare il preventivo.</p></Card>
               <Card className="lp-card"><div className="lp-ico" aria-hidden="true">📄</div><h3>PDF professionale in un tocco</h3><p>Con il tuo nome, la tua partita IVA e i tuoi dati. Lo condividi su WhatsApp o per email direttamente dal telefono.</p></Card>
               <Card className="lp-card"><div className="lp-ico" aria-hidden="true">🧾</div><h3>Fatture e note di credito</h3><p>Dal preventivo alla fattura in un passaggio. Se hai sbagliato, la nota di credito collegata annulla la fattura senza modificarla.</p></Card>
-              <Card className="lp-card"><div className="lp-ico" aria-hidden="true">🗂️</div><h3>XML per lo SDI</h3><p>Per i forfettari genera il file XML della fattura elettronica. Lo carichi tu sul portale gratuito dell’Agenzia delle Entrate o lo invii via PEC.</p></Card>
+              <Card className="lp-card"><div className="lp-ico" aria-hidden="true">🗂️</div><h3>XML per lo SDI</h3><p>Per i forfettari genera il file XML della fattura elettronica. L’invio allo SDI non è automatico, è una scelta: lo carichi tu sul portale gratuito dell’Agenzia delle Entrate o lo invii via PEC.</p></Card>
               <Card className="lp-card"><div className="lp-ico" aria-hidden="true">🗣️</div><h3>Comandi vocali</h3><p>Oltre a dettare le righe, usi la voce per i passaggi comuni. Per le azioni che non si annullano, come emettere una fattura, serve sempre una conferma esplicita.</p></Card>
               <Card className="lp-card"><div className="lp-ico" aria-hidden="true">📶</div><h3>Funziona offline</h3><p>Listino, documenti e PDF anche in cantiere senza campo. Si sincronizza quando torna la rete, se hai un account.</p></Card>
-              <Card className="lp-card"><div className="lp-ico" aria-hidden="true">🔓</div><h3>Account facoltativo</h3><p>Puoi usarla senza registrarti, con i dati solo sul telefono. Se vuoi più dispositivi e un archivio al sicuro, crei un account.</p></Card>
+              <Card className="lp-card"><div className="lp-ico" aria-hidden="true">🔓</div><h3>Account facoltativo</h3><p>Puoi usarla senza registrarti, con i dati solo sul telefono. Se vuoi ritrovare i dati su più dispositivi, crei un account.</p></Card>
             </div>
           </div>
         </section>
@@ -131,6 +131,58 @@ export default function LandingPage() {
               <li><div><h3>Controlla</h3><p>Compare la scheda con voci, quantità e totale. Cambi quello che non ti torna con un tocco.</p></div></li>
               <li><div><h3>Manda il PDF</h3><p>Scegli preventivo, fattura o nota di credito. Genera il PDF per il cliente e, per le fatture, scarichi l’XML da caricare sul portale dell’Agenzia delle Entrate.</p></div></li>
             </ol>
+          </div>
+        </section>
+
+        <section className="lp-section lp-section--alt">
+          <div className="lp-wrap">
+            <h2>Per chi è e per chi non è</h2>
+            <div className="lp-grid lp-grid--2">
+              <Card className="lp-card">
+                <h3>Può fare al caso tuo se</h3>
+                <ul>
+                  <li>sei un artigiano o una piccola impresa e fai preventivi sul telefono, a mano, su Word o su WhatsApp;</li>
+                  <li>hai già un tuo listino prezzi, o sei disposto a scriverne le voci principali;</li>
+                  <li>sei in regime forfettario e ti basta un file XML da caricare tu sul portale dell’Agenzia delle Entrate;</li>
+                  <li>vuoi uno strumento in più accanto al gestionale o al servizio gratuito che già usi, non un sostituto.</li>
+                </ul>
+              </Card>
+              <Card className="lp-card">
+                <h3>Non fa per te se hai bisogno di</h3>
+                <ul>
+                  <li>invio automatico allo SDI;</li>
+                  <li>conservazione a norma delle fatture;</li>
+                  <li>contabilità completa, ritenute, casse previdenziali, split payment o regimi diversi dal forfettario;</li>
+                  <li>assistenza telefonica o consulenza fiscale.</li>
+                </ul>
+              </Card>
+            </div>
+            <p className="lp-note">Sono scelte di prodotto dichiarate, non funzioni nascoste: per questi casi esistono gestionali e servizi dedicati, e VocePreventivo può affiancarli.</p>
+          </div>
+        </section>
+
+        <section className="lp-section">
+          <div className="lp-wrap">
+            <h2>Come si confronta con il portale gratuito dell’Agenzia delle Entrate</h2>
+            <p className="lp-muted">Sono strumenti con scopi diversi e si possono usare insieme. Verifica sempre le condizioni aggiornate sul sito dell’Agenzia delle Entrate.</p>
+            <div className="lp-grid lp-grid--2">
+              <Card className="lp-card">
+                <h3>Portale “Fatture e Corrispettivi”</h3>
+                <ul>
+                  <li>È gratuito, si accede con SPID, CIE o CNS.</li>
+                  <li>Trasmette le fatture elettroniche allo SDI.</li>
+                  <li>Non prepara preventivi e non parte dal tuo listino a voce.</li>
+                </ul>
+              </Card>
+              <Card className="lp-card">
+                <h3>VocePreventivo</h3>
+                <ul>
+                  <li>Prepara preventivi dal tuo listino, anche a voce, e fatture e note di credito per il forfettario.</li>
+                  <li>Genera l’XML, ma non lo trasmette: lo carichi tu sul portale.</li>
+                  <li>Non conserva a norma e non è consulenza fiscale.</li>
+                </ul>
+              </Card>
+            </div>
           </div>
         </section>
 
@@ -167,7 +219,7 @@ export default function LandingPage() {
                 <a className="lp-btn lp-btn--ghost" href="#/">Prova gratis</a>
               </Card>
               <Card className="lp-card lp-plan lp-plan--pro">
-                <Badge tone="success">Il più scelto</Badge>
+                <Badge tone="info">Per chi emette spesso</Badge>
                 <h3 style={{ marginTop: 8 }}>Pro</h3>
                 <div className="lp-price">{eur(PRO_PRICE_MONTH)} <small>al mese</small></div>
                 <p className="lp-muted">oppure {eur(PRO_PRICE_YEAR)} all’anno (risparmi {eur(PRO_YEARLY_SAVING)} rispetto al mensile).</p>
@@ -206,7 +258,7 @@ export default function LandingPage() {
         <section className="lp-section lp-section--alt lp-final">
           <div className="lp-wrap">
             <h2>Il prossimo preventivo, fallo parlando</h2>
-            <p className="lp-muted">Provalo sul prossimo lavoro. Se non ti fa risparmiare tempo, non hai perso niente.</p>
+            <p className="lp-muted">Provalo sul prossimo lavoro, con il piano gratuito. Se non ti serve, smetti quando vuoi ed esporti i tuoi dati.</p>
             <div className="lp-cta-row" style={{ justifyContent: 'center' }}>
               <a className="lp-btn" href="#/">Prova gratis</a>
             </div>

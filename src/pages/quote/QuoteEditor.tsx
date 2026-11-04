@@ -14,7 +14,10 @@ export const lineTotal = (l: DocLine) => roundMoney(l.qty * l.unitPrice * (1 - (
 /** Riga di sconto in euro: prezzo negativo (l'importo 0 appena azzerato resta -0). */
 const isDiscount = (l: DocLine) => l.unitPrice < 0 || Object.is(l.unitPrice, -0);
 
-export const newLine = (vat: number): DocLine => ({ id: uid(), description: '', qty: 1, unit: 'pz', unitPrice: 0, vat });
+/** Riga libera. In regime forfettario nasce senza IVA (vat 0, natura N2.2): l'aliquota non è mai mostrata né scelta. */
+export const newLine = (vat: number, forfettario = false): DocLine => ({
+  id: uid(), description: '', qty: 1, unit: 'pz', unitPrice: 0, ...(forfettario ? { vat: 0, natura: 'N2.2' as const } : { vat }),
+});
 
 const Icon = ({ d }: { d: string }) => (
   <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>
@@ -69,10 +72,11 @@ export function QuoteEditor(p: Props) {
     setUndo(null);
   };
   const fromCatalog = (c: CatalogItem): Partial<DocLine> => ({
-    catalogItemId: c.id, description: c.name, unit: c.unit, unitPrice: c.price, vat: c.vat, needsReview: false,
+    catalogItemId: c.id, description: c.name, unit: c.unit, unitPrice: c.price, needsReview: false,
+    ...(p.forfettario ? { vat: 0, natura: 'N2.2' as const } : { vat: c.vat }),
   });
   const onPick = (c: CatalogItem) => {
-    if (pickFor === 'new') onLines([...lines, { ...newLine(p.defaultVat), ...fromCatalog(c) }]);
+    if (pickFor === 'new') onLines([...lines, { ...newLine(p.defaultVat, p.forfettario), ...fromCatalog(c) }]);
     else if (pickFor) patch(pickFor, fromCatalog(c));
     setPickFor(null);
   };
@@ -203,7 +207,7 @@ export function QuoteEditor(p: Props) {
         ))}
 
         <div className="qe-add">
-          <Button type="button" variant="secondary" onClick={() => onLines([...lines, newLine(p.defaultVat)])}>+ Riga libera</Button>
+          <Button type="button" variant="secondary" onClick={() => onLines([...lines, newLine(p.defaultVat, p.forfettario)])}>+ Riga libera</Button>
           <Button type="button" variant="secondary" onClick={() => setPickFor('new')}>+ Dal catalogo</Button>
         </div>
         {catalog.length === 0 && <p className="muted qe-note">Il catalogo è vuoto: <a href="#/catalogo">aggiungi le tue voci</a> per averle pronte quando detti.</p>}
