@@ -31,7 +31,9 @@ export function usePlan(): UsePlan {
     if (st.me && st.me !== lastRecorded) {
       lastRecorded = st.me;
       // la verifica vale dal momento in cui il server ha risposto, non da quando questo componente si è montato
-      writePlanCache(cacheFromMe(st.me, st.meAt ?? Date.now()));
+      const at = st.meAt ?? Date.now();
+      const cur = readPlanCache();
+      if (!cur || cur.verifiedAt <= at || (cur.email && cur.email !== st.me.email)) writePlanCache(cacheFromMe(st.me, at)); // mai una verifica più vecchia sopra una più recente (altra scheda)
       notifyBillingChanged();
     }
   }, [st.signedIn, st.me]);

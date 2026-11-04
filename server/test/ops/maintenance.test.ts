@@ -1,6 +1,6 @@
 // Manutenzione automatica: pulizie, checkpoint, VACUUM a basso impatto.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { docOp, freshEnv, invoice, login, push, quote, useFileDb, type FileDb } from './helpers';
 import { all, one, run } from '../../src/db';
 import { setClock } from '../../src/db/clock';
@@ -30,12 +30,12 @@ describe('pulizia periodica', () => {
     setClock(() => T + 100 * DAY);
     let r = housekeeping();
     expect(r.documents_tombstones).toBe(0); // 100 giorni < 180 di conservazione
+    expect(r.ops_errors).toBe(1);           // errori: 90 giorni
+    expect(r.invite_codes).toBe(1);         // invito scaduto da oltre 90 giorni
     setClock(() => T + 200 * DAY);
     r = housekeeping();
     expect(r.documents_tombstones).toBe(1);
     expect(r.catalog_tombstones).toBe(1);
-    expect(r.ops_errors).toBe(1);
-    expect(r.invite_codes).toBe(1);
     expect(all('SELECT id FROM documents ORDER BY id').map((d: any) => d.id)).toEqual(['f1', 'q-new']);
     // retention configurabile
     process.env.TOMBSTONE_RETENTION_DAYS = '1';
@@ -95,10 +95,12 @@ describe('checkpoint, optimize, VACUUM', () => {
     run("INSERT INTO tenants(id, created_at) VALUES ('t', 1)");
     for (let i = 0; i < 300; i++) run("INSERT INTO catalog_items(tenant_id, id, data, updated_at) VALUES ('t', ?, ?, 1)", `c${i}`, 'x'.repeat(20_000));
     run('DELETE FROM catalog_items');
-    const before = statSync(fdb.path).size;
+    const free = () => Number((one<any>('PRAGMA freelist_count')).freelist_count);
+    expect(free()).toBeGreaterThan(1000);
     process.env.MAINTENANCE_VACUUM_MIN_FREE_MB = '1';
     expect(maybeVacuum()).toBe('done');
-    expect(statSync(fdb.path).size).toBeLessThan(before / 4);
+    expect(free()).toBe(0);
+    walCheckpointPassive();
     expect(maybeVacuum()).toBe('skipped:too-soon');
     expect(one<any>("SELECT value FROM ops_state WHERE key='last_vacuum_at'")).toBeTruthy();
     // dati e trigger intatti
