@@ -9,6 +9,7 @@ import { el, leaf, optLeaf, renderNode, type XNode } from './xmlWriter';
 import { formatCents, formatDecimal, discountBasisPoints, type DocumentTotalsCents } from '../fiscal/money';
 import { isValidEmail, isValidIban, isValidProvinciaIt } from '../fiscal/validators';
 import {
+  CAUSALE_BOLLO,
   CAUSALE_FORFETTARIO,
   CAUSALE_NO_RITENUTA,
   DESC_RIMBORSO_BOLLO,
@@ -165,15 +166,17 @@ const datiTrasmissione = (profile: Profile, customer: Customer, progressivo: str
 // ---- body ------------------------------------------------------------------------------------
 
 /** Blocchi di Causale (ciascuno <= 200 caratteri). TD04: motivo dello storno prima, poi dicitura forfettario. */
-export const buildCausali = (doc: QuoteDocument): string[] => {
+export const buildCausali = (doc: QuoteDocument, stampDue?: boolean): string[] => {
   const inv = doc.invoice;
+  // bollo dovuto: la dicitura compare anche nell'XML, identica a quella del PDF (./legalText). Default: invoice.stampDuty.
+  const bollo = (stampDue ?? !!inv?.stampDuty) ? [CAUSALE_BOLLO] : [];
   if (inv?.tipoDocumento === 'TD04') {
     const reason = trimmed(inv.creditNoteReason);
     const ref = `Storno della fattura n. ${inv.originalNumber ?? ''} del ${inv.originalDate ? itDate(inv.originalDate) : ''}`;
     const first = !reason ? `${ref}.` : reason.includes(inv.originalNumber ?? '\u0000') ? reason : `${ref}: ${reason}`;
-    return [...chunkText(first, LIMITS.causale), ...chunkText(CAUSALE_FORFETTARIO, LIMITS.causale)];
+    return [...chunkText(first, LIMITS.causale), ...[CAUSALE_FORFETTARIO, ...bollo].flatMap((t) => chunkText(t, LIMITS.causale))];
   }
-  return [CAUSALE_FORFETTARIO, CAUSALE_NO_RITENUTA].flatMap((t) => chunkText(t, LIMITS.causale));
+  return [CAUSALE_FORFETTARIO, ...bollo, CAUSALE_NO_RITENUTA].flatMap((t) => chunkText(t, LIMITS.causale));
 };
 
 const datiGenerali = (doc: QuoteDocument, totals: DocumentTotalsCents): XNode => {
@@ -189,7 +192,7 @@ const datiGenerali = (doc: QuoteDocument, totals: DocumentTotalsCents): XNode =>
       leaf('Numero', inv.number as string),
       totals.stampDue && el('DatiBollo', leaf('BolloVirtuale', 'SI'), leaf('ImportoBollo', formatCents(totals.stampCents))),
       leaf('ImportoTotaleDocumento', formatCents(totals.totalCents)),
-      ...buildCausali(doc).map((t) => leaf('Causale', t)),
+      ...buildCausali(doc, totals.stampDue).map((t) => leaf('Causale', t)),
     ),
     td04 &&
       el(

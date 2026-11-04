@@ -82,9 +82,9 @@ Valgono per le guide esistenti e per tutte quelle future:
 | Bollo / Nota di credito | Bollo sulla nota di credito | §1.4 (fonti discordanti) | Non affermato: rimanda al commercialista |
 | Fattura elettronica | Termine di 12 giorni | §1.5 | "il termine più citato... verifica" |
 | Fattura elettronica | Obbligo per tutti dal 2024 | §4 | "in generale" |
-| Cosa scrivere / Annullare | Dicitura forfettario, legge 190/2014 | §2 | "la formula più diffusa cita... fai confermare" |
-| Annullare / Numerazione | Fattura scartata = non emessa | §1.3 | "in generale"; termini e numero rimandati al commercialista |
-| Fattura elettronica | Portale gratuito, PEC, conservazione gratuita AdE | §6 | Formulazione generica, nessun indirizzo PEC citato |
+| Cosa scrivere / Annullare | Dicitura forfettario, legge 190/2014 | §2.3 | "la formula più diffusa cita... fai confermare" |
+| Annullare / Numerazione | Fattura scartata = non emessa | §1.2 | "in generale"; termini e numero rimandati al commercialista |
+| Fattura elettronica | Portale gratuito, PEC, conservazione gratuita AdE | §3.1 e §3.2 | Formulazione generica, nessun indirizzo PEC citato |
 
 ## 5. Calendario dei nuovi contenuti
 

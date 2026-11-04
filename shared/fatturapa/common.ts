@@ -63,6 +63,13 @@ export const daysBetween = (a: string, b: string): number => Math.round(dayNumbe
 export const addDays = (iso: string, days: number): string =>
   new Date((dayNumber(iso) + days) * 86400000).toISOString().slice(0, 10);
 
+/** Ultimo giorno del mese della data ISO. */
+export const endOfMonth = (iso: string): string => {
+  const y = +iso.slice(0, 4);
+  const m = +iso.slice(5, 7);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+};
+
 /** Data locale di `now` come YYYY-MM-DD. */
 export const localIsoDate = (now: Date): string =>
   `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -167,12 +174,22 @@ export const derivePayment = (
   else if (/assegn/.test(terms)) modalita = 'MP02';
   else if (ibanValid) modalita = 'MP05';
   if (!modalita) return null;
+  // Scadenza dalle condizioni scritte dall'utente [DA VERIFICARE: euristica]:
+  //  - "30 giorni" / "30 gg" (anche "30 giorni data fattura") = data del documento + 30 giorni;
+  //  - "... fine mese" / "f.m." = fine del mese raggiunto dopo i giorni indicati;
+  //  - "a vista" / "alla consegna" / "immediato" = stessa data del documento;
+  //  - elenchi di rate ("30/60/90 giorni") = non si deduce una scadenza unica: nessuna data (l'utente la indica a mano).
   const days = /(\d{1,3})\s*(?:giorni|gg)\b/.exec(terms);
-  const dueDate = dueDateOverride && isIsoDate(dueDateOverride)
-    ? dueDateOverride
-    : days
-      ? addDays(operationDate, Number(days[1]))
-      : undefined;
+  const multi = /\d{1,3}\s*[/,-]\s*\d{1,3}\s*(?:[/,-]\s*\d{1,3}\s*)*(?:giorni|gg)\b/.test(terms);
+  const endMonth = /fine\s*mese|\bf\.?\s?m\.?(?=\s|$|[,;.])/.test(terms);
+  const atSight = /\ba vista\b|\bimmediat|\balla consegna\b|\bcontestual/.test(terms);
+  let computed: string | undefined;
+  if (days && !multi) {
+    const base = addDays(operationDate, Number(days[1]));
+    computed = endMonth ? endOfMonth(base) : base;
+  } else if (!days && atSight) computed = operationDate;
+  else if (!days && endMonth) computed = endOfMonth(operationDate);
+  const dueDate = dueDateOverride && isIsoDate(dueDateOverride) ? dueDateOverride : isIsoDate(operationDate) ? computed : undefined;
   return {
     modalita,
     dueDate,
