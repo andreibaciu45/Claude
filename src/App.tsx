@@ -3,18 +3,42 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Icon, Skeleton, ToastProvider } from './ui';
 import type { IconName } from './ui';
 import NewQuotePage from './pages/NewQuotePage';
-import DocumentsPage from './pages/DocumentsPage';
-import DocumentView from './pages/DocumentView';
-import CatalogPage from './pages/CatalogPage';
-import ProfilePage from './pages/ProfilePage';
-import BackupPage from './pages/BackupPage';
-import LandingPage from './pages/LandingPage';
-import { VoiceCommandWidget } from './voice/ui/VoiceCommandWidget';
 import { attachSync, SyncBadge } from './sync';
 import './app.css';
 
 // Pagina account (opzionale): caricata solo quando serve; il fallback evita schermate bianche se il chunk non si carica.
 const AccountPage = lazy(() => import('./pages/AccountPage'));
+// Code splitting per rotta: la home (NewQuotePage) resta nel bundle principale, il resto si carica a richiesta.
+const loaders = {
+  documents: () => import('./pages/DocumentsPage'),
+  document: () => import('./pages/DocumentView'),
+  catalog: () => import('./pages/CatalogPage'),
+  profile: () => import('./pages/ProfilePage'),
+  backup: () => import('./pages/BackupPage'),
+  landing: () => import('./pages/LandingPage'),
+  account: () => import('./pages/AccountPage'),
+  voice: () => import('./voice/ui/VoiceCommandWidget').then((m) => ({ default: m.VoiceCommandWidget })),
+};
+const DocumentsPage = lazy(loaders.documents);
+const DocumentView = lazy(loaders.document);
+const CatalogPage = lazy(loaders.catalog);
+const ProfilePage = lazy(loaders.profile);
+const BackupPage = lazy(loaders.backup);
+const LandingPage = lazy(loaders.landing);
+const VoiceCommandWidget = lazy(loaders.voice);
+
+/** Dopo il primo rendering, quando il browser è inattivo, scarica i chunk delle altre rotte: niente attese né lampi bianchi alla prima navigazione. */
+function usePreloadRoutes(): boolean {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (h: number) => void };
+    const run = () => { setReady(true); Object.values(loaders).forEach((l) => { void l().catch(() => undefined); }); };
+    if (w.requestIdleCallback) { const h = w.requestIdleCallback(run, { timeout: 2000 }); return () => w.cancelIdleCallback?.(h); }
+    const h = window.setTimeout(run, 800);
+    return () => window.clearTimeout(h);
+  }, []);
+  return ready;
+}
 
 const TABS: { to: string; label: string; icon: IconName; end?: boolean }[] = [
   { to: '/', label: 'Nuovo', icon: 'mic', end: true },
@@ -60,6 +84,7 @@ function RouteEffects({ onAnnounce }: { onAnnounce: (msg: string) => void }) {
 }
 
 function Shell() {
+  const widgetReady = usePreloadRoutes();
   const mainRef = useRef<HTMLElement>(null);
   // NON `href="#main"`: con HashRouter diventerebbe una rotta.
   const skip = () => { mainRef.current?.focus(); mainRef.current?.scrollIntoView?.({ block: 'start' }); };
@@ -78,13 +103,13 @@ function Shell() {
       </nav>
       <div className="shell-body">
         <main className="shell-main" id="main" ref={mainRef} tabIndex={-1}>
-          <Outlet />
+          <Suspense fallback={<Skeleton lines={3} blocks={2} />}><Outlet /></Suspense>
           <footer className="shell-footer">
             <Link to="/backup">Backup</Link><span aria-hidden="true">·</span><Link to="/account">Account</Link><span aria-hidden="true">·</span><SyncBadge /><span aria-hidden="true">·</span><Link to="/info">Informazioni</Link><span aria-hidden="true">·</span><a href={privacyHref}>Privacy</a>
           </footer>
         </main>
       </div>
-      <VoiceCommandWidget />
+      {widgetReady && <Suspense fallback={null}><VoiceCommandWidget /></Suspense>}
     </div>
   );
 }
@@ -115,7 +140,7 @@ export default function App() {
               }
             />
           </Route>
-          <Route path="/info" element={<LandingPage />} />
+          <Route path="/info" element={<Suspense fallback={<Skeleton lines={3} blocks={2} />}><LandingPage /></Suspense>} />
         </Routes>
       </HashRouter>
     </ToastProvider>

@@ -15,7 +15,8 @@ vi.mock('../engine', () => ({
   },
 }));
 
-import { generateDocumentPdf, renderDocumentPdf, creditNoteLines, docTitle, fmtNum, fmtEuro } from './index';
+import { generateDocumentPdf, creditNoteLines, docTitle, fmtNum, fmtEuro } from './index';
+import { renderDocumentPdf } from './render';
 import { fakeDoc, fakeProfile, fakeInvoice, fakeCreditNote } from './fixtures';
 import { BOLLO_LEGAL_TEXT, FORFETTARIO_LEGAL_TEXT } from '../../shared/fatturapa';
 

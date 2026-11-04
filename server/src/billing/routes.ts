@@ -8,6 +8,7 @@ import {
   computeEntitlement, createBillingService, type BillingService, type BillingStore,
 } from './entitlements';
 import { SqliteBillingStore } from './sqlite-store';
+import { manualGrantUntil } from '../db/grants';
 import { StripeApiError, stripePost, verifyStripeSignature } from './stripe';
 import { parseStripeEvent, processStripeEvent } from './webhook';
 
@@ -27,10 +28,11 @@ export const defaultBillingDeps: BillingDeps = {
 };
 
 /** Servizio entitlements/quote per CORE (es. /v1/me e sync push). Legge sempre le deps correnti. */
+const liveService = () => createBillingService(defaultBillingDeps.store, defaultBillingDeps.clock, (t, now) => manualGrantUntil(t, now));
 export const billingService: BillingService = {
-  getEntitlement: (t) => createBillingService(defaultBillingDeps.store, defaultBillingDeps.clock).getEntitlement(t),
-  consumeQuota: (t, n) => createBillingService(defaultBillingDeps.store, defaultBillingDeps.clock).consumeQuota(t, n),
-  quotaSnapshot: (t) => createBillingService(defaultBillingDeps.store, defaultBillingDeps.clock).quotaSnapshot(t),
+  getEntitlement: (t) => liveService().getEntitlement(t),
+  consumeQuota: (t, n) => liveService().consumeQuota(t, n),
+  quotaSnapshot: (t) => liveService().quotaSnapshot(t),
 };
 
 const CheckoutBody = z.object({ plan: z.enum(['month', 'year']) });

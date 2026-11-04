@@ -11,7 +11,8 @@ import type { DocLine, QuoteDocument } from '../../types';
 import { generateFatturaPA } from '../../../shared/fatturapa';
 import { find, parseXml, textOf } from '../../../shared/fatturapa/__tests__/xmlTools';
 import { company, consumer, makeDoc, makeProfile } from '../../../shared/fatturapa/__tests__/factories';
-import { documentTotals, fmtNum, lineAmount, renderDocumentPdf } from '../../pdf';
+import { documentTotals, fmtNum, lineAmount } from '../../pdf';
+import { renderDocumentPdf } from '../../pdf/render';
 import { toCents } from '../../../shared/fiscal/money';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

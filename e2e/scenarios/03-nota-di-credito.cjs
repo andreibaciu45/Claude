@@ -104,6 +104,7 @@ run('03-nota-di-credito', async (S) => {
   S.check('NC parziale oltre il residuo: riga gia stornata non selezionabile (checkbox disabilitato)', await cb1.isDisabled());
   const q1 = d.getByLabel('Quantità da stornare riga 1');
   await q1.fill('5').catch(() => {});
+  await q1.press('Tab').catch(() => {});
   await sleep(200);
   const q1v = await q1.inputValue();
   S.check('NC parziale oltre il residuo: la quantita non supera lo stornabile (0)', q1v === '0' || q1v === '', q1v);

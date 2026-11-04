@@ -41,9 +41,9 @@ run('05-numerazione-backup', async (S) => {
   S.check('scheda emissione: "Numero previsto" 5/2026', /Numero previsto\s*5\/2026/.test(prevTxt.replace(/\n+/g, ' ')), prevTxt.replace(/\n+/g, ' ').slice(0, 300));
   await page.keyboard.press('Escape');
   await go(page, '/profilo');
-  const nextField = await page.getByLabel('Prossimo n. fattura').inputValue();
-  S.note(`Profilo -> "Prossimo n. fattura" dopo 4 emissioni = ${nextField}`);
-  S.check('profilo: "Prossimo n. fattura" coerente col contatore reale (5)', nextField === '5', nextField);
+  const nextField = await page.getByLabel('Ultimo numero già usato per fatture').inputValue();
+  S.note(`Profilo -> "Ultimo numero già usato" dopo 4 emissioni = ${nextField}`);
+  S.check('profilo: "Ultimo numero già usato" coerente col contatore reale (4)', nextField === '4', nextField);
 
   // ricarica pagina: i contatori persistono
   await page.reload();

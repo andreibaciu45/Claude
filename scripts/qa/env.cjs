@@ -1,7 +1,7 @@
 'use strict';
 /**
  * Ambiente per la suite E2E: build privata della PWA (e2e/tmp/dist, per non toccare dist/ condiviso),
- * vite preview su :4180 e server locale su :8798 con DB temporaneo e OTP in chiaro (solo test).
+ * server statico (scripts/qa/static-server.cjs) su :4180 e server locale su :8798 con DB temporaneo e OTP in chiaro (solo test).
  * Usa SOLO segreti fittizi. Nessun dato reale, nessuna rete esterna.
  */
 const { spawn, spawnSync } = require('child_process');
@@ -29,7 +29,7 @@ async function startEnv({ build = true } = {}) {
   }
   if (await isOpen(4180)) console.log('! porta 4180 gia in uso: riuso il preview esistente (potrebbe servire un build diverso)');
   else {
-    procs.push(spawn('npx', ['vite', 'preview', '--port', '4180', '--strictPort', '--outDir', 'e2e/tmp/dist'], { cwd: ROOT, stdio: 'ignore', detached: true }));
+    procs.push(spawn(process.execPath, [path.join(__dirname, 'static-server.cjs'), 'e2e/tmp/dist', '4180'], { cwd: ROOT, stdio: 'ignore', detached: true }));
   }
   if (await isOpen(8798)) console.log('! porta 8798 gia in uso: riuso il server esistente');
   else {

@@ -126,10 +126,11 @@ export function Segmented<T extends string>({ value, onChange, options, ariaLabe
     const dir = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
     if (!dir) return;
     e.preventDefault();
+    const group = e.currentTarget; // React azzera currentTarget dopo l'handler: va salvato prima del rAF
     const i = options.findIndex((o) => o.value === value);
     const next = options[(i + dir + options.length) % options.length];
     onChange(next.value);
-    requestAnimationFrame(() => e.currentTarget.querySelector<HTMLElement>('[aria-checked="true"]')?.focus());
+    requestAnimationFrame(() => group.querySelector<HTMLElement>('[aria-checked="true"]')?.focus());
   };
   return (
     <div className="segmented" role="radiogroup" aria-label={ariaLabel} onKeyDown={onKey}>

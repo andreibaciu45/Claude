@@ -99,9 +99,20 @@ export interface BillingService {
   quotaSnapshot(tenantId: string): Promise<{ plan: Plan; quota: { docsThisMonth: number; docsLimit: number | null } }>;
 }
 
-export function createBillingService(store: BillingStore, clock: Clock): BillingService {
-  const getEntitlement = async (tenantId: string) =>
-    computeEntitlement(await store.getSubscription(tenantId), clock.now());
+/**
+ * `manualGrant`: fine (ms) della licenza concessa a mano (db/grants.ts), se attiva. Precedenza = massimo tra Stripe e concessione manuale:
+ * la concessione rende Pro un tenant che da Stripe sarebbe Free, senza toccare la sottoscrizione.
+ */
+export function createBillingService(store: BillingStore, clock: Clock, manualGrant?: (tenantId: string, now: number) => number | null): BillingService {
+  const getEntitlement = async (tenantId: string): Promise<Entitlement> => {
+    const now = clock.now();
+    const e = computeEntitlement(await store.getSubscription(tenantId), now);
+    if (e.plan === 'free' && manualGrant) {
+      const until = manualGrant(tenantId, now);
+      if (until !== null && until > now) return { plan: 'pro', state: 'active', docsLimit: null };
+    }
+    return e;
+  };
   return {
     getEntitlement,
     async consumeQuota(tenantId, amount = 1) {
