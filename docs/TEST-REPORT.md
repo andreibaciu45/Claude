@@ -1,3 +1,5 @@
+Ultimo allineamento al codice: 04/11/2026
+
 # Rapporto stabilità e copertura dei test
 
 Agente STABILITÀ-TEST. Data analisi: 2026-11-04. Macchina: 4 core, condivisa con gli altri agenti (i tempi risentono del carico).
@@ -43,10 +45,12 @@ Non instabili ma da sapere: i test a tempo reale rimasti (`src/engine/robust.tes
 ## 3. Segnalazioni su codice di produzione (non corretto, non è compito di questo agente)
 
 1. **Sync server, `server/src/sync/service.ts` `applyCatalog` (SERVER-CORE)**: una `delete` su una voce mai vista dal server è un no-op senza tombstone; se poi arriva una `upsert` più vecchia (clientTs minore) la voce «risorge». Con l'ordine inverso resta cancellata, quindi lo stato finale dipende dall'ordine di arrivo (divergenza tra dispositivi/retry riordinati). Riprodotto in `server/test/core/sync.property.test.ts` con `it.fails` (diventa rosso quando verrà corretto: allora togliere `.fails`). Le sole upsert, con duplicati e ordine casuale, convergono.
+
+> **CHIUSA (verificata il 04/11/2026).** `server/src/sync/service.ts` `applyCatalog`: una `delete` su voce mai vista crea ora un tombstone (riga con `deleted_at`), e un'`upsert` più vecchia del tombstone viene scartata come `stale` (confronto con `tombVer`/`cmpVer`), mentre una più recente lo risuscita. `server/test/core/sync.property.test.ts` non contiene più alcun `it.fails` (nel repository non ne resta nessuno in `server/test`, `src` o `shared`): il test «delete + upsert più vecchia in ordine invertito» è un `it` normale. Eseguito oggi: 21/21 passati.
 2. **`src/pages/account/LoginForm.tsx` `verify` (SYNC-CLIENT)**: `setBusy(false)` nel `finally` viene eseguito anche dopo lo smontaggio del componente. In produzione è innocuo; nei test ha causato l'errore non gestito (mitigato nel test).
 3. **`src/voice/examples.test.ts` (VOCE)**: in una sola esecuzione su ~14 «Storna la fattura dodici» ha dato `disambiguate` invece di `proceed`, mentre `src/voice/**` era in modifica; nelle 3 riesecuzioni successive e nelle esecuzioni finali è verde. Da ricontrollare quando VOCE ha finito.
 
-**Rossi residui**: nessuno al momento della consegna (tutte le suite verdi, typecheck verde). Nessun test è stato disabilitato; l'unico `it.fails` è la segnalazione 1.
+**Rossi residui**: nessuno al momento della consegna (tutte le suite verdi, typecheck verde). Nessun test è stato disabilitato; l'unico `it.fails` è la segnalazione 1. **Aggiornamento 04/11/2026:** la segnalazione 1 è chiusa e il `it.fails` non esiste più (vedi sopra); il conteggio «+1 expected-fail» della tabella 1 è superato.
 
 ## 4. Copertura
 

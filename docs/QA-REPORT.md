@@ -1,3 +1,5 @@
+Ultimo allineamento al codice: 04/11/2026
+
 # QA REPORT — VocePreventivo V2 (PWA + server locale)
 
 Data: 2026-11-04. Agente QA + BUGFIX-QA (correzioni in `src/voice`, `NewQuotePage`, `quote/`, `LoginForm`, `ui`, `styles`).
@@ -18,6 +20,8 @@ Il server API gira con DB temporaneo in `e2e/tmp`, `AUTH_DEV_RETURN_CODE=1`, `AU
 La build e' privata (`e2e/tmp/dist`) per non toccare `dist/`, che altri agenti ricostruivano in parallelo (mi aveva causato 404 sui chunk).
 
 ## Esito dell'ultimo run completo (2026-11-04, `node e2e/run.cjs`, build privata): 11/11 scenari PASS
+
+> **Aggiornamento 04/11/2026 (verifica sul codice).** Lo stato 11/11 è **da riverificare**: l'ultimo esito scritto è 11/11 PASS, ma la suite e2e non è stata rieseguita in questo aggiornamento. In `e2e/scenarios/` ci sono 11 file e `e2e/run.cjs` esiste, quindi l'elenco è coerente con il report. Numero di test: **da riverificare**. I numeri sotto (1147 client, 184 server) sono quelli del giorno della QA. `docs/TEST-REPORT.md`, scritto lo stesso giorno, riporta invece root 1190, shared 184 e server 384 (con `scripts/test/all.sh`): le due fonti non sono riconciliate.
 
 | Scenario | Esito |
 |---|---|

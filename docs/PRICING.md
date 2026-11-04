@@ -16,7 +16,7 @@ Data: 4 novembre 2026. **Ultimo aggiornamento: 4 novembre 2026** (aggiornati sol
 | Quote voce server (solo per chi non può usare la dettatura del browser) | 20 minuti/mese Gratis, 120 Pro | `server/src/billing/README.md` |
 | Trasmissione allo SDI tramite provider | **Non attiva** (nessun provider scelto); oggi l'utente carica l'XML a mano | `server/src/sdi/` |
 
-**Incoerenza trovata in origine, ora risolta nel codice (verificato il 4/11/2026):** la pagina Informazioni diceva che i 120 €/anno sono "due mesi in meno rispetto al mensile", ma 12 x 15 € = 180 € e 120 € equivalgono a **6 mesi in meno** (sconto del 33%). Il testo attuale (`src/pages/LandingPage.tsx`, `public/prodotto.html`) dice "risparmi 60 € rispetto al mensile", calcolato da `src/billing/pricing.ts` (`PRO_YEARLY_SAVING`). Resta da ricordare che `public/prodotto.html` ha il prezzo scritto a mano (e nel JSON-LD): va aggiornato a mano se cambiano i prezzi.
+**Incoerenza trovata in origine, ora risolta nel codice (verificato il 4/11/2026):** la pagina Informazioni diceva che i 120 €/anno sono "due mesi in meno rispetto al mensile", ma 12 x 15 € = 180 € e 120 € equivalgono a **4 mesi in meno (180 − 120 = 60 €, cioè 4 mensilità da 15 €)** (sconto del 33%). Il testo attuale (`src/pages/LandingPage.tsx`, `public/prodotto.html`) dice "risparmi 60 € rispetto al mensile", calcolato da `src/billing/pricing.ts` (`PRO_YEARLY_SAVING`). Resta da ricordare che `public/prodotto.html` ha il prezzo scritto a mano (e nel JSON-LD): va aggiornato a mano se cambiano i prezzi.
 
 ## 2. Ipotesi di piani
 

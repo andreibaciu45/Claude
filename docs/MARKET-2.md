@@ -1,3 +1,5 @@
+Ultimo allineamento al codice: 04/11/2026
+
 # Analisi di mercato, seconda passata (consultazione: 04/11/2026)
 
 Agente RICERCA-MERCATO-2. Sostituisce le ipotesi di `docs/MARKET.md` con dati reperiti dove possibile.
@@ -120,6 +122,8 @@ Lettura:
 - Posizionamento sensato (opinione): non "gestionale", ma **"il preventivo in 2 minuti"**, complementare a ciò che l'artigiano già usa. Quindi prezzo percepito come "costo di un caffè al mese": ipotesi da testare 6-9 €/mese o 59-79 €/anno, non 15 €. Se le interviste mostrano che l'invio SDI è decisivo, il prezzo 15 € ha senso solo con SDI.
 - **Rischio principale**: molti forfettari fatturano già gratis con AdE o con la banca, e i preventivi li fanno su carta, Word o WhatsApp. Il "concorrente" vero è lo status quo gratuito. Rischio secondario: PrevAI o un gestionale grande aggiungono la dettatura (FIC ha un'app e un parco clienti già pagante).
 - Nota di coerenza (da `docs/PRICING.md`): il testo "due mesi in meno" sull'annuale va corretto (120 € = 6 mesi in meno rispetto a 180 €).
+  - **CHIUSO il 04/11/2026**: il testo sull'annuale dice ora "risparmi 60 € rispetto al mensile" (`src/pages/LandingPage.tsx`; la cifra viene da `PRO_YEARLY_SAVING` = 15 × 12 − 120 = 60 in `src/billing/pricing.ts`). In `src` e `public` la frase "due mesi" non compare più; in `docs` compare solo come riferimento storico (`PRICING.md`, `LANCIO-CHECKLIST.md`).
+  - Correzione aritmetica a questa nota: 60 € sono 4 mesi a 15 €, non 6 (120 € sono 8 mesi a 15 €). La cifra "6 mesi" è sbagliata anche in `docs/PRICING.md` §1, che non è nel mio perimetro. Il prezzo scritto a mano in `public/prodotto.html` e nel JSON-LD non è stato verificato.
 
 ### Due esperimenti di prezzo semplici
 
