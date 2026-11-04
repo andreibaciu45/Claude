@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { writeFileSync } from 'node:fs';
-import { CASES, HOLDOUT, DEFAULT_CATALOG, type Case } from './cases';
+import { CASES, HOLDOUT, HOLDOUT2, DEFAULT_CATALOG, type Case } from './cases';
 import { parseDictation } from './index';
 import { lineOk } from './testutils';
 
@@ -36,13 +36,16 @@ describe('accuratezza', () => {
   it('misura su set di sviluppo + holdout', () => {
     const dev = evaluate(CASES);
     const ho = evaluate(HOLDOUT);
+    const h2 = evaluate(HOLDOUT2);
     const report =
       `SVILUPPO: casi ${dev.s.casesOk}/${dev.s.cases} (${pct(dev.s.casesOk, dev.s.cases)}), righe ${dev.s.linesOk}/${dev.s.lines} (${pct(dev.s.linesOk, dev.s.lines)}), cliente ${dev.s.customerOk}/${dev.s.customer}\n` +
       `HOLDOUT:  casi ${ho.s.casesOk}/${ho.s.cases} (${pct(ho.s.casesOk, ho.s.cases)}), righe ${ho.s.linesOk}/${ho.s.lines} (${pct(ho.s.linesOk, ho.s.lines)}), cliente ${ho.s.customerOk}/${ho.s.customer}\n` +
-      [...dev.fails, ...ho.fails].join('\n');
+      `HOLDOUT2: casi ${h2.s.casesOk}/${h2.s.cases} (${pct(h2.s.casesOk, h2.s.cases)}), righe ${h2.s.linesOk}/${h2.s.lines} (${pct(h2.s.linesOk, h2.s.lines)}), cliente ${h2.s.customerOk}/${h2.s.customer}\n` +
+      [...dev.fails, ...ho.fails, ...h2.fails].join('\n');
     try { writeFileSync(process.env.ENGINE_ACCURACY_OUT ?? '/dev/null', report); } catch { /* ignore */ }
     expect(dev.s.casesOk / dev.s.cases).toBeGreaterThanOrEqual(0.95);
     expect(ho.s.casesOk / ho.s.cases).toBeGreaterThanOrEqual(0.85);
     expect(ho.s.linesOk / ho.s.lines).toBeGreaterThanOrEqual(0.9);
+    expect(h2.s.casesOk / h2.s.cases).toBeGreaterThanOrEqual(0.8);
   });
 });

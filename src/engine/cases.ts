@@ -157,3 +157,31 @@ export const HOLDOUT: Case[] = [
   { name: 'ho: virgole e poi', text: 'quattro faretti, poi tre prese, poi un interruttore', lines: [{ id: 'faretto', qty: 4 }, { id: 'presa', qty: 3 }, { id: 'interruttore', qty: 1 }] },
   { name: 'ho: m² simbolo', text: '12 m² di piastrelle', lines: [{ id: 'piastrelle', qty: 12, unit: 'mq' }] },
 ];
+
+/** Secondo holdout, volutamente più sporco (frasi lunghe, ordine invertito, abbreviazioni). */
+export const HOLDOUT2: Case[] = [
+  { name: 'h2: mi servono ... gomiti', text: 'mi servono venti metri di tubo di rame da sedici millimetri e tre gomiti', lines: [{ id: 'tubo-rame-16', qty: 20, unit: 'm' }, { id: 'raccordo-gomito', qty: 3 }] },
+  { name: 'h2: rubinetti e sifone', text: 'metti dentro due rubinetti e un sifone', lines: [{ id: 'rubinetto-lavabo', qty: 2 }, { id: 'sifone', qty: 1 }] },
+  { name: 'h2: sedici metri rame ventidue', text: 'sedici metri di tubo rame ventidue', lines: [{ id: 'tubo-rame-22', qty: 16, unit: 'm' }] },
+  { name: 'h2: nome prima + quantità', text: 'tubo rame ventidue sei metri', lines: [{ id: 'tubo-rame-22', qty: 6, unit: 'm' }] },
+  { name: 'h2: stessa voce due varianti', text: 'dieci metri di tubo rame 16 dieci metri di tubo rame 22', lines: [{ id: 'tubo-rame-16', qty: 10 }, { id: 'tubo-rame-22', qty: 10 }] },
+  { name: 'h2: cavo e corrugato', text: 'tre metri di cavo 4 e quattro metri di corrugato', lines: [{ id: 'cavo-4', qty: 3 }, { id: 'corrugato', qty: 4 }] },
+  { name: 'h2: 1,5 ore', text: 'uno virgola cinque ore di manodopera', lines: [{ id: 'man-idraulico', qty: 1.5, unit: 'h' }] },
+  { name: 'h2: elenco con virgole e e', text: 'dodici punti luce, venti prese e otto interruttori', lines: [{ id: 'punto-luce', qty: 12 }, { id: 'presa', qty: 20 }, { id: 'interruttore', qty: 8 }] },
+  { name: 'h2: 3h', text: '3h di manodopera', lines: [{ id: 'man-idraulico', qty: 3, unit: 'h' }] },
+  { name: 'h2: 2 gg', text: '2 gg di lavoro', lines: [{ id: 'giornata-operaio', qty: 2, unit: 'gg' }] },
+  { name: 'h2: 5 pz', text: '5 pz di interruttori', lines: [{ id: 'interruttore', qty: 5, unit: 'pz' }] },
+  { name: 'h2: scaldabagni da ottanta litri', text: 'due scaldabagni da ottanta litri', lines: [{ id: 'scaldabagno', qty: 2 }] },
+  { name: 'h2: cavo da due virgola cinque', text: 'venti metri di cavo da due virgola cinque', lines: [{ id: 'cavo-2-5', qty: 20, unit: 'm' }] },
+  { name: 'h2: il cliente è', text: 'il cliente è Carlo Sala tre prese', customer: 'Carlo Sala', lines: [{ id: 'presa', qty: 3 }] },
+  { name: 'h2: stesso lavoro due stanze', text: 'tinteggiare soggiorno cinquanta metri quadri e camera trenta metri quadri', lines: [{ id: 'tinteggiatura', qty: 50, unit: 'mq' }, { id: 'tinteggiatura', qty: 30, unit: 'mq' }] },
+  { name: 'h2: fornitura e posa', text: 'posa piastrelle bagno venti metri quadri', lines: [{ id: 'posa-piastrelle', qty: 20, unit: 'mq' }] },
+  { name: 'h2: intestato con cognome lungo', text: 'intestato a Maria Grazia Pellegrino quattro faretti', customer: 'Maria Grazia Pellegrino', lines: [{ id: 'faretto', qty: 4 }] },
+  { name: 'h2: virgola decimale in euro', text: 'una lavatrice a 350 euro', lines: [{ free: 'lavatrice', qty: 1, price: 350, review: true }] },
+  { name: 'h2: pulizia a corpo', text: 'trasporto e smaltimento a corpo', lines: [{ id: 'trasporto', qty: 1, unit: 'corpo' }] },
+  { name: 'h2: tre quarti? (non supportato) -> leftover o riga libera', text: 'due mani di smalto', lines: [{ id: 'smalto', qty: 1, review: true }], leftovers: ['2 mani'] },
+  { name: 'h2: rumore in mezzo', text: 'allora praticamente tre prese ehm e poi due interruttori ok', lines: [{ id: 'presa', qty: 3 }, { id: 'interruttore', qty: 2 }], leftovers: [] },
+  { name: 'h2: numeri attaccati', text: '3mq di cartongesso', lines: [{ id: 'cartongesso', qty: 3, unit: 'mq' }] },
+  { name: 'h2: salvavita differenziale', text: 'due interruttori differenziali', lines: [{ id: 'salvavita', qty: 2 }] },
+  { name: 'h2: multistrato senza numero', text: 'dieci metri di tubo multistrato', lines: [{ id: 'multistrato-16', qty: 10, unit: 'm' }] },
+];

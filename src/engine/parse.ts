@@ -35,6 +35,7 @@ const DESC_STOP = new Set([
   'ed', 'euro', 'cadauno', 'cadauna', 'ciascuno', 'ciascuna', 'cad', 'totale', 'prezzo', 'costa', 'costano', 'tutto',
   'tutti', 'questo', 'quello', 'sono', 'cosa',
 ]);
+const GENERIC_JOB = new Set(['lavori', 'lavoro', 'intervento', 'interventi', 'opere', 'opera', 'lavoretto', 'lavoretti', 'ordine', 'offerta']);
 const PRICE_PRE = new Set(['a', 'da', 'di', 'per', 'costa', 'costano', 'prezzo', 'totale', 'al', 'circa']);
 const PRICE_POST_UNIT = new Set(['metro', 'metri', 'pezzo', 'pezzi', 'ora', 'ore', 'litro', 'litri', 'chilo', 'kg', 'mq', 'giorno', 'giornata']);
 
@@ -409,7 +410,9 @@ export function parseDictation(transcript: string, catalog: CatalogItem[]): Pars
     return meaningful(toks).length || ws.some((t) => t.num !== undefined) ? txt : undefined;
   };
 
-  const buildLine = (anchor: QtyTok | null, toksIn: Tok[], pos: number) => {
+  const buildLine = (anchor: QtyTok | null, toksIn0: Tok[], pos: number) => {
+    // frammenti senza quantità: le parole generiche ("lavori", "intervento") non sono voci
+    const toksIn = anchor ? toksIn0 : toksIn0.filter((t) => !(isW(t) && GENERIC_JOB.has(t.w)));
     const { price, toks } = takePrice(toksIn);
     const has = meaningful(toks).length > 0;
     let matchText = wordsText(toks);

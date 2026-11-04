@@ -80,7 +80,10 @@ export function extractCustomer(R: RawTok[], isCatalogWord: (w: string) => boole
 
     if ((w === 'intestato' || w === 'intestata') && R[i + 1]?.w === 'a') k = i + 2;
     else if (w === 'a' && R[i + 1]?.w === 'nome' && R[i + 2]?.w === 'di') k = i + 3;
-    else if (w === 'cliente') k = i + 1;
+    else if (w === 'cliente') {
+      k = i + 1;
+      while (R[k] && ['è', 'si', 'chiama', 'sarebbe', 'e', 'chiamato'].includes(R[k].w)) k++;
+    }
     else if (w === 'per') {
       const prev = R[i - 1];
       const cond = i === 0 || prev.kind === 'punct' || DOC_WORDS.has(prev.w);
