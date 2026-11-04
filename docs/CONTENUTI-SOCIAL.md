@@ -5,7 +5,9 @@ Data: 4 novembre 2026. Stato: bozze pronte da adattare.
 ## Regole per tutti i testi
 
 - **Niente dati inventati**: nessun numero di utenti, risparmi di tempo, recensioni o testimonianze. Dove serve un'esperienza personale, usa solo la tua e solo se è vera. I segnaposto sono tra parentesi quadre: `[LINK]`, `[NOME]`, `[EMAIL SUPPORTO]`.
+- **Niente primati né confronti**: vietato "unico", "primo", "nessuno fa", "non esiste", "meglio di". Nessun confronto denigratorio e nessun dato di concorrenti in pubblico (restano in `docs/MARKET-2.md`, con fonte e data). Posizionamento: `docs/POSIZIONAMENTO.md`.
 - **Niente promesse**: non scrivere "risparmi X ore", "conforme", "a norma", "invia in automatico allo SDI". L'app genera l'XML della fattura per i forfettari, **non lo trasmette**: lo carichi tu sul portale dell'Agenzia delle Entrate (o via PEC). Non è consulenza fiscale.
+- **Complementare, non sostitutivo**: l'app affianca il gestionale o il portale gratuito dell'Agenzia delle Entrate. Dichiara come scelta, non come difetto: nessun invio automatico allo SDI, nessuna conservazione a norma.
 - **Funzioni vere** (da `docs/PRICING.md` e dalla landing): dettatura della frase, ricerca nel proprio listino, voci non trovate segnate "da verificare", PDF, fattura XML per forfettari, nota di credito, uso offline, account facoltativo, gratis fino a 3 documenti al mese. La dettatura dipende dal browser e in cantiere rumoroso può sbagliare: dirlo.
 - **Regole dei gruppi**: leggi il regolamento, molti vietano la promozione. Se vieta, chiedi all'amministratore prima. Dichiara sempre che sei l'autore dell'app.
 - **Link alle guide** dove conviene: `https://[DOMINIO]/guide/<nome>.html` (vedi `docs/SEO-PIANO.md`).
@@ -58,7 +60,7 @@ Data: 4 novembre 2026. Stato: bozze pronte da adattare.
 > Ciao [NOME], sto provando una app per fare i preventivi a voce dal telefono. Ti andrebbe di usarla sul prossimo lavoro e dirmi cosa non va? Ti costa 5 minuti. Se non ti serve, nessun problema. [LINK]
 
 **13. Forum o gruppo Telegram**
-> Ho sviluppato una PWA per fare preventivi a voce. Funziona nel browser, anche offline, i dati restano sul telefono se non crei un account. Limiti: la dettatura è quella del browser e in ambienti rumorosi può sbagliare; la fattura è un XML da caricare tu sul portale dell'Agenzia delle Entrate. Cerco feedback da chi fa questo mestiere.
+> Ho sviluppato una PWA per fare preventivi a voce dal tuo listino. Funziona nel browser senza installare nulla, anche offline; i dati restano sul telefono se non crei un account. Limiti: la dettatura è quella del browser e in ambienti rumorosi può sbagliare; la fattura è un XML da caricare tu sul portale dell'Agenzia delle Entrate. Cerco feedback da chi fa questo mestiere.
 
 **14. Post per la pagina (carosello a parole)**
 > 5 cose da scrivere in ogni preventivo: 1) chi sei e per chi è, 2) cosa farai, 3) quanto costa e cosa è escluso, 4) per quanto è valido, 5) come si paga. Il resto è dettaglio. Guida completa: [LINK GUIDA modello-preventivo-lavori-edili]
@@ -179,3 +181,17 @@ Per chi si registra o prova l'app (con consenso all'email, solo per messaggi rel
 >
 > Se vuoi anche una telefonata di 15 minuti, dimmelo. Se invece l'app non fa per te, va bene lo stesso: puoi esportare i tuoi dati in qualsiasi momento.
 > Grazie, [NOME]
+
+## Come parlare del concorrente PrevAI se te lo chiedono
+
+Fatti noti (fonte: scheda Capterra https://www.capterra.com/p/10046107/PrevAI/, consultata il 04/11/2026, di terzi e da ricontrollare; vedi `docs/MARKET-2.md`): è un prodotto italiano che crea preventivi da testo, voce o immagini via WhatsApp. Non l'abbiamo provato a fondo: non sappiamo quanto sia buono.
+
+Regole:
+- Non attaccare, non confrontare prezzi o qualità in pubblico, non citare numeri dei concorrenti (restano in `docs/MARKET-2.md`, con fonte e data).
+- Riconoscere che esiste e che fa una cosa vicina. Dire solo ciò che sappiamo di noi.
+- Se non l'hai provato, dillo.
+
+Risposta breve (commento o messaggio):
+> Sì, esiste ed è un'idea vicina: fa preventivi anche da WhatsApp. Non l'ho provato a fondo, quindi non ti dico se è meglio o peggio. Il mio approccio è diverso: parte dal tuo listino, si apre dal browser senza installare nulla, funziona anche offline e i dati restano sul telefono se non crei un account. Non invia fatture allo SDI e non conserva a norma. Se ti serve quello, usa il tuo gestionale. Provale tutte e due sul prossimo lavoro e scegli quella che ti fa comodo.
+
+Se insistono sul prezzo: "Non conosco bene il loro listino aggiornato, guardalo sul loro sito. Il mio lo trovi qui: [LINK]. Il piano gratuito ti basta per provare."

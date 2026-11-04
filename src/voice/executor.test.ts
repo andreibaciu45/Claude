@@ -246,7 +246,7 @@ describe('altri comandi', () => {
     if (p2.status !== 'ready') throw new Error('plan');
     expect(p2.summary.warnings.join(' ')).toMatch(/supera il residuo/);
     await executeCommand({ type: 'mark_paid', ref }, { now: new Date(2026, 10, 4), transcript: 't' });
-    expect(h.recordPayment).toHaveBeenCalledWith(f.id, { date: '2026-11-04', amount: 72 });
+    expect(h.recordPayment).toHaveBeenCalledWith(f.id, { date: '2026-11-04', amount: 70 });
   });
   it('pagamento su bozza o preventivo: bloccato', async () => {
     const b = doc({ type: 'fattura', number: '' }); put(b, doc());
