@@ -72,3 +72,12 @@
   .lp-steps li{grid-template-columns:1fr;}
 }
 @media (prefers-reduced-motion:reduce){.lp *{animation:none!important}}
+.lp-hero-grid,.lp-grid{grid-template-columns:minmax(0,1fr)}
+.lp-hero-grid>*{min-width:0}
+.lp [data-tone],.lp span[class*="badge"]{white-space:normal;max-width:100%}
+@media (min-width:760px){
+  .lp-hero-grid{grid-template-columns:1.05fr 1fr}
+  .lp-grid--3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .lp-grid--2{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+.lp-hero,.lp-top,.lp-foot{padding-left:16px;padding-right:16px}
