@@ -37,7 +37,7 @@ export interface SyncOp {
 export interface SyncPushBody { deviceId: string; ops: SyncOp[] }      // POST /v1/sync/push
 export interface SyncConflict {
   opId: string;
-  reason: 'locked_document' | 'duplicate_invoice_number' | 'quota_exceeded' | 'invalid' | 'stale';
+  reason: 'locked_document' | 'duplicate_invoice_number' | 'quota_exceeded' | 'invalid' | 'stale' | 'resync_required';
   message: string;
   serverVersion?: unknown;
 }

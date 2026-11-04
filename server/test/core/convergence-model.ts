@@ -35,7 +35,7 @@ export function genOps(seed: number, opts: { n?: number; kinds?: ('catalog' | 'p
       out.push({ device, op: del ? { opId: opId(), entity: 'catalog', entityId: id, op: 'delete', clientTs: ts }
         : { opId: opId(), entity: 'catalog', entityId: id, op: 'upsert', payload: catalogItem(id, { name: `Voce ${v}`, price: v, updatedAt: ts }), clientTs: ts } });
     } else if (kind === 'profile') {
-      out.push({ device, op: { opId: opId(), entity: 'profile', entityId: 'profile', op: 'upsert', payload: { businessName: `Ditta ${v}`, vatNumber: `${v}` }, clientTs: ts } });
+      out.push({ device, op: { opId: opId(), entity: 'profile', entityId: 'profile', op: 'upsert', payload: { businessName: `Ditta ${v}`, vatNumber: `${v}` } as never, clientTs: ts } });
     } else {
       const k = int(r, 3);
       const id = k === 2 ? 'f0' : `q${k}`; // q0,q1 preventivi; f0 fattura in bozza (tipo costante per id)

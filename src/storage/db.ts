@@ -486,7 +486,14 @@ export async function retryStorage(): Promise<boolean> {
  */
 export async function requirePersistentStorage(action = 'questa operazione'): Promise<void> {
   getBackend();
-  if (initialOpen) await initialOpen;
+  if (initialOpen) {
+    // REV2-DB2: apertura bloccata da un'altra scheda (migrazione v3 con una scheda ancora alla v2): NON restare in attesa. Un'emissione
+    // messa in coda così partirebbe da sola, magari minuti dopo, quando l'utente ha già rinunciato o riprovato (doppio tentativo).
+    if (initialPending && getStorageStatus().reason === 'blocked') {
+      throw new StorageUnavailableError('blocked', `Impossibile ${action}: ${getStorageStatus().message} Non è stato scritto nulla.`);
+    }
+    await initialOpen;
+  }
   if (connected && db) return;
   if (everOpened && typeof indexedDB !== 'undefined') {
     try { await reopenNow(); return; } catch { /* sotto */ }

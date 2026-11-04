@@ -77,6 +77,7 @@ class BookIndex {
     this.recs.set(c.id, c);
     for (const k of this.keysOf(c)) (this.keys.get(k) ?? this.keys.set(k, new Set()).get(k)!).add(c.id);
   }
+  has(id: string): boolean { return this.recs.has(id); }
   find(c: Customer): StoredCustomer | undefined {
     const ids = new Set<string>();
     for (const k of this.keysOf(c)) for (const id of this.keys.get(k) ?? []) ids.add(id);
@@ -103,7 +104,9 @@ const upsertWith = async (t: UpsertTx, index: BookIndex, c: Customer): Promise<U
     index.set(rec);
     return { customer: rec, created: false, updated: true };
   }
-  const rec: StoredCustomer = { ...clean, id: clean.id || uid(), createdAt: now, updatedAt: now };
+  // REV2-C4: l'id proposto può essere quello di un ALTRO cliente della rubrica (scelto dall'autocompletamento e poi, nel documento,
+  // cambiata la P.IVA o il CF): un `put` con quell'id avrebbe SOVRASCRITTO in silenzio la scheda esistente. Qui si crea sempre una scheda nuova.
+  const rec: StoredCustomer = { ...clean, id: clean.id && !index.has(clean.id) ? clean.id : uid(), createdAt: now, updatedAt: now };
   await t.put('customers', rec);
   index.set(rec);
   return { customer: rec, created: true, updated: false };

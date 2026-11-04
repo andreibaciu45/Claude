@@ -207,3 +207,35 @@ describe('REV2-B3 importBackup: contatori del profilo non numerici', () => {
     expect(second.invoice?.progressivoInvio).toBe('00002');
   });
 });
+
+describe('REV2-C4 upsertCustomer con l\'id di un cliente già in rubrica ma dati fiscali diversi', () => {
+  it('non sovrascrive la scheda esistente: ne crea una nuova', async () => {
+    await __resetStorageForTests(); await deleteDB(DB_NAME);
+    const { saveCustomer, upsertCustomer } = await import('./index');
+    await saveCustomer({ id: 'rossi', name: 'Rossi Srl', vatNumber: '02345678904', city: 'Milano', phone: '0211111' });
+    // nel documento l'utente sceglie «Rossi Srl» dall'autocompletamento e poi cambia la P.IVA
+    const r = await upsertCustomer({ id: 'rossi', name: 'Rossi Srl', vatNumber: '01234567897', city: 'Milano' });
+    expect(r.created).toBe(true);
+    expect(r.customer.id).not.toBe('rossi');
+    const list = await listCustomers();
+    expect(list).toHaveLength(2);
+    expect(list.find((c) => c.id === 'rossi')).toMatchObject({ vatNumber: '02345678904', phone: '0211111' });
+  });
+});
+
+describe('REV2-DB2 scritture fiscali con l\'apertura bloccata da un\'altra scheda', () => {
+  it('falliscono subito (StorageUnavailableError "blocked") invece di restare in coda ed eseguirsi più tardi', async () => {
+    const { setInvoiceCounterStart, getInvoiceCounterInfo, StorageUnavailableError } = await import('./index');
+    const old = await openV2WithData();
+    void listDocuments().catch(() => undefined); // avvia l'apertura (bloccata)
+    await sleep(40);
+    expect(getStorageStatus().reason).toBe('blocked');
+    const t = Date.now();
+    await expect(setInvoiceCounterStart('FT', 2026, 5)).rejects.toBeInstanceOf(StorageUnavailableError);
+    expect(Date.now() - t).toBeLessThan(500);
+    old.close();
+    await sleep(100);
+    // nulla è stato scritto in differita
+    expect((await getInvoiceCounterInfo('FT', 2026)).counter).toBe(0);
+  });
+});

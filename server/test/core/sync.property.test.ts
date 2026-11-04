@@ -210,7 +210,7 @@ describe('sync server: convergenza LWW con tombstone (modello puro)', () => {
 
   it('audit: insieme append-only, convergente per qualunque ordine/duplicato', async () => {
     const mk = (i: number): SyncOp => ({ opId: opId(), entity: 'audit', entityId: `a${i}`, op: 'upsert', clientTs: 10 + i,
-      payload: { id: `a${i}`, at: 10 + i, docId: 'd', action: 'viewed', actor: 'user' } });
+      payload: { id: `a${i}`, at: 10 + i, docId: 'd', action: 'edit', actor: 'user' } });
     const ops = Array.from({ length: 8 }, (_, i) => mk(i));
     const r = rng(5);
     const states: Record<string, string>[] = [];
