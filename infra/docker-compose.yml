@@ -13,6 +13,8 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: "8787"
+      # Origini CORS (app native Capacitor + la PWA). Sovrascrivibile da infra/.env (CORS_ORIGINS=...).
+      CORS_ORIGINS: ${CORS_ORIGINS:-capacitor://localhost,https://localhost,https://${DOMAIN:?imposta DOMAIN in infra/.env}}
     volumes:
       - app-data:/data
     expose:
