@@ -2,8 +2,14 @@ import type { DocStatus, DocType, Profile, QuoteDocument } from '../../types';
 import { generateDocumentPdf, fmtEuro, fmtNum } from '../../pdf';
 
 export const STATUS_ORDER: DocStatus[] = ['bozza', 'inviato', 'accettato', 'pagato'];
-export const STATUS_LABEL: Record<DocStatus, string> = { bozza: 'Bozza', inviato: 'Inviato', accettato: 'Accettato', pagato: 'Pagato' };
-export const STATUS_TONE: Record<DocStatus, 'neutral' | 'info' | 'success' | 'warning'> = { bozza: 'neutral', inviato: 'info', accettato: 'success', pagato: 'success' };
+export const STATUS_LABEL: Record<DocStatus, string> = {
+  bozza: 'Bozza', inviato: 'Inviato', accettato: 'Accettato', pagato: 'Pagato', rifiutato: 'Rifiutato', scaduto: 'Scaduto', convertito: 'Convertito',
+  emessa: 'Emessa', inviata: 'Inviata allo SDI', consegnata: 'Consegnata', mancata_consegna: 'Mancata consegna', scartata: 'Scartata dallo SDI', stornata: 'Stornata',
+};
+export const STATUS_TONE: Record<DocStatus, 'neutral' | 'info' | 'success' | 'warning' | 'danger'> = {
+  bozza: 'neutral', inviato: 'info', accettato: 'success', pagato: 'success', rifiutato: 'danger', scaduto: 'warning', convertito: 'neutral',
+  emessa: 'info', inviata: 'info', consegnata: 'success', mancata_consegna: 'warning', scartata: 'danger', stornata: 'neutral',
+};
 export const TYPE_LABEL: Record<DocType, string> = { preventivo: 'Preventivo', fattura: 'Fattura' };
 
 export const todayIso = (): string => {
