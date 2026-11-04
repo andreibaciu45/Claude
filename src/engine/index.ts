@@ -1,4 +1,7 @@
-// STUB — l'agente MOTORE VOCE lo implementa con le stesse firme.
-import type { CatalogItem, DocLine, DocType, ParseResult, Totals } from '../types';
-export const parseDictation = (_t: string, _c: CatalogItem[]): ParseResult => ({ lines: [], leftovers: [] });
-export const computeTotals = (_l: DocLine[], _o: { forfettario: boolean; type: DocType }): Totals => ({ net: 0, vat: 0, stamp: 0, gross: 0, byRate: [] });
+/** MOTORE VOCE — API pubblica. Firme fisse: parseDictation, computeTotals. */
+export { parseDictation } from './parse';
+export { computeTotals } from './totals';
+export { normalizeText } from './normalize';
+export { parseItalianNumber, fmtNum } from './numbers';
+export { matchCatalog, createMatcher } from './match';
+export type { MatchResult } from './match';
