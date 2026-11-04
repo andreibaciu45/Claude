@@ -1,5 +1,6 @@
 import type { DocStatus, DocType, Profile, QuoteDocument } from '../../types';
 import { generateDocumentPdf, fmtEuro, fmtNum } from '../../pdf';
+import { displayNumber, isFiscalInvoice, kindLabel } from '../invoice/model';
 
 export const STATUS_ORDER: DocStatus[] = ['bozza', 'inviato', 'accettato', 'pagato'];
 export const STATUS_LABEL: Record<DocStatus, string> = {
@@ -20,7 +21,7 @@ export const todayIso = (): string => {
 
 export const fileNameFor = (doc: QuoteDocument): string => {
   const safe = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_|_$/g, '');
-  return `${safe(TYPE_LABEL[doc.type])}_${safe(doc.number)}_${safe(doc.customer.name) || 'cliente'}.pdf`;
+  return `${safe(kindLabel(doc))}_${safe(displayNumber(doc)) || 'senza_numero'}_${safe(doc.customer.name) || 'cliente'}.pdf`;
 };
 
 export const downloadBlob = (blob: Blob, name: string): void => {
@@ -42,8 +43,9 @@ export const canShareFiles = (): boolean => {
 };
 
 export const shareText = (doc: QuoteDocument, profile: Profile, total: number): string => {
-  const what = doc.type === 'preventivo' ? 'il preventivo' : 'la fattura (copia di cortesia)';
-  return `Buongiorno ${doc.customer.name}, le invio ${what} n. ${doc.number} del ${doc.date.split('-').reverse().join('/')} per un totale di ${fmtEuro(total)}.\n${profile.businessName}${profile.phone ? ' - ' + profile.phone : ''}`;
+  const what = doc.type === 'preventivo' ? 'il preventivo' : kindLabel(doc) === 'Nota di credito' ? 'la nota di credito (copia di cortesia)' : 'la fattura (copia di cortesia)';
+  const n = isFiscalInvoice(doc) ? displayNumber(doc) : doc.number;
+  return `Buongiorno ${doc.customer.name}, le invio ${what} n. ${n} del ${doc.date.split('-').reverse().join('/')} per un totale di ${fmtEuro(total)}.\n${profile.businessName}${profile.phone ? ' - ' + profile.phone : ''}`;
 };
 
 export type ShareResult = 'shared' | 'downloaded' | 'cancelled';
@@ -55,7 +57,7 @@ export async function sharePdf(doc: QuoteDocument, profile: Profile, text: strin
   if (canShareFiles()) {
     const file = new File([blob], name, { type: 'application/pdf' });
     try {
-      await navigator.share({ files: [file], title: `${TYPE_LABEL[doc.type]} ${doc.number}`, text });
+      await navigator.share({ files: [file], title: `${kindLabel(doc)} ${displayNumber(doc)}`, text });
       return 'shared';
     } catch (e) {
       if ((e as Error)?.name === 'AbortError') return 'cancelled';

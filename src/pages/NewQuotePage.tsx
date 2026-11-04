@@ -3,10 +3,13 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { CatalogItem, Customer, DocLine, DocType, Profile, QuoteDocument } from '../types';
 import { uid } from '../types';
 import { getDocument, getProfile, listCatalog, nextDocumentNumber, saveDocument } from '../storage';
-import { computeTotals, parseDictation } from '../engine';
+import { parseDictation } from '../engine';
+import { draftTotals } from '../pdf/totals';
 import { Button, Card, EmptyState, Field, PageHeader, Textarea, useToast, Money } from '../ui';
 import { useSpeech } from '../hooks/useSpeech';
 import { QuoteEditor } from './quote/QuoteEditor';
+import { InvoiceOptions } from './invoice/InvoiceOptions';
+import { inferChannel, isLegacyInvoice, isLocked, newInvoiceFiscal, normalizeCustomerForInvoice } from './invoice/model';
 import { clearDraft, loadDraft, saveDraft } from './quote/draft';
 import { TYPE_LABEL, todayIso } from './quote/shared';
 import './quote/quote.css';
@@ -26,12 +29,16 @@ export default function NewQuotePage() {
   const toast = useToast();
   const [params] = useSearchParams();
   const editId = params.get('edit');
+  const focusField = params.get('focus');
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [original, setOriginal] = useState<QuoteDocument | null>(null);
+  const [lockedDoc, setLockedDoc] = useState<QuoteDocument | null>(null);
+  const [operationDate, setOperationDate] = useState(todayIso());
+  const [stampCharged, setStampCharged] = useState(false);
 
   const [stage, setStage] = useState<'input' | 'edit'>('input');
   const [type, setType] = useState<DocType>('preventivo');
@@ -67,11 +74,14 @@ export default function NewQuotePage() {
         if (!alive) return;
         setProfile(p);
         setCatalog(c);
+        setStampCharged(!!p.stampDutyDefaultChargedToCustomer);
         if (editId) {
           const d = await getDocument(editId);
           if (!alive) return;
           if (!d) { setLoadError('Documento non trovato.'); }
+          else if (isLocked(d)) { setLockedDoc(d); }
           else {
+            if (d.invoice && !d.invoice.legacy) { setOperationDate(d.invoice.operationDate || d.date); setStampCharged(d.invoice.stampDutyChargedToCustomer); }
             setOriginal(d); setType(d.type); setCustomer(d.customer); setLines(d.lines);
             setNotes(d.notes ?? ''); setText(d.transcript ?? ''); setStage('edit');
           }
@@ -163,7 +173,7 @@ export default function NewQuotePage() {
 
   /* ---------- totali ---------- */
   const forfettario = !!profile?.regimeForfettario;
-  const totals = useMemo(() => computeTotals(lines, { forfettario, type }), [lines, forfettario, type]);
+  const totals = useMemo(() => draftTotals(lines, type, forfettario, stampCharged), [lines, forfettario, type, stampCharged]);
   const toReview = lines.filter((l) => l.needsReview).length;
 
   const restart = () => {
@@ -189,10 +199,15 @@ export default function NewQuotePage() {
     setSaving(t);
     try {
       const now = Date.now();
+      const isInv = t === 'fattura';
+      const date = isInv ? operationDate || todayIso() : todayIso();
+      const cust = isInv ? normalizeCustomerForInvoice({ ...customer, name: customer.name.trim() }) : { ...customer, name: customer.name.trim() };
+      // Fattura fiscale: bozza SENZA numero (lo assegna issueInvoice). Nessuna chiamata a nextDocumentNumber.
       const doc: QuoteDocument = {
-        id: uid(), type: t, number: await nextDocumentNumber(t), date: todayIso(),
-        customer: { ...customer, name: customer.name.trim() }, lines, notes: notes.trim() || undefined,
+        id: uid(), type: t, number: isInv ? '' : await nextDocumentNumber(t), date,
+        customer: cust, lines, notes: notes.trim() || undefined,
         status: 'bozza', transcript: text.trim() || undefined, createdAt: now, updatedAt: now,
+        ...(isInv ? { invoice: newInvoiceFiscal({ date, customer: cust, stampDue: totals.stampDue, stampChargedToCustomer: stampCharged }) } : {}),
       };
       await saveDocument(doc);
       clearDraft();
@@ -207,7 +222,18 @@ export default function NewQuotePage() {
     if (!original || saving || !validate()) return;
     setSaving('edit');
     try {
-      await saveDocument({ ...original, customer: { ...customer, name: customer.name.trim() }, lines, notes: notes.trim() || undefined, updatedAt: Date.now() });
+      const isFiscalDraft = !!original.invoice && !original.invoice.legacy;
+      const cust = isFiscalDraft ? normalizeCustomerForInvoice({ ...customer, name: customer.name.trim() }) : { ...customer, name: customer.name.trim() };
+      const date = isFiscalDraft ? operationDate || original.date : original.date;
+      await saveDocument({
+        ...original, customer: cust, lines, notes: notes.trim() || undefined, date, updatedAt: Date.now(),
+        ...(isFiscalDraft ? {
+          invoice: {
+            ...original.invoice!, operationDate: date, year: Number(date.slice(0, 4)) || original.invoice!.year,
+            stampDuty: totals.stampDue > 0, stampAmount: totals.stampDue, stampDutyChargedToCustomer: stampCharged, customerChannel: inferChannel(cust),
+          },
+        } : {}),
+      });
       toast('Modifiche salvate');
       nav(`/documenti/${original.id}`);
     } catch (e) {
@@ -216,8 +242,30 @@ export default function NewQuotePage() {
     }
   };
 
+  /* ---------- focus sul campo indicato dai controlli pre-emissione ---------- */
+  useEffect(() => {
+    if (loading || !focusField || stage !== 'edit') return;
+    const id = focusField === 'customer.name' ? 'qe-customer' : `f-${focusField}`;
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.scrollIntoView?.({ block: 'center' });
+      el.focus();
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [loading, focusField, stage]);
+
   /* ---------- render ---------- */
   if (loading) return <div className="qe-loading" role="status" aria-label="Caricamento"><span className="spinner" /></div>;
+  if (lockedDoc) {
+    return (
+      <EmptyState
+        title="Documento emesso: non modificabile"
+        text="Una fattura emessa non si può modificare né eliminare. Per annullarla emetti una nota di credito dalla pagina del documento."
+        action={<Link className="btn" data-variant="primary" to={`/documenti/${lockedDoc.id}`}>Apri il documento</Link>}
+      />
+    );
+  }
   if (loadError) {
     return (
       <EmptyState
@@ -235,7 +283,7 @@ export default function NewQuotePage() {
   return (
     <div className="stack">
       <PageHeader
-        title={editing ? `Modifica ${TYPE_LABEL[type].toLowerCase()} ${original?.number ?? ''}` : stage === 'input' ? 'Nuovo preventivo' : 'Controlla e genera'}
+        title={editing ? (original?.invoice && !original.invoice.legacy ? 'Modifica bozza di fattura' : `Modifica ${TYPE_LABEL[type].toLowerCase()} ${original?.number ?? ''}`) : stage === 'input' ? 'Nuovo preventivo' : type === 'fattura' ? 'Controlla la bozza di fattura' : 'Controlla e genera'}
         subtitle={stage === 'input' && !editing ? 'Detta a voce o scrivi: preparo io la scheda.' : undefined}
         actions={stage === 'edit' && !editing ? <Button variant="ghost" size="sm" onClick={restart}>Ricomincia</Button> : undefined}
       />
@@ -320,7 +368,8 @@ export default function NewQuotePage() {
               ))}
             </div>
           )}
-          {type === 'fattura' && <p className="muted qe-note">La fattura generata è una copia di cortesia in PDF: non sostituisce la fattura elettronica SDI.</p>}
+          {type === 'fattura' && !editing && <p className="muted qe-note">Salvi una bozza: il numero viene assegnato solo quando emetti la fattura (con conferma). La bozza si può ancora modificare ed eliminare.</p>}
+          {editing && original && isLegacyInvoice(original) && <p className="muted qe-note">Fattura di cortesia (versione precedente): non è un documento fiscale.</p>}
 
           {text.trim() && (
             <details className="qe-details">
@@ -350,6 +399,9 @@ export default function NewQuotePage() {
             defaultVat={profile?.defaultVat ?? 22}
             catalog={catalog}
             customerError={customerError}
+            extra={type === 'fattura' && (!editing || (!!original?.invoice && !original.invoice.legacy)) ? (
+              <InvoiceOptions operationDate={operationDate} onOperationDate={setOperationDate} stampCharged={stampCharged} onStampCharged={setStampCharged} stampDue={totals.stampDue} forfettario={forfettario} />
+            ) : undefined}
           />
 
           <div className="sticky-actions qe-actions">
@@ -363,13 +415,12 @@ export default function NewQuotePage() {
                 <Button onClick={saveEdit} disabled={!!saving}>{saving ? 'Salvo…' : 'Salva modifiche'}</Button>
               </div>
             ) : (
-              <div className="qe-actions-btns">
-                <Button variant={type === 'preventivo' ? 'primary' : 'secondary'} onClick={() => generate('preventivo')} disabled={!!saving}>
-                  {saving === 'preventivo' ? 'Salvo…' : 'Genera preventivo'}
-                </Button>
-                <Button variant={type === 'fattura' ? 'primary' : 'secondary'} onClick={() => generate('fattura')} disabled={!!saving}>
-                  {saving === 'fattura' ? 'Salvo…' : 'Genera fattura'}
-                </Button>
+              <div className="qe-actions-btns" style={{ gridTemplateColumns: '1fr' }}>
+                {type === 'fattura' ? (
+                  <Button onClick={() => generate('fattura')} disabled={!!saving}>{saving === 'fattura' ? 'Salvo…' : 'Salva bozza fattura'}</Button>
+                ) : (
+                  <Button onClick={() => generate('preventivo')} disabled={!!saving}>{saving === 'preventivo' ? 'Salvo…' : 'Genera preventivo'}</Button>
+                )}
               </div>
             )}
           </div>

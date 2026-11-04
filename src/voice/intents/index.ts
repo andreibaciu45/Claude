@@ -1,0 +1,1 @@
+export { classifyCommand } from './classify';

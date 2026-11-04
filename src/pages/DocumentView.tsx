@@ -1,18 +1,36 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import type { DocStatus, Profile, QuoteDocument } from '../types';
+import type { AuditEntry, DocLine, DocStatus, Profile, QuoteDocument, QuoteStatus, SdiEvent, ValidationIssue } from '../types';
 import { uid } from '../types';
-import { deleteDocument, getDocument, getProfile, nextDocumentNumber, saveDocument } from '../storage';
-import { computeTotals } from '../engine';
-import { BOLLO_TEXT, COURTESY_TEXT, FORFETTARIO_TEXT, fmtNum, fmtQty, generateDocumentPdf, docTitle } from '../pdf';
-import { Badge, Button, EmptyState, Money, PageHeader, Sheet, useToast } from '../ui';
 import {
-  STATUS_LABEL, STATUS_ORDER, STATUS_TONE, canShareFiles, downloadBlob, fileNameFor, sharePdf, shareText, todayIso, waNumber,
-} from './quote/shared';
+  createCreditNote, createInvoiceFromQuote, deleteDocument, getDocument, getProfile, issueInvoice, listAudit, listDocuments,
+  nextDocumentNumber, recordPayment, recordSdiEvent, saveDocument,
+} from '../storage';
+import { validateInvoiceForIssue } from '../../shared/fatturapa';
+import {
+  BOLLO_TEXT, COURTESY_TEXT, DRAFT_TEXT, FORFETTARIO_TEXT, creditNoteLines, docTitle, documentTotals, fmtDate, fmtNum, fmtQty, generateDocumentPdf,
+} from '../pdf';
+import { Badge, Button, EmptyState, Money, PageHeader, Select, Sheet, useToast } from '../ui';
+import { STATUS_LABEL, STATUS_TONE, canShareFiles, downloadBlob, fileNameFor, sharePdf, shareText, todayIso, waNumber } from './quote/shared';
 import { lineTotal } from './quote/QuoteEditor';
+import { CreditNoteSheet } from './invoice/CreditNoteSheet';
+import { InvoiceBadges, InvoicePanel, Timeline } from './invoice/InvoicePanel';
+import { IssueSheet } from './invoice/IssueSheet';
+import { PaymentSheet, SdiEventSheet, SdiGuideSheet } from './invoice/SdiSheets';
+import {
+  QUOTE_STATUSES, availableActions, daysSince, displayNumber, isCreditNote, isDraftInvoice, isFiscalInvoice, isLegacyInvoice, kindLabel, newInvoiceFiscal, paidAmount,
+} from './invoice/model';
 import './quote/quote.css';
+import './invoice/invoice.css';
 
-const fmtDate = (iso: string) => iso.split('-').reverse().join('/');
+type SheetName = 'issue' | 'credit' | 'guide' | 'send' | 'outcome' | 'payment' | 'delete' | 'convert' | null;
+const LEGACY_STATUSES: DocStatus[] = ['bozza', 'inviato', 'pagato'];
+
+/** Estrae le segnalazioni da un InvoiceValidationError (duck typing: funziona anche tra moduli/mock). */
+const issuesOf = (e: unknown): ValidationIssue[] | null => {
+  const l = (e as { issues?: unknown } | null)?.issues;
+  return Array.isArray(l) && l.length ? (l as ValidationIssue[]) : null;
+};
 
 export default function DocumentView() {
   const { id } = useParams();
@@ -23,29 +41,55 @@ export default function DocumentView() {
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [confirmDel, setConfirmDel] = useState(false);
+  const [sheet, setSheet] = useState<SheetName>(null);
+  const [serverIssues, setServerIssues] = useState<ValidationIssue[]>([]);
+  const [audit, setAudit] = useState<AuditEntry[] | null>(null);
+  const [auditError, setAuditError] = useState(false);
+  const [related, setRelated] = useState<{ original: QuoteDocument | null; creditNotes: QuoteDocument[]; quote: QuoteDocument | null; invoice: QuoteDocument | null }>({
+    original: null, creditNotes: [], quote: null, invoice: null,
+  });
+
+  const loadExtras = useCallback(async (d: QuoteDocument) => {
+    if (d.type === 'fattura' && isFiscalInvoice(d)) {
+      try { setAudit(await listAudit(d.id)); setAuditError(false); } catch { setAudit(null); setAuditError(true); }
+    }
+    try {
+      const all = await listDocuments();
+      setRelated({
+        original: d.invoice?.originalDocumentId ? all.find((x) => x.id === d.invoice!.originalDocumentId) ?? null : null,
+        creditNotes: all.filter((x) => x.invoice?.originalDocumentId === d.id),
+        quote: d.convertedFromQuoteId ? all.find((x) => x.id === d.convertedFromQuoteId) ?? null : null,
+        invoice: d.convertedToInvoiceId ? all.find((x) => x.id === d.convertedToInvoiceId) ?? null : null,
+      });
+    } catch { /* i collegamenti sono un extra: la pagina funziona anche senza */ }
+  }, []);
 
   const load = useCallback(async () => {
     setError(null); setMissing(false);
     try {
       const [d, p] = await Promise.all([id ? getDocument(id) : Promise.resolve(undefined), getProfile()]);
       setProfile(p);
-      if (!d) setMissing(true); else setDoc(d);
+      if (!d) setMissing(true); else { setDoc(d); void loadExtras(d); }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Impossibile leggere il documento.');
     }
-  }, [id]);
-  useEffect(() => { setDoc(null); void load(); }, [load]);
+  }, [id, loadExtras]);
+  useEffect(() => { setDoc(null); setSheet(null); setServerIssues([]); setAudit(null); void load(); }, [load]);
 
-  const totals = useMemo(
-    () => (doc && profile ? computeTotals(doc.lines, { forfettario: profile.regimeForfettario, type: doc.type }) : null),
-    [doc, profile],
-  );
+  const totals = useMemo(() => (doc && profile ? documentTotals(doc, profile.regimeForfettario) : null), [doc, profile]);
+  const localIssues = useMemo<ValidationIssue[]>(() => {
+    if (!doc || !profile || !isDraftInvoice(doc)) return [];
+    try { return validateInvoiceForIssue(doc, profile); } catch { return []; }
+  }, [doc, profile]);
+  const issues = useMemo(() => {
+    const seen = new Set(localIssues.map((i) => `${i.field}|${i.code}`));
+    return [...localIssues, ...serverIssues.filter((i) => !seen.has(`${i.field}|${i.code}`))];
+  }, [localIssues, serverIssues]);
 
   const run = async (key: string, fn: () => Promise<void>, errMsg: string) => {
     if (busy) return;
     setBusy(key);
-    try { await fn(); } catch (e) { toast(e instanceof Error && e.message ? `${errMsg} (${e.message})` : errMsg); }
+    try { await fn(); } catch (e) { toast(e instanceof Error && e.message ? `${errMsg} (${e.message})` : errMsg, 'error'); }
     finally { setBusy(null); }
   };
 
@@ -53,8 +97,18 @@ export default function DocumentView() {
   if (missing) return <EmptyState title="Documento non trovato" text="Potrebbe essere stato eliminato." action={<Link className="btn" data-variant="primary" to="/documenti">Vai ai documenti</Link>} />;
   if (!doc || !profile || !totals) return <div className="qe-loading" role="status" aria-label="Caricamento"><span className="spinner" /></div>;
 
+  const fiscal = isFiscalInvoice(doc);
+  const legacy = isLegacyInvoice(doc);
+  const draftInv = isDraftInvoice(doc);
+  const nc = isCreditNote(doc);
+  const act = availableActions(doc);
   const forf = profile.regimeForfettario;
-  const total = totals.gross;
+  const inv = doc.invoice;
+  const num = displayNumber(doc);
+  const issued = fiscal && !draftInv;
+  const residual = Math.max(0, Math.round((totals.gross - paidAmount(doc)) * 100) / 100);
+
+  const apply = (upd: QuoteDocument) => { setDoc(upd); void loadExtras(upd); };
 
   const setStatus = (status: DocStatus) => run('status', async () => {
     const upd = { ...doc, status, updatedAt: Date.now() };
@@ -67,103 +121,189 @@ export default function DocumentView() {
   }, 'Non sono riuscito a creare il PDF.');
 
   const share = () => run('share', async () => {
-    const r = await sharePdf(doc, profile, shareText(doc, profile, total));
+    const r = await sharePdf(doc, profile, shareText(doc, profile, totals.gross));
     if (r === 'downloaded') toast('PDF scaricato');
   }, 'Condivisione non riuscita.');
 
   const whatsapp = () => {
-    const text = shareText(doc, profile, total);
+    const text = shareText(doc, profile, totals.gross);
     if (canShareFiles()) { void share(); return; }
-    // Niente condivisione file: apro WhatsApp subito (gesto utente) e scarico il PDF da allegare
-    const num = waNumber(doc.customer.phone);
-    window.open(`https://wa.me/${num}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    const phone = waNumber(doc.customer.phone);
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
     void run('wa', async () => {
       downloadBlob(await generateDocumentPdf(doc, profile), fileNameFor(doc));
       toast('PDF scaricato: allegalo al messaggio su WhatsApp.');
     }, 'Non sono riuscito a creare il PDF.');
   };
 
+  const downloadXml = () => {
+    if (!inv?.xml) { toast('XML non disponibile per questo documento.', 'error'); return; }
+    downloadBlob(new Blob([inv.xml], { type: 'application/xml' }), inv.fileName || `${num.replace(/[^\w-]+/g, '_')}.xml`);
+    toast(daysSince(inv.operationDate) > 12 && doc.status === 'emessa'
+      ? 'XML scaricato. Attenzione: sono passati più di 12 giorni dalla data dell’operazione.'
+      : 'XML scaricato: ora caricalo sul portale dell’Agenzia delle Entrate.');
+  };
+
   const duplicate = () => run('dup', async () => {
     const now = Date.now();
-    const copy: QuoteDocument = {
-      ...doc, id: uid(), number: await nextDocumentNumber(doc.type), date: todayIso(), status: 'bozza',
-      lines: doc.lines.map((l) => ({ ...l, id: uid() })), createdAt: now, updatedAt: now,
-    };
+    const lines = doc.lines.map((l) => ({ ...l, id: uid() }));
+    let copy: QuoteDocument;
+    if (fiscal) {
+      const t = documentTotals({ lines, type: 'fattura', invoice: undefined }, forf);
+      const c = { ...doc.customer };
+      copy = {
+        ...doc, id: uid(), number: '', date: todayIso(), status: 'bozza', lines, createdAt: now, updatedAt: now,
+        convertedFromQuoteId: undefined, convertedToInvoiceId: undefined, invoice: newInvoiceFiscal({
+          date: todayIso(), customer: c, stampDue: t.stampDue, stampChargedToCustomer: inv?.stampDutyChargedToCustomer ?? !!profile.stampDutyDefaultChargedToCustomer,
+        }),
+      };
+    } else {
+      copy = { ...doc, id: uid(), number: await nextDocumentNumber(doc.type), date: todayIso(), status: 'bozza', lines, createdAt: now, updatedAt: now, convertedToInvoiceId: undefined };
+    }
     await saveDocument(copy);
-    toast('Documento duplicato');
+    toast(fiscal ? 'Creata una nuova bozza' : 'Documento duplicato');
     nav(`/documenti/${copy.id}`);
   }, 'Duplicazione non riuscita.');
 
   const convert = () => run('conv', async () => {
-    const now = Date.now();
-    const inv: QuoteDocument = {
-      ...doc, id: uid(), type: 'fattura', number: await nextDocumentNumber('fattura'), date: todayIso(), status: 'bozza',
-      lines: doc.lines.map((l) => ({ ...l, id: uid() })), createdAt: now, updatedAt: now,
-    };
-    await saveDocument(inv);
-    toast(`Creata la fattura ${inv.number}`);
-    nav(`/documenti/${inv.id}`);
+    setSheet(null);
+    const created = await createInvoiceFromQuote(doc.id);
+    toast('Creata la bozza di fattura');
+    nav(`/documenti/${created.id}`);
   }, 'Conversione non riuscita.');
 
   const remove = () => run('del', async () => {
+    setSheet(null);
     await deleteDocument(doc.id);
-    toast('Documento eliminato');
+    toast(draftInv ? 'Bozza eliminata' : 'Documento eliminato');
     nav('/documenti', { replace: true });
   }, 'Eliminazione non riuscita.');
 
-  const p = profile;
-  const city = [p.zip, p.city].filter(Boolean).join(' ') + (p.province ? ` (${p.province})` : '');
+  const issue = () => run('issue', async () => {
+    try {
+      const upd = await issueInvoice(doc.id);
+      setServerIssues([]); setSheet(null); apply(upd);
+      toast(`Fattura emessa: n. ${upd.invoice?.number ?? ''}`, 'success');
+    } catch (e) {
+      const list = issuesOf(e);
+      if (!list) throw e;
+      setServerIssues(list);
+      toast('La fattura ha dei problemi da correggere.', 'error');
+    }
+  }, 'Emissione non riuscita.');
+
+  const makeCreditNote = (o: { reason: string; lines?: DocLine[] }) => run('credit', async () => {
+    const created = await createCreditNote(doc.id, o);
+    setSheet(null);
+    toast(`Nota di credito emessa: n. ${created.invoice?.number ?? ''}`, 'success');
+    nav(`/documenti/${created.id}`);
+  }, 'Nota di credito non riuscita.');
+
+  const saveSdi = (ev: SdiEvent) => run('sdi', async () => {
+    const upd = await recordSdiEvent(doc.id, ev);
+    setSheet(null); apply(upd);
+    toast(ev.type === 'INVIO' ? 'Segnata come inviata' : 'Esito registrato', 'success');
+  }, 'Registrazione non riuscita.');
+
+  const savePayment = (p: { date: string; amount: number; method?: string }) => run('pay', async () => {
+    const upd = await recordPayment(doc.id, p);
+    setSheet(null); apply(upd);
+    toast('Incasso registrato', 'success');
+  }, 'Registrazione non riuscita.');
+
+  const city = [profile.zip, profile.city].filter(Boolean).join(' ') + (profile.province ? ` (${profile.province})` : '');
   const c = doc.customer;
+  const custCity = [c.zip, c.city].filter(Boolean).join(' ') + (c.province ? ` (${c.province})` : '');
+  const docDate = (fiscal && inv?.operationDate) || doc.date;
+  const quoteStatus = doc.status as QuoteStatus;
 
   return (
     <div className="stack">
       <PageHeader
-        title={doc.type === 'preventivo' ? 'Preventivo' : 'Fattura'}
-        subtitle={`n. ${doc.number}`}
-        actions={<Badge tone={STATUS_TONE[doc.status]}>{STATUS_LABEL[doc.status]}</Badge>}
+        title={kindLabel(doc)}
+        subtitle={`n. ${num}`}
+        actions={fiscal ? <InvoiceBadges doc={doc} /> : <Badge tone={STATUS_TONE[doc.status]}>{STATUS_LABEL[doc.status]}</Badge>}
       />
 
+      {draftInv && (
+        <p className="iv-note" data-tone="warning" role="note">
+          <strong>BOZZA</strong>: non ha ancora un numero e non è stata emessa. Il numero viene assegnato solo quando emetti la fattura.
+        </p>
+      )}
+      {legacy && doc.type === 'fattura' && <p className="iv-note" role="note">Fattura di cortesia (versione precedente dell’app): non è un documento fiscale.</p>}
+
+      {draftInv && (
+        <Button size="lg" className="btn-block" onClick={() => { setServerIssues([]); setSheet('issue'); }} disabled={!!busy}>Emetti fattura</Button>
+      )}
+
+      {issued && <InvoicePanel
+        doc={doc} totals={totals} busy={busy} original={related.original} creditNotes={related.creditNotes}
+        onDownloadXml={downloadXml} onGuide={() => setSheet('guide')} onSend={() => setSheet('send')} onOutcome={() => setSheet('outcome')}
+        onPayment={() => setSheet('payment')} onCreditNote={() => setSheet('credit')}
+      />}
+
       <div className="dv-actions">
-        <Button onClick={download} disabled={!!busy}>{busy === 'pdf' ? 'Creo PDF…' : 'Scarica PDF'}</Button>
-        <Button variant="secondary" onClick={share} disabled={!!busy}>{busy === 'share' ? 'Attendi…' : 'Condividi'}</Button>
-        <Button variant="secondary" className="span-2" onClick={whatsapp} disabled={!!busy}>Invia su WhatsApp</Button>
+        <Button onClick={download} disabled={!!busy}>{busy === 'pdf' ? 'Creo PDF…' : draftInv ? 'Scarica PDF (bozza)' : issued ? 'Scarica PDF (copia di cortesia)' : 'Scarica PDF'}</Button>
+        {act.shareCourtesy && <Button variant="secondary" onClick={share} disabled={!!busy}>{busy === 'share' ? 'Attendi…' : 'Condividi'}</Button>}
+        {act.shareCourtesy && <Button variant="secondary" className="span-2" onClick={whatsapp} disabled={!!busy}>Invia su WhatsApp</Button>}
       </div>
 
-      <div>
-        <div className="field-label" id="dv-status-l">Stato del documento</div>
-        <div className="segmented dv-status" role="radiogroup" aria-labelledby="dv-status-l">
-          {STATUS_ORDER.map((s) => (
-            <button key={s} type="button" role="radio" aria-checked={doc.status === s} disabled={!!busy} onClick={() => doc.status !== s && void setStatus(s)}>
-              {STATUS_LABEL[s]}
-            </button>
-          ))}
+      {doc.type === 'preventivo' && (
+        <div>
+          <label className="field-label" htmlFor="dv-qstatus">Stato del preventivo</label>
+          <Select id="dv-qstatus" value={quoteStatus} disabled={!!busy} onChange={(e) => void setStatus(e.target.value as DocStatus)}>
+            {QUOTE_STATUSES.filter((s) => s !== 'convertito' || quoteStatus === 'convertito').map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+          </Select>
         </div>
-      </div>
+      )}
+      {legacy && doc.type === 'fattura' && (
+        <div>
+          <div className="field-label" id="dv-status-l">Stato del documento</div>
+          <div className="segmented dv-status" role="radiogroup" aria-labelledby="dv-status-l">
+            {LEGACY_STATUSES.map((s) => (
+              <button key={s} type="button" role="radio" aria-checked={doc.status === s} disabled={!!busy} onClick={() => doc.status !== s && void setStatus(s)}>{STATUS_LABEL[s]}</button>
+            ))}
+          </div>
+        </div>
+      )}
 
-      <article className="dv-paper" aria-label={`Anteprima ${docTitle(doc)}`}>
+      {(related.quote || related.invoice) && (
+        <div className="iv-links">
+          {related.quote && <Link to={`/documenti/${related.quote.id}`}>Creata dal preventivo n. {related.quote.number}</Link>}
+          {related.invoice && <Link to={`/documenti/${related.invoice.id}`}>Convertito nella fattura {related.invoice.invoice?.number ? `n. ${related.invoice.invoice.number}` : '(bozza)'}</Link>}
+        </div>
+      )}
+
+      <article className="dv-paper" data-draft={draftInv ? 'true' : undefined} aria-label={`Anteprima ${docTitle(doc)}`}>
         <header className="dv-head">
-          {p.logoDataUrl && <img src={p.logoDataUrl} alt="Logo" />}
+          {profile.logoDataUrl && <img src={profile.logoDataUrl} alt="Logo" />}
           <div>
-            <div className="dv-biz">{p.businessName || 'La tua azienda'}</div>
+            <div className="dv-biz">{profile.businessName || 'La tua azienda'}</div>
             <div className="dv-small">
-              {p.address && <div>{p.address}{city.trim() ? ` - ${city}` : ''}</div>}
-              {(p.vatNumber || p.fiscalCode) && <div>{[p.vatNumber && `P.IVA ${p.vatNumber}`, p.fiscalCode && `C.F. ${p.fiscalCode}`].filter(Boolean).join('  ')}</div>}
-              {(p.phone || p.email) && <div>{[p.phone, p.email].filter(Boolean).join('  ')}</div>}
-              {p.artigianiNumber && <div>Albo Imprese Artigiane n. {p.artigianiNumber}</div>}
+              {profile.address && <div>{profile.address}{city.trim() ? ` - ${city}` : ''}</div>}
+              {(profile.vatNumber || profile.fiscalCode) && <div>{[profile.vatNumber && `P.IVA ${profile.vatNumber}`, profile.fiscalCode && `C.F. ${profile.fiscalCode}`].filter(Boolean).join('  ')}</div>}
+              {(profile.phone || profile.email) && <div>{[profile.phone, profile.email].filter(Boolean).join('  ')}</div>}
+              {profile.artigianiNumber && <div>Albo Imprese Artigiane n. {profile.artigianiNumber}</div>}
             </div>
           </div>
         </header>
 
         <div className="dv-title">
           <h2>{docTitle(doc)}</h2>
-          <span>{fmtDate(doc.date)}</span>
+          <span>{fmtDate(docDate)}</span>
         </div>
+        {creditNoteLines(doc).map((l) => <p key={l} className="dv-legal" style={{ color: 'inherit', fontWeight: 600 }}>{l}</p>)}
 
         <div className="dv-cust">
-          <small>{doc.type === 'preventivo' ? 'PREVENTIVO PER' : 'FATTURATO A'}</small>
+          <small>{doc.type === 'preventivo' ? 'PREVENTIVO PER' : nc ? 'INTESTATA A' : 'FATTURATO A'}</small>
           <strong>{c.name}</strong>
           {c.address && <div>{c.address}</div>}
-          {c.vatOrFiscalCode && <div>P.IVA / C.F.: {c.vatOrFiscalCode}</div>}
+          {fiscal && custCity.trim() && <div>{custCity}</div>}
+          {fiscal ? (
+            (c.vatNumber || c.fiscalCode) ? <div>{[c.vatNumber && `P.IVA ${c.vatNumber}`, c.fiscalCode && `C.F. ${c.fiscalCode}`].filter(Boolean).join('  ')}</div> : c.vatOrFiscalCode ? <div>P.IVA / C.F.: {c.vatOrFiscalCode}</div> : null
+          ) : (c.vatOrFiscalCode && <div>P.IVA / C.F.: {c.vatOrFiscalCode}</div>)}
+          {fiscal && c.codiceDestinatario && c.codiceDestinatario !== '0000000' && <div>Codice destinatario: {c.codiceDestinatario}</div>}
+          {fiscal && c.pec && <div>PEC: {c.pec}</div>}
           {(c.email || c.phone) && <div>{[c.email, c.phone].filter(Boolean).join('  ')}</div>}
         </div>
 
@@ -188,7 +328,7 @@ export default function DocumentView() {
           {!forf && totals.byRate.map((r) => (
             <div key={r.rate}><span>IVA {r.rate}%</span><span className="num"><Money value={r.vat} /></span></div>
           ))}
-          {totals.stamp > 0 && <div><span>Marca da bollo</span><span className="num"><Money value={totals.stamp} /></span></div>}
+          {totals.stamp > 0 && <div><span>{fiscal ? 'Rimborso imposta di bollo' : 'Marca da bollo'}</span><span className="num"><Money value={totals.stamp} /></span></div>}
           <div className="dv-total"><span>TOTALE</span><span className="num"><Money value={totals.gross} /></span></div>
         </div>
 
@@ -196,31 +336,56 @@ export default function DocumentView() {
         {(forf || doc.type === 'fattura') && (
           <div>
             {forf && <p className="dv-legal">{FORFETTARIO_TEXT}</p>}
-            {forf && totals.stamp > 0 && <p className="dv-legal">{BOLLO_TEXT}</p>}
-            {doc.type === 'fattura' && <p className="dv-legal">{COURTESY_TEXT}</p>}
+            {forf && totals.stampDue > 0 && <p className="dv-legal">{BOLLO_TEXT}</p>}
+            {draftInv && <p className="dv-legal">{DRAFT_TEXT}</p>}
+            {issued && <p className="dv-legal">{COURTESY_TEXT}</p>}
+            {legacy && doc.type === 'fattura' && <p className="dv-legal">Documento di cortesia: non sostituisce la fattura elettronica trasmessa tramite SDI.</p>}
           </div>
         )}
       </article>
 
+      {issued && <Timeline doc={doc} audit={audit} auditError={auditError} />}
+
       <div className="dv-actions">
-        <Link className="btn" data-variant="secondary" to={`/?edit=${doc.id}`}>Modifica</Link>
-        <Button variant="secondary" onClick={duplicate} disabled={!!busy}>Duplica</Button>
-        {doc.type === 'preventivo' && (
+        {act.edit && <Link className="btn" data-variant="secondary" to={`/?edit=${doc.id}`}>Modifica</Link>}
+        {act.duplicate && <Button variant="secondary" onClick={duplicate} disabled={!!busy}>{fiscal ? 'Duplica come bozza' : 'Duplica'}</Button>}
+        {act.convertToInvoice && (
           <>
-            <Button className="span-2" onClick={convert} disabled={!!busy || doc.status !== 'accettato'}>Converti in fattura</Button>
-            {doc.status !== 'accettato' && <p className="muted span-2 qe-note" style={{ gridColumn: '1 / -1' }}>Per convertirlo in fattura, segna prima il preventivo come “Accettato”.</p>}
+            <Button className="span-2" onClick={() => (doc.status === 'accettato' ? void convert() : setSheet('convert'))} disabled={!!busy}>
+              {busy === 'conv' ? 'Creo la bozza…' : 'Converti in fattura'}
+            </Button>
+            {doc.status !== 'accettato' && <p className="muted qe-note" style={{ gridColumn: '1 / -1' }}>Di solito si converte un preventivo accettato: dagli altri stati chiedo conferma.</p>}
           </>
         )}
-        <Button variant="danger" className="span-2" onClick={() => setConfirmDel(true)} disabled={!!busy}>Elimina</Button>
+        {act.delete && <Button variant="danger" className="span-2" onClick={() => setSheet('delete')} disabled={!!busy}>{draftInv ? 'Elimina bozza' : 'Elimina'}</Button>}
       </div>
 
-      <Sheet open={confirmDel} onClose={() => setConfirmDel(false)} title="Eliminare il documento?">
+      <Sheet open={sheet === 'delete'} onClose={() => setSheet(null)} title={draftInv ? 'Eliminare la bozza?' : 'Eliminare il documento?'}>
         <div className="dv-confirm">
-          <p>{docTitle(doc)} per {doc.customer.name} verrà eliminato in modo definitivo.</p>
-          <Button variant="danger" onClick={() => { setConfirmDel(false); void remove(); }}>Sì, elimina</Button>
-          <Button variant="secondary" onClick={() => setConfirmDel(false)}>Annulla</Button>
+          <p>{docTitle(doc)} per {doc.customer.name} verrà eliminato in modo definitivo.{draftInv ? ' Nessun numero di fattura viene consumato.' : ''}</p>
+          <Button variant="danger" onClick={() => void remove()} disabled={!!busy}>Sì, elimina</Button>
+          <Button variant="secondary" onClick={() => setSheet(null)}>Annulla</Button>
         </div>
       </Sheet>
+
+      <Sheet open={sheet === 'convert'} onClose={() => setSheet(null)} title="Convertire in fattura?">
+        <div className="dv-confirm">
+          <p>Il preventivo è “{STATUS_LABEL[doc.status].toLowerCase()}”, non “accettato”. Creo comunque una bozza di fattura con le stesse righe? Potrai controllarla e modificarla prima di emetterla.</p>
+          <Button onClick={() => void convert()} disabled={!!busy}>Sì, crea la bozza di fattura</Button>
+          <Button variant="secondary" onClick={() => setSheet(null)}>Annulla</Button>
+        </div>
+      </Sheet>
+
+      {draftInv && <IssueSheet open={sheet === 'issue'} onClose={() => setSheet(null)} doc={doc} profile={profile} totals={totals} issues={issues} busy={busy === 'issue'} onIssue={() => void issue()} />}
+      {issued && (
+        <>
+          <SdiGuideSheet open={sheet === 'guide'} onClose={() => setSheet(null)} fileName={inv?.fileName} />
+          <SdiEventSheet open={sheet === 'send'} mode="send" onClose={() => setSheet(null)} busy={busy === 'sdi'} onSave={saveSdi} />
+          <SdiEventSheet open={sheet === 'outcome'} mode="outcome" onClose={() => setSheet(null)} busy={busy === 'sdi'} onSave={saveSdi} />
+          <PaymentSheet open={sheet === 'payment'} onClose={() => setSheet(null)} doc={doc} residual={residual} busy={busy === 'pay'} onSave={savePayment} />
+          {act.creditNote && <CreditNoteSheet open={sheet === 'credit'} onClose={() => setSheet(null)} doc={doc} busy={busy === 'credit'} onCreate={makeCreditNote} />}
+        </>
+      )}
     </div>
   );
 }

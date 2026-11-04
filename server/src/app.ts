@@ -1,16 +1,23 @@
-// SCHELETO (proprietà: agente SERVER-CORE). Monta i router dei vari moduli con i nomi fissi sotto.
+// Monta i router dei moduli. I nomi billingRoutes/sdiRoutes/voiceRoutes sono di SERVER-EXTRA.
 import { Hono } from 'hono';
-import { authRoutes } from './auth/routes';
+import { authRoutes, meRoutes } from './auth/routes';
+import { applySecurity } from './auth/security';
+import type { AuthEnv } from './auth/middleware';
+import { documentRoutes } from './documents/routes';
 import { syncRoutes } from './sync/routes';
 import { billingRoutes } from './billing/routes';
 import { sdiRoutes } from './sdi/routes';
 import { voiceRoutes } from './voice/routes';
 
 export const createApp = () => {
-  const app = new Hono();
+  const app = new Hono<AuthEnv>();
+  applySecurity(app);
   app.get('/health', (c) => c.json({ ok: true }));
+  app.get('/healthz', (c) => c.text('ok'));
   app.route('/v1/auth', authRoutes);
+  app.route('/v1/me', meRoutes);
   app.route('/v1/sync', syncRoutes);
+  app.route('/v1/documents', documentRoutes);
   app.route('/v1/billing', billingRoutes);
   app.route('/v1/sdi', sdiRoutes);
   app.route('/v1/voice', voiceRoutes);

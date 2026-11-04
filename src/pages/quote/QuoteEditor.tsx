@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { CatalogItem, Customer, DocLine, DocType, Totals, Unit } from '../../types';
 import { UNITS, roundMoney, uid } from '../../types';
 import { Badge, Button, Card, Field, Input, Money, Select, Textarea } from '../../ui';
 import { NumInput } from './NumInput';
 import { CatalogSheet } from './CatalogSheet';
+import { CustomerFiscalFields } from '../invoice/CustomerFiscalFields';
 import './quote.css';
 
 const VAT_RATES = [22, 10, 4, 0];
@@ -28,6 +29,8 @@ interface Props {
   defaultVat: number;
   catalog: CatalogItem[];
   customerError?: string;
+  /** Blocchi extra (es. dati fiscali della bozza di fattura) mostrati prima del riepilogo. */
+  extra?: ReactNode;
 }
 
 export function QuoteEditor(p: Props) {
@@ -63,7 +66,8 @@ export function QuoteEditor(p: Props) {
   };
   const setC = (ch: Partial<Customer>) => onCustomer({ ...customer, ...ch });
   const toReview = lines.filter((l) => l.needsReview).length;
-  const extraOpen = !!(customer.address || customer.email || customer.phone || customer.vatOrFiscalCode);
+  const isInvoice = p.type === 'fattura';
+  const extraOpen = isInvoice || !!(customer.address || customer.email || customer.phone || customer.vatOrFiscalCode);
 
   return (
     <div className="qe stack">
@@ -80,14 +84,18 @@ export function QuoteEditor(p: Props) {
             />
           </Field>
           <details className="qe-details" open={extraOpen}>
-            <summary>Indirizzo, email, telefono (facoltativi)</summary>
+            <summary>{isInvoice ? 'Dati fiscali del cliente' : 'Indirizzo, email, telefono (facoltativi)'}</summary>
             <div className="stack-sm qe-details-body">
-              <Field label="Indirizzo"><Input value={customer.address ?? ''} onChange={(e) => setC({ address: e.target.value })} autoComplete="street-address" /></Field>
-              <div className="grid-2">
-                <Field label="Email"><Input type="email" inputMode="email" value={customer.email ?? ''} onChange={(e) => setC({ email: e.target.value })} /></Field>
-                <Field label="Telefono"><Input type="tel" inputMode="tel" value={customer.phone ?? ''} onChange={(e) => setC({ phone: e.target.value })} /></Field>
-              </div>
-              <Field label="P.IVA / Codice fiscale"><Input value={customer.vatOrFiscalCode ?? ''} onChange={(e) => setC({ vatOrFiscalCode: e.target.value })} /></Field>
+              {isInvoice ? <CustomerFiscalFields customer={customer} onChange={onCustomer} /> : (
+                <>
+                  <Field label="Indirizzo"><Input value={customer.address ?? ''} onChange={(e) => setC({ address: e.target.value })} autoComplete="street-address" /></Field>
+                  <div className="grid-2">
+                    <Field label="Email"><Input type="email" inputMode="email" value={customer.email ?? ''} onChange={(e) => setC({ email: e.target.value })} /></Field>
+                    <Field label="Telefono"><Input type="tel" inputMode="tel" value={customer.phone ?? ''} onChange={(e) => setC({ phone: e.target.value })} /></Field>
+                  </div>
+                  <Field label="P.IVA / Codice fiscale"><Input value={customer.vatOrFiscalCode ?? ''} onChange={(e) => setC({ vatOrFiscalCode: e.target.value })} /></Field>
+                </>
+              )}
             </div>
           </details>
         </div>
@@ -100,7 +108,7 @@ export function QuoteEditor(p: Props) {
         </div>
         {lines.length === 0 && <p className="muted">Nessuna riga. Aggiungi una voce dal catalogo o scrivila a mano.</p>}
         {lines.map((l, i) => (
-          <article key={l.id} className="qe-line" data-review={l.needsReview ? 'true' : undefined} aria-label={`Riga ${i + 1}: ${l.description || 'senza descrizione'}`}>
+          <article key={l.id} id={`f-lines[${i}]`} tabIndex={-1} className="qe-line" data-review={l.needsReview ? 'true' : undefined} aria-label={`Riga ${i + 1}: ${l.description || 'senza descrizione'}`}>
             <div className="qe-line-top">
               {l.needsReview ? <Badge tone="warning">Da verificare</Badge> : <span className="muted qe-line-n">Voce {i + 1}</span>}
               <button type="button" className="qe-iconbtn qe-del" aria-label={`Elimina riga ${i + 1}`} onClick={() => remove(l.id)}>
@@ -165,6 +173,8 @@ export function QuoteEditor(p: Props) {
           <Textarea rows={3} value={p.notes} onChange={(e) => p.onNotes(e.target.value)} placeholder="Es. Il prezzo non comprende opere murarie." />
         </Field>
       </Card>
+
+      {p.extra}
 
       <TotalsCard totals={p.totals} type={p.type} forfettario={p.forfettario} />
 

@@ -384,10 +384,10 @@ export const createCreditNote = async (
       let lines: DocLine[];
       if (opts.lines) {
         if (!opts.lines.length) throw issueErr('lines', 'required', 'Indica almeno una riga da stornare.');
-        lines = clone(opts.lines).map((l) => ({ ...l, id: uid() }));
+        lines = clone(opts.lines).map((l, i) => ({ ...l, id: `${ncId}:${i}` })); // id deterministici: il piano si ripete identico
       } else {
         if (prior.length) throw issueErr('lines', 'partial_exists', 'La fattura ha già note di credito parziali: indica le righe da stornare.');
-        lines = clone(orig.lines).map((l) => ({ ...l, id: uid() }));
+        lines = clone(orig.lines).map((l, i) => ({ ...l, id: `${ncId}:${i}` }));
       }
       const ncNet = cents(computeTotals(lines, { forfettario: forf, type: 'fattura' }).net);
       if (ncNet <= 0) throw issueErr('lines', 'invalid_amount', 'L\'importo della nota di credito deve essere positivo.');

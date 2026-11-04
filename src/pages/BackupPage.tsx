@@ -18,6 +18,7 @@ export default function BackupPage() {
   const [last, setLast] = useState<number | null>(readLast);
   const [pending, setPending] = useState<{ json: string; summary: string } | null>(null);
   const [error, setError] = useState('');
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -52,9 +53,10 @@ export default function BackupPage() {
     if (!pending) return;
     setBusy(true);
     try {
-      await importBackup(pending.json);
+      const res = await importBackup(pending.json);
       setPending(null);
-      toast('Dati ripristinati');
+      setWarnings(res?.warnings ?? []);
+      toast(res?.warnings?.length ? 'Dati ripristinati (con avvisi)' : 'Dati ripristinati');
     } catch (e) {
       setPending(null);
       setError(e instanceof Error ? e.message : 'Ripristino non riuscito');
@@ -86,6 +88,15 @@ export default function BackupPage() {
             <Button size="lg" onClick={() => void doExport()} disabled={busy}>Scarica backup (.json)</Button>
           </div>
         </Card>
+
+        {warnings.length > 0 && (
+          <Card>
+            <div role="status" style={{ ...s.col, padding: 12 }}>
+              <strong>Attenzione dopo il ripristino</strong>
+              {warnings.map((w, i) => <p key={i} style={{ margin: 0 }}>{w}</p>)}
+            </div>
+          </Card>
+        )}
 
         <Card>
           <div style={{ ...s.col, padding: 12 }}>

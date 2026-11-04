@@ -61,7 +61,6 @@ export function softDeleteDocument(tenantId: string, id: string, at: number): vo
   run('UPDATE documents SET deleted_at=?, updated_at=? WHERE tenant_id=? AND id=? AND locked_at IS NULL', at, at, tenantId, id);
 }
 
-const ALLOWED_LOCKED = ['status', 'updatedAt'] as const;
 /**
  * Per SERVER-EXTRA (esiti SDI, pagamenti): modifica SOLO i campi ammessi di una fattura bloccata
  * (status, updatedAt, invoice.sdiEvents/payments/paymentStatus) e registra la modifica nel log di sync.
@@ -73,7 +72,6 @@ export function patchLockedDocument(tenantId: string, id: string, patch: {
   const rec = getDocumentRecord(tenantId, id);
   if (!rec || rec.deletedAt !== null || rec.lockedAt === null) return false;
   const d = JSON.parse(JSON.stringify(rec.data)) as Record<string, any>;
-  void ALLOWED_LOCKED;
   if (patch.status) d.status = patch.status;
   if (d.invoice) {
     if (patch.sdiEvents) d.invoice.sdiEvents = patch.sdiEvents;
