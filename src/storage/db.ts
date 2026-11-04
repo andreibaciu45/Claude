@@ -243,6 +243,10 @@ function idbBackend(dbp: Promise<IDBPDatabase>): Backend {
         throw new TxFnError(e);
       }
       await tx.done;
+      // Avvisa chi osserva (es. src/sync) che i dati locali sono cambiati: sync con debounce senza polling.
+      if (mode === 'readwrite' && typeof window !== 'undefined') {
+        try { window.dispatchEvent(new Event('vp:storage-changed')); } catch { /* ambiente senza eventi */ }
+      }
       return r;
     },
   };

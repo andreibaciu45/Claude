@@ -1,0 +1,38 @@
+name: CI Docker (facoltativa)
+
+# Costruisce le immagini Docker senza pubblicarle. Solo manuale: la strada principale
+# di deploy NON usa Docker (vedi docs/DEPLOY.md).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    name: Build immagini Docker (senza push)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build immagine server
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          target: server
+          push: false
+          tags: vocepreventivo-server:ci
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,scope=server,mode=max
+      - name: Build immagine web (Vite + Caddy)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          target: web
+          push: false
+          tags: vocepreventivo-web:ci
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max

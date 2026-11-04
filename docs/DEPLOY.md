@@ -1,11 +1,12 @@
-# Guida al deploy (VPS) — per chi non è DevOps
+# Guida al deploy (VPS, senza Docker) — per chi non è DevOps
 
-Questa guida porta online VocePreventivo su un tuo VPS con HTTPS automatico, backup continuo del database e aggiornamenti con ritorno alla versione precedente se qualcosa va storto.
+Questa guida porta online VocePreventivo su un tuo VPS **senza Docker**, nemmeno sul tuo PC. Docker resta solo come alternativa facoltativa (appendice A).
 
-Architettura (3 contenitori Docker, gestiti da `infra/docker-compose.yml`):
-- **caddy**: sito web (la PWA) + HTTPS automatico + inoltra `/v1/*` e `/health` al server.
-- **server**: l'API (Node 22), database SQLite nel volume `app-data`.
-- **litestream**: copia continua del database su un bucket S3-compatibile (Backblaze B2, Hetzner Object Storage, Cloudflare R2).
+Cosa gira sul VPS (tutto come servizi di sistema, gestiti da `systemd`):
+- **Caddy** (installato da apt): serve la PWA (cartella `dist`), fa da proxy per `/v1/*` e `/health`, ottiene da solo il certificato HTTPS.
+- **server** (`vocepreventivo-server`): Node 22 che esegue `tsx src/index.ts` (nessuna build), database SQLite integrato in Node (`node:sqlite`, nessun pacchetto nativo), utente dedicato senza login.
+- **Litestream** (`vocepreventivo-litestream`): copia continua del database su un bucket S3-compatibile (Backblaze B2, Hetzner Object Storage, Cloudflare R2).
+- **timer**: backup giornaliero e prova di ripristino mensile.
 
 > Fiscalità: l'app è uno strumento di supporto; la responsabilità fiscale resta dell'utente. Questo documento riguarda solo l'infrastruttura.
 
@@ -13,46 +14,53 @@ Architettura (3 contenitori Docker, gestiti da `infra/docker-compose.yml`):
 
 ## COME FORNIRE LE CREDENZIALI IN MODO SICURO
 
-**Non incollare mai password, chiavi SSH, token o chiavi di accesso del bucket in una chat (nemmeno con Claude), in un'issue, in un commit o nel repository.** Chi le legge può usarle; una volta in git o in chat vanno considerate compromesse e ruotate (vedi `infra/scripts/rotate-secrets.md`).
+**Non incollare mai password, chiavi SSH, token o chiavi del bucket in una chat (nemmeno con Claude), in un'issue, in un commit o nel repository.** Chi le legge può usarle; una volta finite in git o in chat vanno considerate compromesse e ruotate (`infra/scripts/rotate-secrets.md`).
 
 Dove vanno invece:
-1. **Sul server**, nel file `infra/.env` (permessi 600), scritto da te con un editor via SSH. Non è in git (è ignorato).
-2. **Su GitHub**, in *Settings → Environments → production → Environment secrets*: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS`, `DEPLOY_PATH` (e `VPS_PORT` se non usi la 22). Li inserisci tu dal sito di GitHub; nessuno, nemmeno gli assistenti, ha bisogno di vederli.
-3. La chiave SSH di deploy deve essere **dedicata** (non la tua personale), e le credenziali del bucket devono avere accesso **solo a quel bucket**.
+1. **Sul server**, nel file `/etc/vocepreventivo/server.env` (permessi 600), che scrivi tu con un editor via SSH. Non è in git.
+2. **Su GitHub**, in *Settings → Environments → production → Environment secrets*: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS`, `DEPLOY_PATH` (e `VPS_PORT` se non usi la 22). Li inserisci tu dal sito di GitHub.
+3. Chiave SSH di deploy **dedicata** (non la tua personale); credenziali del bucket con accesso **solo a quel bucket**.
 
-Gli assistenti/sviluppatori lavorano solo con file di esempio con segnaposto (`CHANGE_ME`).
+Gli assistenti e gli sviluppatori lavorano solo con file di esempio con segnaposto (`CHANGE_ME`).
 
 ---
 
-## 1. Requisiti del VPS
-- Ubuntu **LTS** (22.04 o 24.04), **1–2 GB di RAM** (con 1 GB aggiungi 1 GB di swap, vedi sotto), 20 GB di disco, IPv4 pubblico.
-- Provider consigliato in UE (es. Hetzner, località Germania/Finlandia).
-- Un **dominio** (o sottodominio) di tua proprietà, per esempio `app.tuodominio.it`.
-- Un **bucket S3-compatibile** in UE con una chiave di accesso limitata a quel bucket.
-- Account GitHub con il repository (per il deploy automatico; in alternativa si può fare tutto a mano).
+## 1. Requisiti
+- VPS con Ubuntu **LTS** (22.04 o 24.04), **1–2 GB di RAM**, 20 GB di disco, IPv4 pubblico, in UE (es. Hetzner).
+- Un **dominio** o sottodominio, es. `app.tuodominio.it`.
+- Un **bucket S3-compatibile** privato in UE e una chiave di accesso limitata a quel bucket.
+- Un account GitHub con il repository (per il deploy con un clic; in alternativa vedi 6.B).
+- Sul tuo PC: **nessun Docker**. Serve solo un terminale con SSH.
 
-## 2. Hardening iniziale (una volta sola)
-Accedi la prima volta come amministratore fornito dal provider (credenziali che gestisci solo tu).
+## 2. Collegarsi al VPS dal PC (Windows, macOS, Linux)
+**Windows 10/11 — PowerShell o Terminale Windows** (SSH è già incluso): apri *Terminale* o *PowerShell* e scrivi
+```powershell
+ssh nomeutente@IP_DEL_SERVER
+```
+Alla prima connessione conferma l'impronta del server (confrontala con quella nel pannello del provider). Per creare la chiave SSH:
+```powershell
+ssh-keygen -t ed25519 -C "il-mio-pc"
+type $env:USERPROFILE\.ssh\id_ed25519.pub
+```
+Copia la riga stampata (è la chiave **pubblica**, si può condividere) e aggiungila sul server nel file `~/.ssh/authorized_keys`. La chiave **privata** (`id_ed25519`, senza `.pub`) non va mai condivisa.
 
+**Alternativa PuTTY**: scarica PuTTY dal sito ufficiale, apri *PuTTYgen*, genera una chiave Ed25519, salva la privata (con passphrase) e copia il testo "Public key for pasting into OpenSSH authorized_keys file" sul server. In PuTTY: Host Name = IP, Connection → SSH → Auth → Credentials = file `.ppk`.
+
+**macOS/Linux**: `ssh nomeutente@IP_DEL_SERVER` dal Terminale; chiave con `ssh-keygen -t ed25519` e `ssh-copy-id`.
+
+## 3. Hardening iniziale (una volta sola)
+Collegati con l'utente amministratore fornito dal provider.
 ```bash
-# 2.1 aggiornamenti
 sudo apt update && sudo apt -y full-upgrade
-
-# 2.2 utente non-root per il deploy
-sudo adduser deploy              # imposta una password robusta e conservala nel gestore password
+sudo adduser deploy                 # password robusta, salvata nel gestore password
 sudo usermod -aG sudo deploy
 ```
+Dal PC copia la chiave pubblica per `deploy` (su Linux/macOS `ssh-copy-id deploy@IP`; su Windows incolla la riga pubblica in `/home/deploy/.ssh/authorized_keys`: `sudo mkdir -p /home/deploy/.ssh`, `sudo nano /home/deploy/.ssh/authorized_keys`, poi `sudo chown -R deploy:deploy /home/deploy/.ssh && sudo chmod 700 /home/deploy/.ssh && sudo chmod 600 /home/deploy/.ssh/authorized_keys`).
 
-**Chiave SSH** (sul TUO computer, non sul server):
-```bash
-ssh-keygen -t ed25519 -C "deploy-vocepreventivo"      # scegli una passphrase
-ssh-copy-id deploy@IL_TUO_SERVER                       # copia la chiave PUBBLICA
-```
-Prova `ssh deploy@IL_TUO_SERVER`. Solo quando funziona, disattiva password e root:
+**Prova** `ssh deploy@IP` in una seconda finestra. Solo se funziona, disattiva root e password:
 ```bash
 sudo nano /etc/ssh/sshd_config.d/99-hardening.conf
 ```
-contenuto:
 ```
 PermitRootLogin no
 PasswordAuthentication no
@@ -61,178 +69,134 @@ KbdInteractiveAuthentication no
 ```bash
 sudo sshd -t && sudo systemctl restart ssh
 ```
-(Tieni aperta una seconda sessione SSH mentre lo fai, per non chiuderti fuori.)
+Firewall (ufw), fail2ban e aggiornamenti automatici **li configura lo script del punto 5**. Se vuoi farlo a mano: `ufw allow OpenSSH; ufw allow 80,443/tcp; ufw allow 443/udp; ufw enable`, `apt install fail2ban unattended-upgrades`.
 
-**Firewall ufw** (apri solo ciò che serve):
+Con 1 GB di RAM aggiungi swap: `sudo fallocate -l 1G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab`.
+
+## 4. DNS e dominio
+Dal registrar crea un record **A** (e **AAAA** se il VPS ha IPv6) per `app.tuodominio.it` verso l'IP del VPS. Verifica con `dig +short app.tuodominio.it`. Caddy ottiene il certificato solo se il DNS è già corretto e le porte 80/443 sono aperte.
+
+## 5. Preparare il server (script `setup-vps.sh`)
+Come `deploy` sul server, porta qui la cartella `infra/` del repository. Il modo più semplice (repository pubblico, oppure privato con una *deploy key* di sola lettura):
 ```bash
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-sudo ufw allow OpenSSH
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 443/udp      # HTTP/3
-sudo ufw enable
-sudo ufw status
+git clone https://github.com/TUO-ACCOUNT/IL-REPO.git ~/vocepreventivo-src
+cd ~/vocepreventivo-src/infra
+sudo DEPLOY_USER=deploy ./scripts/setup-vps.sh
 ```
-> Nota: Docker pubblica le porte aggirando in parte ufw. Per questo il compose pubblica **solo** 80/443; il server (8787) non è mai esposto all'esterno.
+(In alternativa copia solo la cartella `infra/` dal PC con `scp -r infra deploy@IP:~/`.)
 
-**fail2ban** (blocca chi prova a indovinare l'accesso SSH):
+Lo script è **idempotente** (puoi rilanciarlo): crea l'utente di servizio `vocepreventivo`, installa Node 22 (repository NodeSource), Caddy (repository ufficiale), Litestream (.deb ufficiale; facoltativo `LITESTREAM_DEB_SHA256` per verificarne l'hash), sqlite3, ufw, fail2ban, aggiornamenti di sicurezza automatici, unit e timer systemd. Alla prima esecuzione crea due file da compilare e **non avvia** i servizi finché contengono `CHANGE_ME`:
 ```bash
-sudo apt -y install fail2ban
-printf '[sshd]\nenabled = true\nmaxretry = 5\nbantime = 1h\nfindtime = 10m\n' | sudo tee /etc/fail2ban/jail.d/sshd.local
-sudo systemctl enable --now fail2ban
-sudo fail2ban-client status sshd
+sudo nano /etc/vocepreventivo/server.env     # segreti e bucket: vedi infra/server.env.example
+sudo nano /etc/vocepreventivo/caddy.env      # DOMAIN e ACME_EMAIL
+sudo DEPLOY_USER=deploy ./scripts/setup-vps.sh   # rilancia: ora abilita e avvia i servizi
 ```
-
-**Aggiornamenti di sicurezza automatici**:
-```bash
-sudo apt -y install unattended-upgrades
-sudo dpkg-reconfigure -plow unattended-upgrades     # rispondi "Sì"
-```
-
-**Swap (solo se hai 1 GB di RAM)**:
-```bash
-sudo fallocate -l 1G /swapfile && sudo chmod 600 /swapfile
-sudo mkswap /swapfile && sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-```
-
-## 3. DNS e dominio
-Nel pannello del tuo registrar crea un record **A** per `app.tuodominio.it` che punta all'IP pubblico del VPS (e, se il VPS ha IPv6, un record **AAAA**). Attendi la propagazione (da minuti a qualche ora): `dig +short app.tuodominio.it` deve restituire l'IP del server. Caddy ottiene il certificato HTTPS da solo, ma solo se il DNS è già corretto e le porte 80/443 sono aperte.
-
-## 4. Installare Docker
-Sul server, come utente `deploy`, segui le istruzioni ufficiali per Ubuntu: <https://docs.docker.com/engine/install/ubuntu/> (repository apt ufficiale di Docker, pacchetti `docker-ce docker-compose-plugin`). Poi:
-```bash
-sudo usermod -aG docker deploy     # esci e rientra via SSH
-docker version && docker compose version
-```
-Configura la rotazione dei log una volta per tutte (evita che i log riempiano il disco):
-```bash
-echo '{ "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "5" } }' | sudo tee /etc/docker/daemon.json
-sudo systemctl restart docker
-```
-
-## 5. Preparare la cartella e il file `.env` sul server
-Il file `.env` contiene i segreti: lo crei **tu sul server**, non è in git.
-
-```bash
-mkdir -p ~/vocepreventivo/infra && cd ~/vocepreventivo/infra
-```
-Ci sono due modi per portare qui i file di `infra/`:
-- **Con la GitHub Action** (consigliato, sezione 6.A): il primo deploy copia da solo `infra/` (ma non tocca mai il tuo `.env`).
-- **A mano**: scarica il repository (`git clone` con una *deploy key* di sola lettura, oppure copia la cartella `infra/` e `server/`, `shared/`, ecc. con `scp`).
-
-Crea il file di configurazione partendo dall'esempio e compilalo con un editor:
-```bash
-cp .env.example .env        # se manca, copia prima .env.example dal repository
-chmod 600 .env
-nano .env
-```
-Sostituisci **ogni** `CHANGE_ME`. Per i segreti casuali: `openssl rand -base64 48`. Se un valore ha spazi o simboli (`& $ #`) mettilo tra apici singoli. Conserva una copia di `.env` (soprattutto `APP_ENCRYPTION_KEY`) nel tuo gestore password: senza quella chiave i dati cifrati non sono recuperabili.
-
-Per `LITESTREAM_*`: crea nel pannello del provider un bucket privato e una chiave con accesso solo a quel bucket; copia endpoint, regione, nome bucket e coppia di chiavi **direttamente nel `.env`** (non altrove).
+Segreti casuali: `openssl rand -base64 48`. Conserva una copia del `server.env` nel gestore password (soprattutto `APP_ENCRYPTION_KEY`: senza, i dati cifrati non si recuperano). Credenziali del bucket: creale nel pannello del provider e incollale **solo** in questo file.
 
 ## 6. Primo deploy
 
-### A) Con GitHub Actions (consigliato)
-1. Sul tuo computer crea una coppia di chiavi **solo per il deploy**: `ssh-keygen -t ed25519 -f deploy_key -N ""`. Aggiungi `deploy_key.pub` a `~/.ssh/authorized_keys` dell'utente `deploy` sul server. Poi **incolla la privata direttamente nel Secret di GitHub** e cancella il file locale (`shred -u deploy_key`).
-2. Ottieni la riga `known_hosts` del server e **verificane l'impronta** con quella mostrata dal pannello del provider: `ssh-keyscan -t ed25519 IL_TUO_SERVER`.
-3. In GitHub: *Settings → Environments → New environment → `production`* → abilita **Required reviewers** (tu stesso) e aggiungi gli Environment secrets: `VPS_HOST`, `VPS_USER` (`deploy`), `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS`, `DEPLOY_PATH` (es. `/home/deploy/vocepreventivo`), eventuale `VPS_PORT`.
-4. Prima esecuzione: *Actions → "Deploy produzione" → Run workflow* (scegli il ramo). Il workflow copia `infra/`, costruisce le immagini, le invia al server e lancia `deploy.sh`. **Non parte mai da solo.**
-5. Se è davvero il primo deploy, `infra/.env` deve già esistere sul server (sezione 5): crealo prima e rilancia, se il workflow ti avvisa che manca.
+### A) Con GitHub Actions (consigliato, un clic)
+1. Sul tuo PC crea una chiave **solo per il deploy**: `ssh-keygen -t ed25519 -f deploy_key -N ""`. Aggiungi `deploy_key.pub` agli `authorized_keys` dell'utente `deploy`. Incolla la **privata** direttamente nel Secret GitHub `VPS_SSH_KEY`, poi cancella i file locali.
+2. Riga `known_hosts`: `ssh-keyscan -t ed25519 IP_DEL_SERVER` (verifica l'impronta con quella del provider) → Secret `VPS_KNOWN_HOSTS`.
+3. *Settings → Environments → New environment → `production`* con **Required reviewers** (te stesso). Secrets: `VPS_HOST`, `VPS_USER` (`deploy`), `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS`, `DEPLOY_PATH` = `/opt/vocepreventivo`, eventuale `VPS_PORT`.
+4. *Actions → "Deploy produzione" → Run workflow*. GitHub compila il frontend, carica la release sul server e lancia `deploy-nodocker.sh`. **Non parte mai da solo.**
 
-### B) A mano sul server
+### B) A mano dal server (senza GitHub Actions)
 ```bash
-cd ~/vocepreventivo/infra
-./scripts/deploy.sh            # costruisce le immagini dal codice presente e avvia tutto
+cd ~/vocepreventivo-src
+SOURCE_DIR=~/vocepreventivo-src ./infra/scripts/deploy-nodocker.sh
 ```
+Fa `git pull`, copia il codice in una nuova release, installa le dipendenze di produzione e compila il frontend con Vite (servono circa 1 GB di RAM liberi: con poca RAM usa il metodo A).
+
+### Cosa fa il deploy
+Crea `/opt/vocepreventivo/releases/<etichetta>/`, esegue `npm ci --omit=dev` in `server/`, fa un backup di sicurezza, sposta il link `current`, riavvia il servizio e controlla `http://127.0.0.1:8787/health`. **Se il controllo fallisce torna da solo alla release precedente.** Restano le ultime 5 release. Le migrazioni del database sono solo "in avanti": il rollback ripristina il codice, non lo schema (per questo c'è il backup pre-deploy).
 
 ### Verifica
 ```bash
-cd ~/vocepreventivo/infra
-docker compose ps                         # server "healthy", caddy e litestream "running"
-curl -fsS https://app.tuodominio.it/health     # {"ok":true}
-docker compose logs --tail 30 litestream  # deve indicare la replica verso il bucket
+systemctl status vocepreventivo-server vocepreventivo-litestream caddy
+curl -fsS https://app.tuodominio.it/health          # {"ok":true}
+sudo journalctl -u vocepreventivo-litestream -n 30   # replica verso il bucket
 ```
 Apri `https://app.tuodominio.it` dal telefono e installa la PWA.
 
 ## 7. Aggiornamenti
-Esegui di nuovo il workflow "Deploy produzione" (o `./scripts/deploy.sh` a mano dopo aver aggiornato il codice). `deploy.sh`:
-1. fa un backup di sicurezza del database,
-2. avvia la nuova versione,
-3. controlla `/health`,
-4. **se fallisce, torna da solo alla versione precedente.**
-
-Rollback manuale a una versione precedente ancora presente: `cat infra/.deploy/previous` mostra l'etichetta; poi `./scripts/deploy.sh <etichetta>`.
-Le migrazioni del database sono "solo in avanti" (nessun ritorno indietro dei dati): per questo il backup pre-deploy è obbligatorio e il rollback ripristina il **codice**, non lo schema.
+Rilancia il workflow "Deploy produzione" (o il comando 6.B). Se cambi file in `infra/` (Caddyfile, unit systemd), esegui di nuovo `sudo DEPLOY_USER=deploy ./scripts/setup-vps.sh` dalla copia aggiornata del repository.
+Rollback manuale: `ls /opt/vocepreventivo/releases`, poi `ln -sfn /opt/vocepreventivo/releases/<vecchia> /opt/vocepreventivo/current && sudo systemctl restart vocepreventivo-server`.
 
 ## 8. Backup e ripristino
-Due livelli:
-1. **Litestream** (continuo, ~10 secondi di ritardo, 14 giorni di storia nel bucket).
-2. **Snapshot** giornaliero con `scripts/backup.sh` (cartella `infra/backups`, 14 giorni). Se imposti `AGE_RECIPIENT` (chiave pubblica `age`, con `sudo apt install age`) gli snapshot sono cifrati; la chiave privata tienila **fuori** dal server. Copia periodicamente `infra/backups` anche altrove (il tuo computer, o ulteriore bucket).
-   Pianificazione (come `deploy`, `crontab -e`):
-   ```
-   30 3 * * * cd /home/deploy/vocepreventivo/infra && ./scripts/backup.sh >> backups/backup.log 2>&1
-   15 4 1 * * cd /home/deploy/vocepreventivo/infra && ./scripts/restore-drill.sh >> backups/drill.log 2>&1
-   ```
-3. Consigliato: **snapshot settimanale del VPS** dal pannello del provider (pochi euro/mese).
+Tre livelli:
+1. **Litestream**: replica continua (circa 10 s di ritardo, 14 giorni di storia nel bucket).
+2. **Snapshot giornaliero** (timer `vocepreventivo-backup.timer`, 03:30) in `/var/lib/vocepreventivo/backups`, 14 giorni. Con `AGE_RECIPIENT` (chiave pubblica `age`) gli snapshot sono cifrati; la chiave privata tienila **fuori** dal server. Copia ogni tanto la cartella anche altrove.
+3. **Snapshot settimanale del VPS** dal pannello del provider (pochi euro/mese).
 
-**Ripristino** (`scripts/restore.sh`), sempre prima in modalità PROVA:
 ```bash
-./scripts/restore.sh litestream --test                         # ultima replica, in cartella temporanea
-./scripts/restore.sh litestream --at 2026-01-31T10:00:00Z --test   # a un istante preciso
-./scripts/restore.sh snapshot backups/vocepreventivo-XXXX.sqlite.gz --test
+systemctl list-timers 'vocepreventivo-*'        # quando partono
+sudo systemctl start vocepreventivo-backup      # backup subito
 ```
-Stampa `integrity_check: ok` e il conteggio righe per tabella, poi cancella tutto. Per **sostituire davvero** il database di produzione (emergenza):
+**Ripristino — prima sempre in PROVA** (ripristina in una cartella temporanea, verifica `integrity_check` e conteggi, poi cancella; non tocca la produzione):
 ```bash
-./scripts/restore.sh litestream --live --yes
+cd /opt/vocepreventivo/current/infra/scripts
+sudo -u vocepreventivo ./restore.sh litestream --test
+sudo -u vocepreventivo ./restore.sh litestream --at 2026-01-31T10:00:00Z --test
+sudo -u vocepreventivo ./restore.sh snapshot /var/lib/vocepreventivo/backups/vocepreventivo-XXXX.sqlite.gz --test
 ```
-Il vecchio file viene conservato nel volume come `.before-restore-<data>`. Se il server è perso del tutto: reinstalla Docker, ricrea `.env` dal tuo gestore password, avvia lo stack una volta, poi esegui il ripristino `--live --yes`.
+**Emergenza** (sostituisce il database di produzione; il vecchio file resta come `.before-restore-<data>`):
+```bash
+sudo ./restore.sh litestream --live --yes
+```
+Se il server è perso: nuovo VPS, punti 3-5, rimetti `server.env` dal gestore password, poi `restore.sh --live --yes` e un deploy.
 
-**Prova mensile (obbligatoria)**: `./scripts/restore-drill.sh` ripristina l'ultima replica, esegue `PRAGMA integrity_check` e confronta i conteggi con il DB vivo (tolleranza 5%, `DRILL_TOLERANCE_PCT`). Esito in `infra/backups/drill.log`; codice di uscita ≠ 0 se qualcosa non torna. Un backup mai provato non è un backup.
+**Prova mensile**: il timer `vocepreventivo-restore-drill.timer` (giorno 1, 04:15) esegue `restore-drill.sh`: ripristina l'ultima replica, esegue `PRAGMA integrity_check`, confronta i conteggi con il DB vivo (tolleranza 5%, `DRILL_TOLERANCE_PCT`). Esito: `sudo journalctl -u vocepreventivo-restore-drill` e `/var/lib/vocepreventivo/backups/drill.log`; `systemctl --failed` mostra se è fallita. Lanciala anche a mano la prima volta: `sudo systemctl start vocepreventivo-restore-drill`. Un backup mai provato non è un backup.
 
 ## 9. Monitoraggio minimo
-- **Uptime esterno gratuito**: UptimeRobot o Better Stack, controllo `https://app.tuodominio.it/health` ogni 5 minuti, avviso email/Telegram se giù da più di 2 minuti.
-- **Log**: `docker compose logs --tail 100 server` (e `caddy`, `litestream`). Ruotano da soli (10 MB × 5). Il server non deve loggare contenuti dei documenti né token.
-- **Replica ferma**: cerca errori in `docker compose logs --since 1h litestream`; controlla ogni tanto che nel bucket compaiano file recenti.
-- **Spazio disco**: `df -h /` e `docker system df`; allarme oltre l'80%. Pulizia sicura: `docker image prune -f`.
-- **Aggiornamenti OS**: ogni tanto `sudo apt update && sudo apt list --upgradable`; riavvia se richiesto (`/var/run/reboot-required`). I contenitori ripartono da soli (`restart: unless-stopped`).
+- **Uptime esterno gratuito** (UptimeRobot / Better Stack): controllo `https://app.tuodominio.it/health` ogni 5 minuti, avviso email/Telegram se giù da più di 2 minuti.
+- **Log**: `sudo journalctl -u vocepreventivo-server -n 100 -f` (e `caddy`, `vocepreventivo-litestream`). Il server non deve loggare contenuti dei documenti né token.
+- **Replica ferma**: errori in `journalctl -u vocepreventivo-litestream --since "1 hour ago"`; controlla ogni tanto che nel bucket ci siano file recenti.
+- **Disco**: `df -h /`; allarme oltre l'80%. Il journal si limita con `sudo journalctl --vacuum-size=200M`.
+- **Aggiornamenti OS**: automatici per la sicurezza; riavvia se esiste `/var/run/reboot-required`. I servizi ripartono da soli.
 
 ## 10. Checklist di sicurezza
-- [ ] Login SSH solo con chiave; root e password disattivati
-- [ ] ufw attivo (22, 80, 443/tcp, 443/udp); fail2ban attivo
+- [ ] SSH solo con chiave; root e password disattivati
+- [ ] ufw attivo (SSH, 80, 443/tcp, 443/udp); fail2ban attivo
 - [ ] Aggiornamenti automatici attivi
-- [ ] `infra/.env` con permessi 600, mai in git, copia nel gestore password
+- [ ] `/etc/vocepreventivo/server.env` proprietà `vocepreventivo`, permessi 600; copia nel gestore password
 - [ ] Nessun `CHANGE_ME` rimasto; segreti casuali lunghi
-- [ ] Chiave del bucket limitata a quel solo bucket; bucket privato
+- [ ] Chiave del bucket limitata a quel bucket; bucket privato
 - [ ] Environment `production` con approvazione obbligatoria; deploy solo manuale
 - [ ] Chiave SSH di deploy dedicata; `VPS_KNOWN_HOSTS` verificato
 - [ ] Prova di ripristino eseguita almeno una volta, poi ogni mese
-- [ ] Monitor uptime attivo con avviso
-- [ ] Snapshot VPS settimanale attivo
+- [ ] Monitor uptime con avviso; snapshot VPS settimanale
 - [ ] Rotazione segreti pianificata (`infra/scripts/rotate-secrets.md`)
-- [ ] Contratti/DPA con i fornitori (VPS, bucket, email) in regola per il GDPR; dati in UE
+- [ ] DPA con fornitori (VPS, bucket, email) in regola per il GDPR; dati in UE
 
-## 11. Stima dei costi mensili (indicativa, DA VERIFICARE sui listini attuali)
+## 11. Sviluppo locale (nessun Docker)
+Sul tuo PC servono solo Node 22 e `npm`:
+```bash
+npm ci && npm run dev                    # frontend (Vite)
+cd server && npm ci && npm run dev       # API in un secondo terminale
+```
+Per provare la sincronizzazione, il server locale usa un DB di sviluppo e variabili d'ambiente tue (mai nel repository).
+
+## 12. Stima dei costi mensili (indicativa, DA VERIFICARE sui listini)
 | Voce | Costo |
 |---|---|
 | VPS UE 2 vCPU / 2–4 GB | 4–6 € |
 | Storage bucket + snapshot VPS | 1–3 € |
 | Dominio (~12 €/anno) | ~1 € |
-| Email transazionali (tier gratuito) | 0 € |
-| Monitoraggio uptime (tier gratuito) | 0 € |
+| Email transazionali e monitoraggio (tier gratuiti) | 0 € |
 | **Totale fisso** | **~7–10 €** |
 
-Costi variabili (Stripe, provider SDI, trascrizione) sono descritti in `docs/ARCHITECTURE-V2.md` §1.9.
+Costi variabili (Stripe, provider SDI, trascrizione): `docs/ARCHITECTURE-V2.md` §1.9.
 
-## 12. Riferimento rapido
-Variabili d'ambiente: tutte in `infra/.env.example`. Comandi utili (da `infra/`):
+## 13. Comandi utili
 ```bash
-docker compose ps
-docker compose logs -f server
-docker compose restart server
-./scripts/deploy.sh [etichetta]
-./scripts/backup.sh
-./scripts/restore.sh litestream --test
-./scripts/restore-drill.sh
+systemctl status vocepreventivo-server
+sudo systemctl restart vocepreventivo-server
+sudo journalctl -u vocepreventivo-server -f
+curl -fsS http://127.0.0.1:8787/health
 ```
+
+---
+
+## Appendice A — Variante con Docker (facoltativa)
+Non necessaria. Se in futuro la preferisci: `infra/docker-compose.yml` (server, caddy, litestream), `infra/.env.example` → `infra/.env` sul server (permessi 600), Docker da <https://docs.docker.com/engine/install/ubuntu/>, poi `infra/scripts/deploy.sh` (build o immagini caricate, backup pre-deploy, healthcheck, rollback). Workflow manuali: `deploy-docker.yml` (deploy via SSH) e `ci-docker.yml` (solo build delle immagini). Gli script `backup.sh`, `restore.sh`, `restore-drill.sh` riconoscono da soli la modalità (Docker se esiste `infra/.env` e non `/etc/vocepreventivo/server.env`). Non usare le due varianti insieme sullo stesso server (entrambe usano le porte 80/443).

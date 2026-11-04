@@ -16,12 +16,16 @@ interface SRInstance {
   start(): void; stop(): void; abort(): void;
 }
 type SRCtor = new () => SRInstance;
+export type { SRInstance, SRCtor, SREvent, SRErrorEvent };
 
 const getCtor = (): SRCtor | null => {
   if (typeof window === 'undefined') return null;
   const w = window as unknown as { SpeechRecognition?: SRCtor; webkitSpeechRecognition?: SRCtor };
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 };
+
+/** Costruttore della Web Speech API del browser, se presente (usato anche da src/voice/provider). */
+export const getSpeechCtor = (): SRCtor | null => getCtor();
 
 export const speechErrorMessage = (code: string): string => {
   switch (code) {

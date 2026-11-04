@@ -7,8 +7,9 @@
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "test": "vitest run && vitest run -c shared/vitest.config.ts",
+    "typecheck": "tsc --noEmit && tsc -p server --noEmit",
+    "test:server": "cd server && npx vitest run"
   },
   "dependencies": {
     "fuse.js": "^7.5.0",

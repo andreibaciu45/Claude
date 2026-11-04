@@ -1,15 +1,16 @@
 name: Deploy produzione
 
 # SOLO MANUALE: non parte mai da solo (nessun trigger push/PR/schedule).
+# Variante SENZA Docker: compila il frontend in CI, carica la release via SSH
+# e lancia deploy-nodocker.sh sul server (con rollback automatico).
 # Richiede l'approvazione dell'ambiente "production" (Settings > Environments).
 #
-# Segreti da creare in Settings > Secrets and variables > Actions
-# (meglio come "Environment secrets" dell'ambiente production):
+# Segreti da creare in Settings > Environments > production > Environment secrets:
 #   VPS_HOST         nome DNS o IP del server
 #   VPS_USER         utente SSH non-root di deploy
 #   VPS_SSH_KEY      chiave PRIVATA SSH dedicata al deploy
-#   VPS_KNOWN_HOSTS  riga di known_hosts del server (output di `ssh-keyscan -t ed25519 HOST`, verificato)
-#   DEPLOY_PATH      cartella sul server, es. /home/deploy/vocepreventivo
+#   VPS_KNOWN_HOSTS  riga di known_hosts del server (da `ssh-keyscan -t ed25519 HOST`, verificata)
+#   DEPLOY_PATH      cartella applicazione sul server: /opt/vocepreventivo
 #   VPS_PORT         (facoltativo) porta SSH, default 22
 # Nessun valore e' scritto in questo file.
 on:
@@ -29,10 +30,10 @@ concurrency:
 
 jobs:
   deploy:
-    name: Build e deploy via SSH
+    name: Build e deploy via SSH (senza Docker)
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 40
+    timeout-minutes: 30
     env:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
@@ -52,33 +53,29 @@ jobs:
             if [ -z "${!v}" ]; then echo "::error::Segreto mancante: $v"; exit 1; fi
           done
 
-      - name: Calcola etichetta versione
-        id: tag
-        run: echo "tag=$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build immagine server
-        uses: docker/build-push-action@v6
+      - uses: actions/setup-node@v4
         with:
-          context: .
-          file: server/Dockerfile
-          target: server
-          load: true
-          tags: vocepreventivo-server:${{ steps.tag.outputs.tag }}
-          cache-from: type=gha,scope=server
-          cache-to: type=gha,scope=server,mode=max
+          node-version: 22
+          cache: npm
 
-      - name: Build immagine web (Vite + Caddy)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: server/Dockerfile
-          target: web
-          load: true
-          tags: vocepreventivo-web:${{ steps.tag.outputs.tag }}
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,scope=web,mode=max
+      - name: Installa dipendenze e compila il frontend (Vite)
+        run: |
+          npm ci --no-audit --no-fund
+          npx vite build
+
+      - name: Prepara la release
+        id: rel
+        run: |
+          tag="$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          mkdir -p release
+          cp -r dist release/dist
+          cp -r shared release/shared
+          cp -r infra release/infra
+          rm -f release/infra/.env
+          mkdir -p release/server
+          cp -r server/src server/package.json server/package-lock.json server/tsconfig.json release/server/
+          if [ -d server/migrations ]; then cp -r server/migrations release/server/; fi
 
       - name: Prepara SSH
         env:
@@ -89,29 +86,24 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           (umask 077; printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key)
 
-      - name: Invia file di infrastruttura e immagini
+      - name: Carica la release sul server
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ steps.rel.outputs.tag }}
         run: |
           set -euo pipefail
           SSH=(ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o BatchMode=yes -p "${VPS_PORT:-22}" "${VPS_USER}@${VPS_HOST}")
-          remote_path="$(printf '%q' "$DEPLOY_PATH")"
-          "${SSH[@]}" "mkdir -p $remote_path"
-          # infra/ senza file locali del server (.env, backup, stato dei deploy)
-          tar -C . --exclude='infra/.env' --exclude='infra/backups' --exclude='infra/.deploy' -czf - infra \
-            | "${SSH[@]}" "tar -xzf - -C $remote_path"
-          # immagini compresse, caricate nel Docker del server
-          docker save "vocepreventivo-server:${TAG}" "vocepreventivo-web:${TAG}" | gzip \
-            | "${SSH[@]}" "gunzip | docker load"
+          remote_rel="$(printf '%q' "${DEPLOY_PATH}/releases/${TAG}")"
+          "${SSH[@]}" "mkdir -p $remote_rel"
+          tar -C release -czf - . | "${SSH[@]}" "tar -xzf - -C $remote_rel"
 
       - name: Esegui deploy sul server (con rollback automatico)
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ steps.rel.outputs.tag }}
         run: |
           set -euo pipefail
           SSH=(ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o BatchMode=yes -p "${VPS_PORT:-22}" "${VPS_USER}@${VPS_HOST}")
           remote_path="$(printf '%q' "$DEPLOY_PATH")"
-          "${SSH[@]}" "cd $remote_path/infra && chmod +x scripts/*.sh && ./scripts/deploy.sh '${TAG}'"
+          "${SSH[@]}" "chmod +x $remote_path/releases/${TAG}/infra/scripts/*.sh && APP_DIR=$remote_path $remote_path/releases/${TAG}/infra/scripts/deploy-nodocker.sh '${TAG}'"
 
       - name: Pulizia chiave
         if: always()

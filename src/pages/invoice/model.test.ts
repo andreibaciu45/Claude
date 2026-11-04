@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import type { QuoteDocument } from '../../types';
 import { fakeCreditNote, fakeDoc, fakeInvoice } from '../../pdf/fixtures';
 import { availableActions, displayNumber, issueTarget, newInvoiceFiscal, normalizeCustomerForInvoice, previewNumber } from './model';
 
 const on = (a: ReturnType<typeof availableActions>) => Object.entries(a).filter(([, v]) => v).map(([k]) => k).sort();
-const withStatus = (s: Parameters<typeof fakeInvoice>[0] extends infer P ? NonNullable<P>['status'] : never) => fakeInvoice({ status: s });
+const withStatus = (s: QuoteDocument['status']) => fakeInvoice({ status: s });
 const draft = () => fakeInvoice({ status: 'bozza', invoice: { ...fakeInvoice().invoice!, number: undefined, lockedAt: undefined } });
 
 describe('azioni disponibili per stato', () => {
