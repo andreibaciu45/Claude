@@ -31,6 +31,8 @@ export interface PlanCache {
   email?: string;
   docsThisMonth?: number;
   docsLimit?: number | null;
+  /** mese (UTC, 'YYYY-MM') a cui si riferisce `docsThisMonth`, come lo calcola il server */
+  periodKey?: string;
 }
 
 export type PlanReason =
@@ -98,6 +100,7 @@ export function readPlanCache(): PlanCache | null {
       email: typeof j.email === 'string' ? j.email : undefined,
       docsThisMonth: typeof j.docsThisMonth === 'number' ? j.docsThisMonth : undefined,
       docsLimit: j.docsLimit === null || typeof j.docsLimit === 'number' ? j.docsLimit : undefined,
+      periodKey: typeof j.periodKey === 'string' && /^\d{4}-\d{2}$/.test(j.periodKey) ? j.periodKey : undefined,
     };
   } catch { return null; }
 }
@@ -114,6 +117,6 @@ export function clearPlanCache(): void {
 export function cacheFromMe(me: Pick<MeResponse, 'plan' | 'email' | 'quota'>, now: number): PlanCache {
   return {
     plan: me.plan === 'pro' ? 'pro' : 'free', verifiedAt: now, email: me.email,
-    docsThisMonth: me.quota?.docsThisMonth, docsLimit: me.quota?.docsLimit,
+    docsThisMonth: me.quota?.docsThisMonth, docsLimit: me.quota?.docsLimit, periodKey: me.quota?.periodKey,
   };
 }

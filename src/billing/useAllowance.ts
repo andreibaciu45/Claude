@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listDocuments } from '../storage';
 import { STORAGE_CHANGED_EVENT, syncEngine } from '../sync/engine';
-import { computeAllowance, type Allowance } from './allowance';
+import { computeAllowance, serverUsedFor, type Allowance } from './allowance';
 import { readPlanCache, resolvePlan } from './entitlement';
-import { BILLING_CHANGED_EVENT, countDocsInMonth, ledgerIdsForMonth, monthKey } from './usage';
+import { BILLING_CHANGED_EVENT, countDocsInMonth, ledgerIdsForMonth } from './usage';
 import { usePlan } from './usePlan';
 
 /** Calcola la disponibilità adesso, leggendo storage e cache (per il controllo definitivo al salvataggio). */
@@ -13,7 +13,7 @@ export async function checkAllowanceNow(now = Date.now()): Promise<Allowance> {
   const plan = resolvePlan(cache, st.signedIn, now, st.email).plan;
   const docs = await listDocuments();
   const local = countDocsInMonth(docs, ledgerIdsForMonth(now), now);
-  const serverUsed = cache && monthKey(cache.verifiedAt) === monthKey(now) ? cache.docsThisMonth : undefined;
+  const serverUsed = serverUsedFor(cache, now);
   return computeAllowance(plan, local, serverUsed);
 }
 

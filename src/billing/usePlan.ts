@@ -30,7 +30,8 @@ export function usePlan(): UsePlan {
     }
     if (st.me && st.me !== lastRecorded) {
       lastRecorded = st.me;
-      writePlanCache(cacheFromMe(st.me, Date.now()));
+      // la verifica vale dal momento in cui il server ha risposto, non da quando questo componente si è montato
+      writePlanCache(cacheFromMe(st.me, st.meAt ?? Date.now()));
       notifyBillingChanged();
     }
   }, [st.signedIn, st.me]);

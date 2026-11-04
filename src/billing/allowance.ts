@@ -1,4 +1,5 @@
-import { canCreateDocument, docsLimitFor, remainingFreeDocs, type Plan } from './entitlement';
+import { canCreateDocument, docsLimitFor, remainingFreeDocs, type Plan, type PlanCache } from './entitlement';
+import { monthKey } from './usage';
 
 export interface Allowance {
   plan: Plan;
@@ -15,4 +16,15 @@ export interface Allowance {
 export function computeAllowance(plan: Plan, localUsed: number, serverUsed?: number | null): Allowance {
   const used = Math.max(0, localUsed, plan === 'free' && typeof serverUsed === 'number' ? serverUsed : 0);
   return { plan, used, limit: docsLimitFor(plan), remaining: remainingFreeDocs(plan, used), canCreate: canCreateDocument(plan, used) };
+}
+
+/**
+ * Documenti del mese noti al server, SOLO se il conteggio riguarda il mese corrente. Il server conta per mese UTC
+ * (`periodKey`), il dispositivo per mese locale: confrontare i due fa bloccare per ore, a cavallo del mese, chi ha il contatore
+ * già azzerato (o il contrario). Senza `periodKey` (cache vecchia) si usa il mese UTC della verifica.
+ */
+export function serverUsedFor(cache: Pick<PlanCache, 'verifiedAt' | 'docsThisMonth' | 'periodKey'> | null | undefined, now: number): number | undefined {
+  if (!cache) return undefined;
+  const period = cache.periodKey ?? monthKey(cache.verifiedAt, 'UTC');
+  return period === monthKey(now, 'UTC') ? cache.docsThisMonth : undefined;
 }

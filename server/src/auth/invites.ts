@@ -13,7 +13,8 @@ export const INVITE_LEN = 12;
 
 /** Maiuscole, solo caratteri dell'alfabeto; O->0, I/L->1 (errori di battitura comuni). */
 export function normalizeInvite(raw: string): string {
-  return raw.toUpperCase().replace(/^VP/, '').replace(/[^0-9A-Z]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+  const n = raw.toUpperCase().replace(/[^0-9A-Z]/g, '');
+  return (n.length === INVITE_LEN + 2 && n.startsWith('VP') ? n.slice(2) : n).replace(/O/g, '0').replace(/[IL]/g, '1');
 }
 export const formatInvite = (n: string): string => `VP-${n.slice(0, 4)}-${n.slice(4, 8)}-${n.slice(8, 12)}`;
 const codeHash = (normalized: string): string => sha256Hex(`invite|${normalized}`);
