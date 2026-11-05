@@ -354,6 +354,24 @@ CREATE TABLE sync_meta (
 );
 `);
 
+registerMigration(10, 'review2_indexes_audit_promotion', `
+-- Indici parziali sui tombstone: il tetto MAX_TOMBSTONES contava le righe del tenant con deleted_at NOT NULL scandendo TUTTI i documenti del tenant (O(n) a ogni cancellazione
+-- di una voce mai vista) e la potatura oraria scandiva l'intera tabella.
+CREATE INDEX idx_documents_tombstones ON documents(tenant_id, deleted_at) WHERE deleted_at IS NOT NULL;
+CREATE INDEX idx_catalog_tombstones ON catalog_items(tenant_id, deleted_at) WHERE deleted_at IS NOT NULL;
+-- Ricerca delle voci non fiscali di un documento (promozione alla classe fiscale quando il documento viene emesso).
+CREATE INDEX idx_audit_entity_prunable ON audit_log(tenant_id, entity_id) WHERE retain = 0 AND entity_id IS NOT NULL;
+-- La classe di una voce e' decisa all'inserimento, ma una voce del client puo' arrivare PRIMA della fattura a cui si riferisce (la coda del client
+-- sposta in fondo l'operazione sul documento a ogni modifica): senza promozione l'audit dell'emissione resterebbe potabile. UPDATE resta vietato
+-- salvo l'unica trasformazione che RAFFORZA la conservazione: retain 0 -> 1 con tutte le altre colonne identiche.
+DROP TRIGGER trg_audit_no_update;
+CREATE TRIGGER trg_audit_no_update BEFORE UPDATE ON audit_log
+WHEN NOT (OLD.retain = 0 AND NEW.retain = 1 AND NEW.id IS OLD.id AND NEW.tenant_id IS OLD.tenant_id AND NEW.user_id IS OLD.user_id AND NEW.at IS OLD.at
+  AND NEW.action IS OLD.action AND NEW.entity IS OLD.entity AND NEW.entity_id IS OLD.entity_id AND NEW.ref_id IS OLD.ref_id
+  AND NEW.payload IS OLD.payload AND NEW.recorded_at IS OLD.recorded_at)
+BEGIN SELECT RAISE(ABORT, 'audit_log append-only: UPDATE vietato (ammessa solo la promozione retain 0 -> 1)'); END;
+`);
+
 /** Elenco (ordinato) delle migrazioni registrate: serve ai test di upgrade e a /health/deep. */
 export const listMigrations = (): Migration[] => [...migrations].sort((a, b) => a.version - b.version);
 
