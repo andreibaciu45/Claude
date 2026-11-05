@@ -19,6 +19,9 @@ export function getAuthSecret(): string {
 }
 export const otpHash = (email: string, code: string): string => createHmac('sha256', getAuthSecret()).update(`${email}:${code}`).digest('hex');
 
+/** Chiave per le tabelle dei limiti (persistite 24 ore): HMAC, non SHA-256 semplice (email e IPv4 sarebbero invertibili con un dizionario). */
+export const rlHash = (s: string): string => createHmac('sha256', getAuthSecret()).update(`rl|${s}`).digest('hex').slice(0, 32);
+
 /** Pseudonimo per i log: HMAC con il segreto del server (non invertibile con un dizionario di email). 12 caratteri. */
 export const logHash = (s: string): string => createHmac('sha256', getAuthSecret()).update(`log|${s}`).digest('hex').slice(0, 12);
 

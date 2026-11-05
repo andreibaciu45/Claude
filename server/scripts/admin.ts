@@ -17,13 +17,13 @@ import { createGunzip } from 'node:zlib';
 import { DatabaseSync } from 'node:sqlite';
 import { all, closeDb, getDb, one, openDb, run } from '../src/db';
 import { emailKey } from '../src/auth/guard';
-import { sha256Hex } from '../src/auth/crypto';
+import { rlHash } from '../src/auth/crypto';
 import '../src/billing/sqlite-store'; // registra le migrazioni 100+ (billing)
 import '../src/sdi/sqlite';          // ... e 101 (SDI)
 import { monthKey, now } from '../src/db/clock';
 import { getEntitlement, stripePlan } from '../src/db/entitlements';
 import { grantPro, logAdminAction, manualGrantUntil, MAX_GRANT_DAYS, revokePro, type AdminActionRow } from '../src/db/grants';
-import { normalizeEmail } from '../src/auth/service';
+import { mailboxKey, normalizeEmail } from '../src/auth/service';
 import { buildExport, deleteAccount, hasActiveSubscription } from '../src/account/service';
 import { createInvite, listInvites, revokeInvite } from '../src/auth/invites';
 import { checkIntegrity, type IntegrityReport } from '../src/ops/integrity';
@@ -404,7 +404,7 @@ const cmdOtpUnlock: Cmd = (pos, _f, io) => {
   if (!pos[0]) throw new CliError('Indica l\'email.', USAGE);
   const email = normalizeEmail(pos[0]);
   const r = run('DELETE FROM otp_guard WHERE email_hash=?', emailKey(email));
-  run('DELETE FROM rate_limits WHERE key=?', `otpver:email:${sha256Hex(email)}`); // anche il tetto dei 10 minuti per email
+  run('DELETE FROM rate_limits WHERE key IN (?,?)', `otpver:email:${rlHash(email)}`, `otpreq:email:${rlHash(mailboxKey(email))}`); // anche i tetti per email: verifiche (10 min) e richieste di codice (ora)
   logAdminAction('otp_unlock', { note: 'cooldown OTP rimosso', actor: actor() });
   io.out(Number(r.changes) ? 'OK: cooldown rimosso. Se l\'attacco continua tornera\' ad attivarsi: considera di avvisare il cliente.' : 'Nessun cooldown attivo per questo indirizzo.');
   return OK;

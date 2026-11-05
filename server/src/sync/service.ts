@@ -12,7 +12,7 @@
 //    Il pull propaga i tombstone (op 'delete') perché ogni scrittura effettiva registra una modifica nel log.
 //    Eccezione fiscale: una upsert di fattura EMESSA (invoice.lockedAt) non è mai scartata da un tombstone (le emesse non si cancellano).
 //  - Retention dei tombstone (db/housekeeping.ts, TOMBSTONE_RETENTION_DAYS, default 180 giorni, uguale per bozze e catalogo): la pulizia alza il
-//    confine `sync_meta.tombstone_floor`. Su una voce ASSENTE: upsert con ts <= confine → conflitto `resync_required` (il device è rimasto offline oltre
+//    confine `sync_meta.tombstone_floor`. Su una voce ASSENTE che il tenant ha già avuto (riga in `changes`): upsert con ts <= confine → conflitto `resync_required`; una voce MAI vista (id nuovo, es. orologio del dispositivo indietro) si accetta (il device è rimasto offline oltre
 //    la finestra: il tombstone potrebbe essere stato eliminato, applicarla risusciterebbe una voce cancellata); delete con ts <= confine → no-op accettato.
 //    Il client deve rifare un full resync (pull da cursore 0, poi riaccodare le proprie modifiche rispetto allo stato server).
 //  - tetto ai tombstone per tenant (MAX_TOMBSTONES, default 20000 per documenti e per catalogo): una delete in più → `invalid` (anti-abuso di spazio);

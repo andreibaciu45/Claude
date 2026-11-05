@@ -20,6 +20,22 @@ export const OTP_MAX_ACTIVE = 3;
 
 export const normalizeEmail = (e: string): string => e.trim().toLowerCase();
 
+/**
+ * Casella di posta canonica, SOLO per i tetti di invio dei codici: `v+x@gmail.com`, `v.@gmail.com`, `V@googlemail.com`, `v@gmail.com.` e le varianti
+ * Unicode (NFKC) arrivano alla stessa casella ma sono stringhe diverse, quindi aggirerebbero il tetto per email (mail-bombing della vittima).
+ */
+export function mailboxKey(email: string): string {
+  const e = email.normalize('NFKC').trim().toLowerCase();
+  const at = e.lastIndexOf('@');
+  if (at < 1) return e;
+  let local = e.slice(0, at), domain = e.slice(at + 1).replace(/\.+$/, '');
+  if (domain === 'googlemail.com') domain = 'gmail.com';
+  const plus = local.indexOf('+');
+  if (plus > 0) local = local.slice(0, plus);
+  if (domain === 'gmail.com') local = local.replace(/\./g, '');
+  return `${local}@${domain}`;
+}
+
 export function createOtp(email: string): string {
   const digits = otpDigits();
   const code = String(randomInt(0, 10 ** digits)).padStart(digits, '0');

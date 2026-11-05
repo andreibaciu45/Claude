@@ -7,11 +7,11 @@ import { backoffCheck, backoffFail, backoffReset, dbRateLimitStore } from '../db
 import { logOnce } from '../log';
 import { billingStatusOf, docsLimitFor, effectivePlan, getDocsThisMonth, getEntitlement } from '../db/entitlements';
 import { monthKey, now } from '../db/clock';
-import { logHash, sha256Hex } from './crypto';
+import { logHash, rlHash } from './crypto';
 import { apiError, parseJson } from './http';
 import { getMailer } from './mailer';
 import { requireAuth, type AuthEnv } from './middleware';
-import { consumeOtp, createOtp, normalizeEmail, revokeSession, startSession, userExists, verifyOtp } from './service';
+import { consumeOtp, createOtp, mailboxKey, normalizeEmail, revokeSession, startSession, userExists, verifyOtp } from './service';
 import { guardCheck, guardFail, guardSuccess, isTrustedNet } from './guard';
 import { clientIp, ipKey } from './ip';
 import { checkInvite, INVITE_MESSAGES, inviteOnly, redeemInvite, type InviteProblem } from './invites';
@@ -35,7 +35,7 @@ const verifySchema = z.object({
 
 const num = (name: string, def: number) => Number(process.env[name]) || def;
 const HOUR = 3600_000;
-const h = (x: string) => sha256Hex(x);
+const h = (x: string) => rlHash(x);
 
 export const authRoutes = new Hono<AuthEnv>();
 
@@ -52,11 +52,14 @@ authRoutes.post('/request', async (c) => {
   const email = normalizeEmail(p.data.email);
   const ip = ipKey(clientIp(c));
   const store = dbRateLimitStore;
-  for (const [key, limit] of [
+  // Il tetto per CASELLA (non per stringa) vale per chi arriva da una rete nuova; una rete già usata dal proprietario ne è esente, altrimenti un attacco
+  // distribuito esaurirebbe il budget e il proprietario non riceverebbe più codici nemmeno da casa. Restano IP e coppia email+IP.
+  const budgets: (readonly [string, number])[] = [
     [`otpreq:ip:${h(ip)}`, num('RL_OTP_REQUEST_IP_HOUR', 20)],
     [`otpreq:pair:${h(`${email}|${ip}`)}`, num('RL_OTP_REQUEST_PAIR_HOUR', 5)],
-    [`otpreq:email:${h(email)}`, num('RL_OTP_REQUEST_EMAIL_HOUR', 10)],
-  ] as const) {
+  ];
+  if (!isTrustedNet(email, ip)) budgets.push([`otpreq:email:${h(mailboxKey(email))}`, num('RL_OTP_REQUEST_EMAIL_HOUR', 10)]);
+  for (const [key, limit] of budgets) {
     const r = store.hit(key, limit, HOUR);
     if (!r.ok) return apiError(c, 429, 'rate_limited', 'Troppe richieste, riprova più tardi', { 'Retry-After': String(r.retryAfterSec) });
   }

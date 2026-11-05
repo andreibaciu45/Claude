@@ -1,7 +1,8 @@
 // Controlli di integrita' del database (comando `integrity-check` e `restore-test` della CLI). Accetta una connessione qualsiasi (anche di sola lettura).
 //   ERRORI (gravi, uscita 1): integrity_check/foreign_key_check, trigger di immutabilita' mancanti, duplicati, indici incoerenti con i dati, dati non decifrabili.
 //   AVVISI (da guardare, uscita 2): buchi nella numerazione delle fatture emesse (possono essere solo un dispositivo non ancora sincronizzato), job SDI "dead".
-import type { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
+import { runMigrations } from '../db/migrations';
 import { verifyChain } from '../db/chain';
 import { documentKeyIds, getKeyRing, openDocument, aadProfile, open } from '../db/seal';
 
@@ -11,6 +12,26 @@ export const CORE_TRIGGERS = [
 ];
 export const CHAIN_TRIGGERS = ['trg_fiscal_chain_no_update', 'trg_fiscal_chain_no_delete'];
 export const OPS_TRIGGERS = ['trg_admin_actions_no_update', 'trg_admin_actions_no_delete'];
+
+/** Tabelle che DEVONO esistere se la migrazione corrispondente risulta applicata (un DROP TABLE a DB spento non deve passare inosservato). */
+const MIGRATION_TABLES: Record<number, string[]> = {
+  2: ['legal_acceptances', 'auth_backoff'], 6: ['audit_daily', 'audit_prune_ctl'], 7: ['fiscal_chain'], 8: ['otp_guard', 'otp_trusted_ips'], 9: ['sync_meta'], 200: ['admin_actions'],
+};
+const norm = (sql: string | null | undefined) => (sql ?? '').replace(/\s+/g, ' ').trim();
+const triggerCache = new Map<number, Map<string, string>>();
+/** Testo dei trigger come li creano le migrazioni di QUESTO codice fino alla versione indicata (DB di riferimento in memoria). */
+function expectedTriggers(upTo: number): Map<string, string> {
+  let m = triggerCache.get(upTo);
+  if (!m) {
+    const ref = new DatabaseSync(':memory:');
+    try {
+      runMigrations(ref, upTo);
+      m = new Map((ref.prepare("SELECT name, sql FROM sqlite_master WHERE type='trigger'").all() as { name: string; sql: string }[]).map((r) => [r.name, norm(r.sql)]));
+    } finally { ref.close(); }
+    triggerCache.set(upTo, m);
+  }
+  return m;
+}
 
 export interface NumberingGroup { tenant: string; sectional: string; year: number; min: number; max: number; count: number; gaps: number[] }
 export interface IntegrityReport {
@@ -41,6 +62,17 @@ export function checkIntegrity(db: DatabaseSync, opts: { encryptionSample?: numb
   const hasOps = !!one(db, "SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='admin_actions'");
   const hasChain = !!one(db, "SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='fiscal_chain'");
   for (const t of [...CORE_TRIGGERS, ...(hasOps ? OPS_TRIGGERS : []), ...(hasChain ? CHAIN_TRIGGERS : [])]) if (!names.has(t)) errors.push(`trigger mancante: ${t}`);
+
+  // Tabelle di difesa mancanti e trigger NEUTRALIZZATI: l'esistenza del nome non basta (un trigger ricreato con `WHEN 0` o senza RAISE passerebbe).
+  try {
+    const applied = new Set((all<{ version: number }>(db, 'SELECT version FROM schema_migrations')).map((r) => r.version));
+    const tables = new Set(all<{ name: string }>(db, "SELECT name FROM sqlite_master WHERE type='table'").map((r) => r.name));
+    for (const [v, ts] of Object.entries(MIGRATION_TABLES)) if (applied.has(Number(v))) for (const t of ts) if (!tables.has(t)) errors.push(`tabella mancante: ${t} (migrazione ${v} applicata)`);
+    const maxV = Math.max(0, ...applied);
+    const exp = expectedTriggers(maxV);
+    const have = new Map(all<{ name: string; sql: string }>(db, "SELECT name, sql FROM sqlite_master WHERE type='trigger'").map((r) => [r.name, norm(r.sql)]));
+    for (const [name, sql] of exp) if (have.has(name) && have.get(name) !== sql) errors.push(`trigger MODIFICATO rispetto alle migrazioni: ${name} (definizione diversa da quella attesa)`);
+  } catch { warnings.push('verifica della definizione dei trigger non eseguibile'); }
 
   // Numerazione: per tenant/sezionale/anno le fatture emesse devono avere seq consecutivi (nessun buco) e nessun duplicato.
   const groups = all<{ tenant_id: string; s: string; y: number; mn: number; mx: number; c: number; d: number }>(db,

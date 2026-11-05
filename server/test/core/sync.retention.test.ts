@@ -61,7 +61,7 @@ describe('retention tombstone', () => {
     setClock(() => T + 10 * DAY);
     housekeeping();
     expect((await push(token, [upCat('c2', T - 299 * DAY)])).json.accepted).toHaveLength(1); // voce esistente: LWW normale
-    expect(reasons(await push(token, [upCat('nuova', T - 299 * DAY)]))).toEqual(['resync_required']);
+    expect(reasons(await push(token, [upCat('nuova', T - 299 * DAY)]))).toEqual([]); // mai esistita (nessuna riga in `changes`): non puo' essere una risurrezione (revisione 2)
     setClock(() => T); // un orologio indietro non abbassa il confine
     housekeeping();
     expect(one<{ value: number }>("SELECT value FROM sync_meta WHERE key='tombstone_floor'")!.value).toBe(T + 10 * DAY - 180 * DAY);
