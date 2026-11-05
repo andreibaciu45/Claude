@@ -23,6 +23,7 @@ const ALWAYS_FISCAL = new Set(['sdi_event', 'legal.accept', 'account.delete', 'a
 /** Classe della voce: 1 = fiscale (da conservare), 0 = non fiscale. `docId` = documento a cui la voce si riferisce, se c'e'. */
 export function auditClass(tenantId: string, action: string, docId?: string | null): 0 | 1 {
   if (ALWAYS_FISCAL.has(action)) return 1;
+  if (action === 'client.voice_command') return 0; // contiene la trascrizione (dato personale): mai fiscale, come da migrazione 6 e documentazione
   if (!docId || !(action.startsWith('sync.document.') || action.startsWith('client.'))) return 0;
   if (!one('SELECT 1 AS x FROM documents WHERE tenant_id=? AND id=? AND locked_at IS NOT NULL', tenantId, docId)) return 0;
   const n = one<{ n: number }>('SELECT COUNT(*) AS n FROM audit_log WHERE tenant_id=? AND entity_id=? AND retain=1', tenantId, docId)?.n ?? 0;
@@ -43,16 +44,28 @@ export function audit(
   );
 }
 
+/**
+ * Alla PRIMA ricezione di una fattura emessa promuove a fiscali (retain 0 -> 1, unica UPDATE ammessa dal trigger) le voci `client.*` arrivate prima del documento
+ * (la classe e' decisa all'inserimento: l'ordine delle operazioni nel push non e' garantito). Entro il tetto per documento; la trascrizione vocale resta non fiscale.
+ */
+export function promoteAuditForInvoice(tenantId: string, docId: string): number {
+  const have = one<{ n: number }>('SELECT COUNT(*) AS n FROM audit_log WHERE tenant_id=? AND entity_id=? AND retain=1', tenantId, docId)?.n ?? 0;
+  const room = auditMaxFiscalPerDoc() - have;
+  if (room <= 0) return 0;
+  return Number(run(`UPDATE audit_log SET retain=1 WHERE id IN (SELECT id FROM audit_log WHERE tenant_id=? AND entity_id=? AND retain=0
+    AND action LIKE 'client.%' AND action <> 'client.voice_command' ORDER BY id DESC LIMIT ?)`, tenantId, docId, room).changes);
+}
+
 export interface AuditPruneReport { byAge: number; byCap: number; aggregated: number }
 const BATCH = 2000;
 const MAX_BATCHES = 50;
 
 /** Aggrega in audit_daily e cancella le voci NON fiscali scelte da `where` (sempre con retain=0). Una transazione per blocco; il permesso di cancellare vive solo li' dentro. */
-function pruneWhere(where: string, ceiling: number, ...params: (string | number)[]): number {
+function pruneWhere(where: string, ceiling: number, order: 'id' | 'recorded_at', ...params: (string | number)[]): number {
   let total = 0;
   for (let i = 0; i < MAX_BATCHES; i++) {
     const n = transaction(() => {
-      const maxId = one<{ m: number | null }>(`SELECT MAX(id) AS m FROM (SELECT id FROM audit_log WHERE retain=0 AND ${where} ORDER BY id LIMIT ${BATCH})`, ...params)?.m;
+      const maxId = one<{ m: number | null }>(`SELECT MAX(id) AS m FROM (SELECT id FROM audit_log WHERE retain=0 AND ${where} ORDER BY ${order} LIMIT ${BATCH})`, ...params)?.m;
       if (maxId === null || maxId === undefined) return 0;
       const sel = `retain=0 AND ${where} AND id<=${maxId}`;
       run(`INSERT INTO audit_daily(tenant_id, day, action, n)
@@ -77,13 +90,13 @@ export function pruneAudit(): AuditPruneReport {
   const t = now();
   const cutoff = t - auditRetentionDays() * DAY;
   const before = one<{ n: number }>('SELECT COALESCE(SUM(n),0) AS n FROM audit_daily')?.n ?? 0;
-  const byAge = pruneWhere('recorded_at < ?', cutoff, cutoff);
+  const byAge = pruneWhere('recorded_at < ?', cutoff, 'recorded_at', cutoff);
   let byCap = 0;
   const max = auditMaxRowsPerTenant();
   for (const r of all<{ tenant_id: string; n: number }>('SELECT tenant_id, COUNT(*) AS n FROM audit_log WHERE retain=0 GROUP BY tenant_id HAVING n > ?', max)) {
     // Soglia = id della (max+1)-esima voce piu' recente non fiscale: tutto cio' che e' <= e' in eccesso.
     const edge = one<{ id: number }>('SELECT id FROM audit_log WHERE tenant_id=? AND retain=0 ORDER BY id DESC LIMIT 1 OFFSET ?', r.tenant_id, max)?.id;
-    if (edge !== undefined) byCap += pruneWhere('tenant_id=? AND id<=?', t + 1, r.tenant_id, edge);
+    if (edge !== undefined) byCap += pruneWhere('tenant_id=? AND id<=?', t + 1, 'id', r.tenant_id, edge);
   }
   const after = one<{ n: number }>('SELECT COALESCE(SUM(n),0) AS n FROM audit_daily')?.n ?? 0;
   return { byAge, byCap, aggregated: after - before };

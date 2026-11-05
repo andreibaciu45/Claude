@@ -28,7 +28,7 @@ import type { SyncConflict, SyncOp, SyncPushResponse } from '../../../shared/api
 import type { QuoteDocument } from '../../../shared/types';
 import { one, run, transaction } from '../db';
 import { now } from '../db/clock';
-import { audit, auditClass } from '../db/audit';
+import { audit, auditClass, promoteAuditForInvoice } from '../db/audit';
 import { appendEmission } from '../db/chain';
 import { appendChange, currentCursor } from '../db/changes';
 import { FREE_DOCS_PER_MONTH, getDocsThisMonth, getPlan, incrementDocsCreated } from '../db/entitlements';
@@ -53,6 +53,9 @@ export const maxCatalogItems = () => envInt('MAX_CATALOG_ITEMS', 5000);
 export const maxTombstones = () => envInt('MAX_TOMBSTONES', 20_000);
 /** Confine (epoch ms) sotto il quale i tombstone possono essere stati purgati dalla pulizia periodica (0 = mai purgato). */
 const tombstoneFloor = (): number => one<{ value: number }>("SELECT value FROM sync_meta WHERE key='tombstone_floor'")?.value ?? 0;
+/** La voce e' mai esistita per questo tenant? Il log `changes` conserva sempre l'ultima modifica di ogni entita' (anche il tombstone gia' purgato). */
+const everKnown = (tenantId: string, entity: string, id: string): boolean =>
+  one('SELECT 1 AS x FROM changes WHERE tenant_id=? AND entity=? AND entity_id=? LIMIT 1', tenantId, entity, id) !== undefined;
 const RESYNC = 'Dispositivo offline oltre la finestra di conservazione delle cancellazioni: serve una risincronizzazione completa';
 
 /** Versione di una voce: ordine totale (ts, delete > upsert, contenuto canonico). */
@@ -182,7 +185,7 @@ function applyDocument(ctx: PushContext, op: Raw): Result {
     if (c < 0) return bad('stale', 'Il server ha una versione più recente', existing.deletedAt === null ? existing.data : undefined);
     if (c === 0) return { ok: true }; // stessa versione già presente: idempotente
   }
-  if (!existing && doc.updatedAt <= tombstoneFloor() && doc.invoice?.lockedAt === undefined) return bad('resync_required', RESYNC);
+  if (!existing && doc.updatedAt <= tombstoneFloor() && doc.invoice?.lockedAt === undefined && everKnown(tenantId, 'document', doc.id)) return bad('resync_required', RESYNC);
 
   const inv = doc.invoice;
   // Una fattura in uno stato successivo all'emissione DEVE avere lockedAt (salvo le fatture di cortesia v1, `legacy`, non fiscali): altrimenti il server
@@ -212,6 +215,7 @@ function applyDocument(ctx: PushContext, op: Raw): Result {
   // Prima ricezione dell'emissione: attestata dal server nella catena di hash del tenant (vedi db/chain.ts).
   if (inv?.lockedAt !== undefined && (!existing || existing.lockedAt === null)) {
     appendEmission(tenantId, { docId: doc.id, sectional: inv.sectional, year: inv.year, seq: inv.seq!, number: doc.number ?? null, lockedAt: inv.lockedAt });
+    promoteAuditForInvoice(tenantId, doc.id);
   }
   if (isNew) incrementDocsCreated(tenantId);
   appendChange(tenantId, op.opId, 'document', doc.id, 'upsert', doc);
@@ -250,7 +254,7 @@ function applyCatalog(ctx: PushContext, op: Raw): Result {
     const c = cmpVer({ ts: p.data.updatedAt, del: false, key: canon(p.data) }, cur);
     if (c < 0) return bad('stale', 'Il server ha una versione più recente', row.deleted_at === null ? JSON.parse(row.data) : undefined);
     if (c === 0) return { ok: true };
-  } else if (p.data.updatedAt <= tombstoneFloor()) return bad('resync_required', RESYNC);
+  } else if (p.data.updatedAt <= tombstoneFloor() && everKnown(tenantId, 'catalog', op.entityId)) return bad('resync_required', RESYNC);
   // tetto sulle voci VIVE: vale anche per la risurrezione di un tombstone
   if ((!row || row.deleted_at !== null) && (one<{ n: number }>('SELECT COUNT(*) AS n FROM catalog_items WHERE tenant_id=? AND deleted_at IS NULL', tenantId)?.n ?? 0) >= maxCatalogItems()) {
     return bad('invalid', `Catalogo pieno: massimo ${maxCatalogItems()} voci`);
