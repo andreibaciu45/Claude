@@ -81,6 +81,11 @@ class Scenario {
       acceptDownloads: true,
       serviceWorkers: opts.serviceWorkers || 'block',
     });
+    // L'informativa microfono e la guida 'Cosa posso dire?' compaiono al primo uso: negli scenari le
+    // consideriamo già viste (opts.freshVoice=true le lascia attive, per testarle).
+    if (!opts.freshVoice) {
+      await ctx.addInitScript(() => { try { localStorage.setItem('vp.voicePrivacyAck', '1'); localStorage.setItem('vp.voiceHelpSeen', '1'); } catch { /* storage non disponibile */ } });
+    }
     ctx.__label = opts.label || `ctx${this.contexts.length + 1}`;
     ctx.__apiDown = false;
     ctx.__offline = false;

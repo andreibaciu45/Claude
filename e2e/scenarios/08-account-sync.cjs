@@ -9,10 +9,10 @@ async function login(S, ctx, page, email) {
   await page.getByLabel('Email').fill(email);
   await acceptTerms(page);
   await page.getByRole('button', { name: 'Inviami il codice' }).click();
-  await page.getByLabel('Codice a 6 cifre').waitFor();
+  await page.getByLabel('Codice di accesso').waitFor();
   const code = S.devCodes[ctx.__label];
   if (!code) throw new Error('devCode non catturato dal proxy (server senza AUTH_DEV_RETURN_CODE=1?)');
-  await page.getByLabel('Codice a 6 cifre').fill(code);
+  await page.getByLabel('Codice di accesso').fill(code);
   await S.shot(page, `${ctx.__label} codice inserito`);
   await page.getByRole('button', { name: 'Accedi' }).click();
   await page.getByText(/Sincronizzazione/).first().waitFor({ timeout: 15000 });
@@ -62,19 +62,19 @@ run('08-account-sync', async (S) => {
   await sleep(400);
   const needTerms = await A.getByRole('checkbox', { name: /Ho letto/ }).count();
   if (needTerms) {
-    S.check('login: senza accettare Termini/Privacy/DPA non si procede', await A.getByText(/devi confermare di aver letto/).first().isVisible() && (await A.getByLabel('Codice a 6 cifre').count()) === 0);
+    S.check('login: senza accettare Termini/Privacy/DPA non si procede', await A.getByText(/devi confermare di aver letto/).first().isVisible() && (await A.getByLabel('Codice di accesso').count()) === 0);
     await S.shot(A, 'consenso richiesto');
     await acceptTerms(A);
     await A.getByRole('button', { name: 'Inviami il codice' }).click();
   }
-  await A.getByLabel('Codice a 6 cifre').waitFor();
-  S.check('login: devCode restituito dal server di test', /^\d{6}$/.test(S.devCodes.A || ''), S.devCodes.A);
-  await A.getByLabel('Codice a 6 cifre').fill(S.devCodes.A === '000000' ? '111111' : '000000');
+  await A.getByLabel('Codice di accesso').waitFor();
+  S.check('login: devCode restituito dal server di test', /^\d{6,10}$/.test(S.devCodes.A || ''), S.devCodes.A);
+  await A.getByLabel('Codice di accesso').fill(S.devCodes.A === '00000000' ? '11111111' : '00000000');
   await A.getByRole('button', { name: 'Accedi' }).click();
   await sleep(800);
   await S.shot(A, 'codice errato');
   S.check('login: codice errato -> errore, non loggato', await A.getByRole('alert').first().isVisible().catch(() => false));
-  await A.getByLabel('Codice a 6 cifre').fill(S.devCodes.A);
+  await A.getByLabel('Codice di accesso').fill(S.devCodes.A);
   await A.getByRole('button', { name: 'Accedi' }).click();
   await A.getByText('Prima sincronizzazione').waitFor({ timeout: 15000 });
   await S.shot(A, 'migrazione iniziale');
