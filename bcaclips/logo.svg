@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#1a0b3d"/><stop offset="0.45" stop-color="#7a1fa2"/><stop offset="0.75" stop-color="#ff3d81"/><stop offset="1" stop-color="#ff9a3c"/>
+</linearGradient>
+<linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#ffe14d"/><stop offset="1" stop-color="#ff4f7b"/>
+</linearGradient>
+<linearGradient id="txt" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#ffd1e8"/>
+</linearGradient>
+<clipPath id="sunclip"><rect x="0" y="0" width="1080" height="740"/></clipPath>
+</defs>
+<rect width="1080" height="1080" fill="url(#sky)"/>
+<g clip-path="url(#sunclip)">
+<circle cx="540" cy="520" r="290" fill="url(#sun)"/>
+<g fill="#7a1fa2" opacity="0.9">
+<rect x="200" y="560" width="680" height="10"/><rect x="200" y="595" width="680" height="16"/>
+<rect x="200" y="635" width="680" height="22"/><rect x="200" y="682" width="680" height="30"/>
+</g>
+</g>
+<rect y="740" width="1080" height="340" fill="#12062b"/>
+<g stroke="#ff3d81" stroke-width="3" opacity="0.7">
+<line x1="0" y1="760" x2="1080" y2="760"/><line x1="0" y1="800" x2="1080" y2="800"/>
+<line x1="0" y1="855" x2="1080" y2="855"/><line x1="0" y1="925" x2="1080" y2="925"/>
+<line x1="0" y1="1015" x2="1080" y2="1015"/>
+<line x1="540" y1="740" x2="540" y2="1080"/><line x1="540" y1="740" x2="-200" y2="1080"/><line x1="540" y1="740" x2="1280" y2="1080"/>
+<line x1="540" y1="740" x2="140" y2="1080"/><line x1="540" y1="740" x2="940" y2="1080"/>
+</g>
+<!-- palms -->
+<g fill="#0c0420">
+<path d="M130 1080 Q150 800 120 560 L140 560 Q175 800 165 1080Z"/>
+<g transform="translate(130 560)"><path d="M0 0 Q-90 -40 -170 30 Q-90 -20 0 10Z"/><path d="M0 0 Q-60 -90 -140 -80 Q-60 -70 0 0Z"/><path d="M0 0 Q60 -90 140 -70 Q60 -60 0 0Z"/><path d="M0 0 Q90 -40 170 40 Q90 -10 0 10Z"/><path d="M0 0 Q-20 -110 -60 -150 Q-10 -90 10 0Z"/></g>
+<path d="M950 1080 Q930 840 960 620 L940 620 Q905 840 915 1080Z"/>
+<g transform="translate(950 620)"><path d="M0 0 Q-90 -40 -170 30 Q-90 -20 0 10Z"/><path d="M0 0 Q-60 -90 -140 -80 Q-60 -70 0 0Z"/><path d="M0 0 Q60 -90 140 -70 Q60 -60 0 0Z"/><path d="M0 0 Q90 -40 170 40 Q90 -10 0 10Z"/><path d="M0 0 Q20 -110 60 -150 Q10 -90 -10 0Z"/></g>
+</g>
+<!-- text -->
+<g font-family="Impact, 'Arial Black', Haettenschweiler, sans-serif" text-anchor="middle">
+<text x="548" y="598" font-size="300" fill="#00e5ff" opacity="0.9" letter-spacing="6">BCA</text>
+<text x="532" y="582" font-size="300" fill="#ff2d95" letter-spacing="6">BCA</text>
+<text x="540" y="590" font-size="300" fill="url(#txt)" letter-spacing="6">BCA</text>
+</g>
+<rect x="290" y="640" width="500" height="92" rx="10" fill="#12062b" stroke="#ffe14d" stroke-width="6"/>
+<text x="540" y="711" font-family="Impact, 'Arial Black', sans-serif" font-size="70" fill="#ffe14d" text-anchor="middle" letter-spacing="22">CLIPS</text>
+<text x="540" y="990" font-family="Impact, 'Arial Black', sans-serif" font-size="64" fill="#fff" text-anchor="middle" letter-spacing="8">GTA VI</text>
+<text x="540" y="1040" font-family="Arial, sans-serif" font-weight="700" font-size="30" fill="#ff7ab5" text-anchor="middle" letter-spacing="10">HIGHLIGHTS &amp; MOMENTS</text>
+</svg>
